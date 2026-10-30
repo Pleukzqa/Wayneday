@@ -4,12 +4,13 @@ import { exportCsv, exportPng, exportToDrive, exportXlsx, GOOGLE_CLIENT_ID, pers
 import { findArrangements, rearrangeStudents } from '../runSolver.ts'
 import { buildAiPrompt, importAiResult } from '../shared/ai.ts'
 import { shortDate } from '../shared/dates.ts'
+import { reqCount } from '../shared/calendar.ts'
 import { validate, type CountResult } from '../shared/solver.ts'
-import { studentExposure, type StudentOption } from '../shared/students.ts'
-import { STUDENT_SLOT, type Roster, type Schedule, type SessionConfig } from '../shared/types.ts'
+import { pickPresenters, placeKey, studentCellIssues, studentExposure, studentTargets, type StudentOption } from '../shared/students.ts'
+import { STUDENT_SLOT, type Roster, type Schedule, type SessionConfig, type StudentAssignment } from '../shared/types.ts'
 import CalendarExport from './CalendarExport.tsx'
 import ConfirmButton from './ConfirmButton.tsx'
-import RosterTable from './RosterTable.tsx'
+import RosterTable, { type Arrange } from './RosterTable.tsx'
 import Swaps, { type SwapDraft } from './Swaps.tsx'
 import type { SessionProps } from './props.ts'
 
@@ -17,6 +18,8 @@ interface Preview {
   roster: Roster
   source: Schedule['source']
   notes: string[]
+  /** The roster as the option/AI produced it, before the host moved students by hand. */
+  base?: Roster
 }
 
 function useNow(ms = 30_000) {
@@ -101,6 +104,8 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
   const [error, setError] = useState<string | null>(null)
   const [concernDate, setConcernDate] = useState('')
   const [swapDraft, setSwapDraft] = useState<SwapDraft | null>(null)
+  const [picked, setPicked] = useState<StudentAssignment | null>(null)
+  const [history, setHistory] = useState<Roster[]>([])
   const tableRef = useRef<HTMLDivElement>(null)
 
   const shown: Roster | null = edit ?? preview?.roster ?? (schedule ? rosterOf(schedule) : null)
@@ -189,6 +194,57 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
     }
   }
 
+  // ---- hand-arranging students in the preview ----
+  const canArrange = me.isHost && preview !== null && !edit && hasStudents
+  const placeOf = (x: StudentAssignment) => ({ date: x.date, shiftId: x.shiftId, ...(x.requirementId ? { requirementId: x.requirementId } : {}) })
+  function applyStudents(next: StudentAssignment[]) {
+    if (!preview) return
+    setHistory((h) => [...h, preview.roster])
+    const presenters = pickPresenters(config, responses, preview.roster.assignments, next).presenters
+    setPreview({ ...preview, base: preview.base ?? preview.roster, roster: { ...preview.roster, students: next, presenters } })
+    setPicked(null)
+  }
+  function swapStudents(a: StudentAssignment, b: StudentAssignment) {
+    applyStudents(
+      preview!.roster.students.map((x) => (x === a ? { ...x, ...placeOf(b), memberId: a.memberId } : x === b ? { ...x, ...placeOf(a), memberId: b.memberId } : x)),
+    )
+  }
+  const arrange: Arrange | undefined = (() => {
+    if (!canArrange || !preview) return undefined
+    const students = preview.roster.students
+    const base = preview.base ?? preview.roster
+    const sig = (xs: StudentAssignment[]) => {
+      const m = new Map<string, string[]>()
+      for (const x of xs) m.set(placeKey(x), [...(m.get(placeKey(x)) ?? []), x.memberId].sort())
+      return m
+    }
+    const before = sig(base.students)
+    const after = sig(students)
+    const changed = new Set([...before.keys(), ...after.keys()].filter((k) => (before.get(k) ?? []).join() !== (after.get(k) ?? []).join()))
+    const targets = picked ? studentTargets(config, responses, students, picked) : { moves: new Set<string>(), swaps: new Set<string>() }
+    return {
+      picked,
+      moves: targets.moves,
+      swaps: targets.swaps,
+      issues: studentCellIssues(config, responses, students),
+      changed,
+      onChip: (x) => {
+        if (!picked) setPicked(x)
+        else if (picked === x) setPicked(null)
+        else swapStudents(picked, x)
+      },
+      onPlace: (date, shiftId, requirementId) => {
+        if (!picked) return
+        const here = students.filter((x) => x.date === date && x.shiftId === shiftId && (x.requirementId ?? '') === (requirementId ?? ''))
+        const shift = config.shifts.find((x) => x.id === shiftId)
+        const req = shift?.requirements.find((r) => r.id === requirementId)
+        const cap = shift && req ? reqCount(config, shift, req, date) : config.students.maxPerShift
+        if (here.length >= cap && here[0]) return swapStudents(picked, here[0])
+        applyStudents(students.map((x) => (x === picked ? { ...x, date, shiftId, ...(requirementId ? { requirementId } : {}) } : x)))
+      },
+    }
+  })()
+
   const missingAnswers = config.members.filter((m) => !responses[m.id] && (!hospital || m.type === 'student'))
   const pick = (date: string, shiftId: string, requirementId: string | null) => {
     const mineHere =
@@ -237,7 +293,7 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
           {options && options.length > 0 && (
             <div className="options" role="radiogroup" aria-label="Arrangements">
               {options.map((o, i) => {
-                const on = preview?.roster === o.roster
+                const on = (preview?.base ?? preview?.roster) === o.roster
                 return (
                   <button
                     key={o.id}
@@ -246,6 +302,8 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
                     className={`option ${on ? 'on' : ''}`}
                     onClick={() => {
                       setPreview({ roster: o.roster, source: 'solver', notes: o.warnings })
+                      setPicked(null)
+                      setHistory([])
                       setEdit(null)
                     }}
                   >
@@ -395,8 +453,43 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
               </ul>
             </div>
           )}
+          {arrange && (
+            <div className="arrange-bar" role="status">
+              <span className="small">
+                {picked
+                  ? `Moving ${config.members.find((m) => m.id === picked.memberId)?.name}: green places and outlined names keep every rule. Tap a place or a student; tap them again to cancel.`
+                  : 'Tap a student to move or swap them. Red places break a rule (tap or hover for why).'}
+              </span>
+              <span className="row">
+                {arrange.changed.size > 0 && <span className="small muted">{arrange.changed.size} place(s) changed</span>}
+                <button
+                  disabled={history.length === 0}
+                  onClick={() => {
+                    const prev = history[history.length - 1]
+                    setHistory((h) => h.slice(0, -1))
+                    if (prev && preview) setPreview({ ...preview, roster: prev })
+                    setPicked(null)
+                  }}
+                >
+                  ↶ Undo
+                </button>
+                {preview?.base && (
+                  <button
+                    onClick={() => {
+                      setHistory([])
+                      setPreview({ ...preview, roster: preview.base!, base: undefined })
+                      setPicked(null)
+                    }}
+                  >
+                    Back to option
+                  </button>
+                )}
+              </span>
+            </div>
+          )}
           <section className="card flush">
             <RosterTable
+              arrange={arrange}
               config={config}
               roster={shown}
               myId={me.memberId}

@@ -115,6 +115,29 @@ export function CalendarCard({ draft, edit, ro }: { draft: SessionConfig; edit: 
           )
         })}
       </div>
+      <div className="cal-legend small" aria-label="Legend">
+        {draft.shifts.map((sh) => (
+          <span key={sh.id}>
+            <b>{sh.name.slice(0, 1)}</b> = {sh.name} shift runs
+          </span>
+        ))}
+        <span>
+          <b>—</b> = no shift
+        </span>
+        {draft.presentations.length > 0 && (
+          <span>
+            <b className="accent">P2</b> = 2 presentations that morning
+          </span>
+        )}
+        <span>
+          <i className="legend-box changed" aria-hidden /> changed from the usual week
+        </span>
+        {draft.holidays.length > 0 && (
+          <span>
+            <i className="legend-box holiday" aria-hidden /> holiday
+          </span>
+        )}
+      </div>
       {selected && (
         <div className="cal-editor">
           <div className="row between wrap">

@@ -1020,3 +1020,100 @@ details.paste summary {
   cursor: pointer;
   margin-bottom: 0.4rem;
 }
+
+/* ---------- calendar legend ---------- */
+.cal-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 1rem;
+  color: var(--muted);
+  align-items: center;
+}
+.cal-legend b {
+  color: var(--text);
+}
+.cal-legend b.accent {
+  color: var(--accent);
+}
+.legend-box {
+  display: inline-block;
+  width: 1rem;
+  height: 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  vertical-align: -2px;
+  margin-right: 0.2rem;
+}
+.legend-box.changed {
+  border-color: var(--warn);
+  box-shadow: inset 0 -3px 0 var(--warn);
+}
+.legend-box.holiday {
+  background: var(--weekend);
+}
+
+/* ---------- hand-arranging students ---------- */
+.arrange-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--accent-soft);
+  border-radius: var(--radius);
+  padding: 0.5rem 0.75rem;
+}
+.roster td.arrange {
+  cursor: pointer;
+}
+.roster td.arrange.target {
+  background: color-mix(in srgb, var(--accent) 22%, var(--surface));
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+.roster td.arrange.issue {
+  background: var(--danger-soft);
+  box-shadow: inset 0 0 0 2px var(--danger);
+}
+.roster td.arrange.changed {
+  position: relative;
+}
+.roster td.arrange.changed::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--warn);
+}
+.chip-btn {
+  border: 1px solid transparent;
+  font: inherit;
+  cursor: grab;
+}
+button.chip-btn.picked,
+button.chip-btn.picked:hover:not(:disabled) {
+  background: var(--accent);
+  color: var(--accent-text);
+  font-weight: 600;
+}
+.chip-btn.swap-ok {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.slot {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+.slot.slot-ok {
+  color: var(--accent);
+  font-weight: 600;
+}
+.issue-text {
+  display: block;
+  font-size: 0.7rem;
+  color: var(--danger);
+  margin-top: 0.15rem;
+  max-width: 12rem;
+}

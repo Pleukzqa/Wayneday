@@ -2,7 +2,8 @@ import type { Ref } from 'react'
 import { cellIds, cellNames, columnsFor } from '../export.ts'
 import { reqCount } from '../shared/calendar.ts'
 import { dateRange, shortDate, weekday } from '../shared/dates.ts'
-import { STUDENT_SLOT, type Concern, type Roster, type SessionConfig, type SwapRequest } from '../shared/types.ts'
+import { placeKey } from '../shared/students.ts'
+import { STUDENT_SLOT, type Concern, type Roster, type SessionConfig, type StudentAssignment, type SwapRequest } from '../shared/types.ts'
 
 interface Props {
   config: SessionConfig
@@ -17,9 +18,25 @@ interface Props {
   concerns?: Concern[]
   swaps?: SwapRequest[]
   tableRef?: Ref<HTMLDivElement>
+  /** Host hand-arranging students in a preview. */
+  arrange?: Arrange
 }
 
-export default function RosterTable({ config, roster, myId, onEdit, onEditStudent, onPick, concerns = [], swaps = [], tableRef }: Props) {
+export interface Arrange {
+  picked: StudentAssignment | null
+  /** Place keys the picked student can move to without breaking a rule. */
+  moves: Set<string>
+  /** `${placeKey}|${memberId}` of students the picked one can trade places with. */
+  swaps: Set<string>
+  /** Place key -> problems, for places the host changed. */
+  issues: Map<string, string[]>
+  /** Place keys that differ from the option the host started from. */
+  changed: Set<string>
+  onChip: (s: StudentAssignment) => void
+  onPlace: (date: string, shiftId: string, requirementId?: string) => void
+}
+
+export default function RosterTable({ config, roster, myId, onEdit, onEditStudent, onPick, concerns = [], swaps = [], tableRef, arrange }: Props) {
   const studentList = config.members.filter((m) => m.type === 'student')
   const cols = columnsFor(config)
   const holidays = new Set(config.holidays)
@@ -79,6 +96,44 @@ export default function RosterTable({ config, roster, myId, onEdit, onEditStuden
                             ))}
                           </select>
                         ))}
+                      </td>
+                    )
+                  }
+                  if (studentCol && arrange) {
+                    const key = placeKey({ date, shiftId: c.shiftId, requirementId: placeReq })
+                    const here = roster.students.filter((x) => x.date === date && x.shiftId === c.shiftId && (x.requirementId ?? '') === (placeReq ?? ''))
+                    const shift = config.shifts.find((x) => x.id === c.shiftId)!
+                    const req = shift.requirements.find((r) => r.id === placeReq)
+                    const cap = req ? reqCount(config, shift, req, date) : config.students.maxPerShift
+                    const problems = arrange.issues.get(key)
+                    const target = arrange.moves.has(key)
+                    return (
+                      <td
+                        key={c.key}
+                        className={`extra-col arrange ${target ? 'target' : ''} ${problems ? 'issue' : ''} ${arrange.changed.has(key) ? 'changed' : ''}`}
+                        title={problems?.join('\n')}
+                        onClick={() => arrange.picked && arrange.onPlace(date, c.shiftId, placeReq)}
+                      >
+                        {here.map((x) => {
+                          const picked = arrange.picked === x
+                          const swap = arrange.swaps.has(`${key}|${x.memberId}`)
+                          return (
+                            <button
+                              key={x.memberId}
+                              type="button"
+                              className={`who-chip small-chip chip-btn ${picked ? 'picked' : ''} ${swap ? 'swap-ok' : ''}`}
+                              aria-pressed={picked}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                arrange.onChip(x)
+                              }}
+                            >
+                              {nameOf(x.memberId)}
+                            </button>
+                          )
+                        })}
+                        {here.length < cap && <span className={`slot ${target ? 'slot-ok' : ''}`}>{target ? 'move here' : '—'}</span>}
+                        {problems && <span className="issue-text">{problems[0]}</span>}
                       </td>
                     )
                   }

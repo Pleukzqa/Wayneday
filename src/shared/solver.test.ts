@@ -2,9 +2,9 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { dayDiff } from './dates.ts'
 import { countArrangements, solve, solveMany, validate } from './solver.ts'
-import { arrangeStudents, countStudentArrangements, pickPresenters, studentExposure, studentOptions } from './students.ts'
+import { arrangeStudents, countStudentArrangements, pickPresenters, placeKey, studentCellIssues, studentExposure, studentOptions, studentTargets } from './students.ts'
 import { importAiResult } from './ai.ts'
-import { DEFAULT_RESPONSE, DEFAULT_STUDENTS, type MemberResponse, type SessionConfig } from './types.ts'
+import { DEFAULT_RESPONSE, DEFAULT_STUDENTS, type MemberResponse, type SessionConfig, type StudentAssignment } from './types.ts'
 
 function config(residents: number, staff = 0): SessionConfig {
   return {
@@ -252,4 +252,24 @@ test('AI replies in hospital mode only change students', () => {
   if (!r.ok) return
   assert.deepEqual(r.roster.assignments, c.duty)
   assert.equal(r.roster.students.length, 1)
+})
+
+test('hand-moving a student: legal targets and marked problems', () => {
+  const c = hospital()
+  const responses = { stA: resp({ minInterval: 3, unavailable: ['2026-11-20'] }) }
+  const r = arrangeStudents(c, responses, c.duty)
+  assert.ok(r.ok)
+  if (!r.ok) return
+  const a = r.students.find((x) => x.memberId === 'stA')!
+  const { moves } = studentTargets(c, responses, r.students, a)
+  assert.ok(!moves.has(placeKey({ date: '2026-11-20', shiftId: 'night', requirementId: 'p1' })), 'never suggests an unavailable day')
+  for (const k of moves) {
+    const [date] = k.split('|')
+    const moved: StudentAssignment[] = r.students.map((x) => (x === a ? { ...x, date } : x))
+    assert.equal(studentCellIssues(c, responses, moved).size, 0, `suggested ${k} should keep every rule`)
+  }
+  // Force a bad move: onto the unavailable day.
+  const bad: StudentAssignment[] = r.students.filter((x) => !(x.date === '2026-11-20' && x !== a)).map((x) => (x === a ? { ...x, date: '2026-11-20' } : x))
+  const issues = studentCellIssues(c, responses, bad)
+  assert.match(issues.get(placeKey({ date: '2026-11-20', shiftId: 'night', requirementId: 'p1' }))?.join() ?? '', /unavailable/)
 })

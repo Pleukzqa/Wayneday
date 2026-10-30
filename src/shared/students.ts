@@ -447,3 +447,96 @@ export function countStudentArrangements(
   const mean = finite.reduce((a, l) => a + 10 ** (l - max), 0) / logs.length
   return { exact: false, log10: max + Math.log10(mean) }
 }
+
+// ---------- hand-arranging students in a preview ----------
+
+/** Key of a student place cell in the roster table. */
+export const placeKey = (x: { date: string; shiftId: string; requirementId?: string }) => `${x.date}|${x.shiftId}|${x.requirementId ?? ''}`
+
+/** Rule problems per student place cell, so the table can mark exactly where a hand-made change breaks something. */
+export function studentCellIssues(
+  config: SessionConfig,
+  responses: Record<string, MemberResponse>,
+  students: StudentAssignment[],
+): Map<string, string[]> {
+  const out = new Map<string, string[]>()
+  const add = (key: string, msg: string) => out.set(key, [...(out.get(key) ?? []), msg])
+  const occs = studentOccs(config, [])
+  for (const o of occs) {
+    const here = students.filter((s) => s.date === o.date && s.shiftId === o.shiftId && (s.requirementId ?? '') === (o.requirementId ?? ''))
+    if (here.length > o.cap) add(placeKey(o), `${here.length} students here, the limit is ${o.cap}.`)
+  }
+  for (const m of config.members.filter((x) => x.type === 'student')) {
+    const r = responseFor(responses, m.id)
+    const mine = students.filter((s) => s.memberId === m.id).sort((a, b) => a.date.localeCompare(b.date))
+    for (const s of mine) {
+      if (r.unavailable.includes(s.date)) add(placeKey(s), `${m.name} is unavailable this day.`)
+      const o = occs.find((x) => x.date === s.date && x.shiftId === s.shiftId && (x.requirementId ?? '') === (s.requirementId ?? ''))
+      if (!o) add(placeKey(s), `${m.name}: there’s no student place here.`)
+      else if (!canDo(m, o)) add(placeKey(s), `${m.name} doesn’t cover this job.`)
+    }
+    for (let i = 1; i < mine.length; i++) {
+      const gap = dayDiff(mine[i - 1].date, mine[i].date)
+      if (gap < r.minInterval) {
+        const msg = `${m.name}: ${mine[i - 1].date} and ${mine[i].date} are closer than their ${r.minInterval}-day interval.`
+        add(placeKey(mine[i - 1]), msg)
+        add(placeKey(mine[i]), msg)
+      }
+    }
+    for (const l of r.locks) {
+      if (!mine.some((s) => s.date === l.date && s.shiftId === l.shiftId)) {
+        const o = occs.find((x) => x.date === l.date && x.shiftId === l.shiftId)
+        if (o) add(placeKey(o), `${m.name} locked this shift but isn’t on it.`)
+      }
+    }
+  }
+  if (students.length) {
+    const need = config.students.shiftsPerStudent
+    for (const m of config.members.filter((x) => x.type === 'student')) {
+      const n = students.filter((s) => s.memberId === m.id).length
+      if (n !== need) {
+        const first = students.find((s) => s.memberId === m.id)
+        if (first) add(placeKey(first), `${m.name} has ${n} shifts, not ${need}.`)
+      }
+    }
+  }
+  return out
+}
+
+/**
+ * Where a picked-up student could go without breaking a rule: places with room ('move'),
+ * and other students they could trade places with ('swap', keyed by the other student's place + id).
+ */
+export function studentTargets(
+  config: SessionConfig,
+  responses: Record<string, MemberResponse>,
+  students: StudentAssignment[],
+  from: StudentAssignment,
+): { moves: Set<string>; swaps: Set<string> } {
+  const occs = studentOccs(config, [])
+  const member = (id: string) => config.members.find((m) => m.id === id)
+  const ok = (memberId: string, to: Occ, leaving: StudentAssignment, also?: StudentAssignment) => {
+    const m = member(memberId)
+    if (!m) return false
+    const r = responseFor(responses, memberId)
+    if (r.unavailable.includes(to.date) || !canDo(m, to)) return false
+    // Leaving a locked shift breaks the lock.
+    if (r.locks.some((l) => l.date === leaving.date && l.shiftId === leaving.shiftId) && !(to.date === leaving.date && to.shiftId === leaving.shiftId)) return false
+    const others = students.filter((s) => s.memberId === memberId && s !== leaving && s !== also)
+    return others.every((s) => Math.abs(dayDiff(s.date, to.date)) >= r.minInterval)
+  }
+  const fromOcc = occs.find((o) => o.date === from.date && o.shiftId === from.shiftId && (o.requirementId ?? '') === (from.requirementId ?? ''))
+  const moves = new Set<string>()
+  const swaps = new Set<string>()
+  for (const o of occs) {
+    if (placeKey(o) === placeKey(from)) continue
+    const here = students.filter((s) => s.date === o.date && s.shiftId === o.shiftId && (s.requirementId ?? '') === (o.requirementId ?? ''))
+    if (here.length < o.cap && ok(from.memberId, o, from)) moves.add(placeKey(o))
+    if (!fromOcc) continue
+    for (const b of here) {
+      if (b.memberId === from.memberId) continue
+      if (ok(from.memberId, o, from, b) && ok(b.memberId, fromOcc, b, from)) swaps.add(`${placeKey(o)}|${b.memberId}`)
+    }
+  }
+  return { moves, swaps }
+}
