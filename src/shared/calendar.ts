@@ -21,7 +21,11 @@ export function shiftsOn(config: SessionConfig, date: string): ShiftSlot[] {
 
 /** Shift slots a member type can be locked into. */
 export function shiftsForType(config: SessionConfig, type: string): ShiftSlot[] {
-  if (type === 'student') return config.shifts.filter((s) => config.students.shiftIds.includes(s.id))
+  if (type === 'student') {
+    return config.rosterMode === 'hospital'
+      ? config.shifts.filter((s) => s.requirements.length > 0)
+      : config.shifts.filter((s) => config.students.shiftIds.includes(s.id))
+  }
   return config.shifts.filter((s) => s.requirements.some((r) => r.memberType === 'any' || r.memberType === type))
 }
 

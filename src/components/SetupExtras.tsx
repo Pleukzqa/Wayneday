@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { api } from '../api.ts'
 import { overrideFor, presentationOn, reqCount, shiftRuns } from '../shared/calendar.ts'
 import { dateRange, shortDate, weekday, WEEKDAYS } from '../shared/dates.ts'
-import type { Assignment, DateOverride, MemberType, PresentationOverride, PresentationRule, SessionConfig } from '../shared/types.ts'
+import { DUTY_ROLES, type DateOverride, type DutyRole, type MemberType, type PresentationOverride, type PresentationRule, type SessionConfig } from '../shared/types.ts'
 import { uid, type SessionProps } from './props.ts'
 
 type Edit = (fn: (c: SessionConfig) => SessionConfig) => void
@@ -144,7 +144,7 @@ export function CalendarCard({ draft, edit, ro }: { draft: SessionConfig; edit: 
                 {runs &&
                   s.requirements.map((r) => (
                     <label key={r.id} className="inline small">
-                      {job(r.jobId)} ({r.memberType === 'any' ? 'anyone' : r.memberType})
+                      {job(r.jobId)} ({draft.rosterMode === 'hospital' ? 'students' : r.memberType === 'any' ? 'anyone' : r.memberType})
                       <input
                         type="number"
                         min={0}
@@ -235,6 +235,22 @@ export function StudentsCard({ draft, edit, ro }: { draft: SessionConfig; edit: 
   const st = draft.students
   const count = draft.members.filter((m) => m.type === 'student').length
   const set = (patch: Partial<SessionConfig['students']>) => edit((c) => ({ ...c, students: { ...c.students, ...patch } }))
+  if (draft.rosterMode === 'hospital') {
+    return (
+      <section className="card">
+        <h2>Student shifts</h2>
+        <p className="muted small">
+          Wayneday places students in the student places of each shift so every resident and every staff member in the hospital roster is on
+          duty with students about equally often. {count ? `${count} student(s).` : 'Add students above.'}
+        </p>
+        <label className="inline">
+          Each student does
+          <input type="number" min={0} max={100} disabled={ro} value={st.shiftsPerStudent} onChange={(e) => set({ shiftsPerStudent: Math.max(0, Number(e.target.value) || 0) })} />
+          shifts
+        </label>
+      </section>
+    )
+  }
   return (
     <section className="card">
       <h2>Students</h2>
@@ -386,7 +402,7 @@ export function JoinRequests({ code, session, mutate, dirty }: SessionProps & { 
           </span>
           <select value={link[r.id] ?? ''} onChange={(e) => setLink({ ...link, [r.id]: e.target.value })} aria-label={`Who is ${r.name}?`}>
             <option value="">Add as a new person</option>
-            {session.config.members.map((m) => (
+            {session.config.members.filter((m) => session.config.rosterMode !== 'hospital' || m.type === 'student').map((m) => (
               <option key={m.id} value={m.id}>
                 This is {m.name}
                 {session.claimed.includes(m.id) ? ' (replaces their PIN)' : ''}
@@ -446,7 +462,7 @@ export function RosterModeCard({ draft, edit, ro }: { draft: SessionConfig; edit
       </div>
       <p className="muted small">
         {draft.rosterMode === 'hospital'
-          ? 'You enter (or paste) who the hospital put on duty each date, below. Wayneday arranges only the students and presenters.'
+          ? 'Type or paste who the hospital put on duty each date (in “Hospital roster” below). Shift slots then describe student places, People lists only students, and Wayneday arranges only the students and presenters.'
           : 'Wayneday schedules residents and staff from their availability and preferences, then arranges the students.'}
       </p>
     </section>
@@ -456,14 +472,38 @@ export function RosterModeCard({ draft, edit, ro }: { draft: SessionConfig; edit
 // ---------- the hospital's roster (hospital mode) ----------
 
 const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ')
+const ROLE_LABEL: Record<DutyRole, string> = { resident: 'residents', staff: 'staff' }
 
-/** Parse a pasted table (from Excel / Google Sheets / CSV) into duty assignments and new names. */
+/** Set the names in one hospital-roster cell, creating people for new names and dropping people no longer on it. */
+function setDutyNames(c: SessionConfig, date: string, shiftId: string, role: DutyRole, names: string[]): SessionConfig {
+  let members = [...c.members]
+  const ids = names.map((name) => {
+    let m = members.find((x) => x.type !== 'student' && norm(x.name) === norm(name))
+    if (!m) {
+      m = { id: uid(), name: name.trim(), type: role, jobs: [] }
+      members.push(m)
+    }
+    return m.id
+  })
+  const duty = [
+    ...c.duty.filter((a) => !(a.date === date && a.shiftId === shiftId && a.requirementId === role)),
+    ...ids.map((memberId) => ({ date, shiftId, requirementId: role, memberId })),
+  ]
+  return pruneDoctors({ ...c, members, duty })
+}
+
+/** In hospital mode residents/staff exist only through the roster: drop the ones nobody lists any more. */
+function pruneDoctors(c: SessionConfig): SessionConfig {
+  const used = new Set(c.duty.map((a) => a.memberId))
+  return { ...c, members: c.members.filter((m) => m.type === 'student' || used.has(m.id)) }
+}
+
+/** Parse a pasted table (from Excel / Google Sheets / CSV): Date, [Day], then residents and staff for each shift. */
 function parseDutyPaste(text: string, draft: SessionConfig) {
   const lines = text.split(/\r?\n/).filter((l) => l.trim())
   const delim = lines.some((l) => l.includes('\t')) ? '\t' : ','
   const rows = lines.map((l) => l.split(delim).map((c) => c.replace(/^"|"$/g, '').trim()))
-  const positions = draft.shifts.flatMap((s) => s.requirements.map((r) => ({ shift: s, req: r })))
-  const titles = positions.map(({ shift, req }) => norm(`${shift.name} · ${draft.jobs.find((j) => j.id === req.jobId)?.name ?? ''}`))
+  const cols = draft.shifts.flatMap((shift) => DUTY_ROLES.map((role) => ({ shift, role })))
   const days = dateRange(draft.startDate, draft.endDate)
   const toDate = (v: string): string | null => {
     if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return days.includes(v) ? v : null
@@ -473,45 +513,131 @@ function parseDutyPaste(text: string, draft: SessionConfig) {
     const month = m[2] ? Number(m[2]) : null
     return days.find((d) => Number(d.slice(8)) === day && (month === null || Number(d.slice(5, 7)) === month)) ?? null
   }
-  // Header row → match columns by title; otherwise Date, [Day], then positions in order.
+  // Header row → match "Night residents" / "Staff" etc.; otherwise Date, [Day], then the columns in order.
   let colMap: (number | null)[] = []
   let body = rows
   if (rows.length && !toDate(rows[0][0])) {
-    const header = rows[0].map(norm)
-    colMap = header.map((h) => {
-      const i = titles.findIndex((t) => h.startsWith(t) || t.startsWith(h.replace(/\s*\(.*\)$/, '')))
+    colMap = rows[0].map((h) => {
+      const t = norm(h)
+      const role: DutyRole | null = /staff|อาจารย์|attending/.test(t) ? 'staff' : /resid|แพทย์ประจำบ้าน/.test(t) ? 'resident' : null
+      if (!role) return null
+      const i = cols.findIndex((c) => c.role === role && (draft.shifts.length === 1 || t.includes(norm(c.shift.name))))
       return i >= 0 ? i : null
     })
     body = rows.slice(1)
   }
-  const duty: Assignment[] = []
-  const newPeople = new Map<string, { name: string; type: 'resident' | 'staff' }>()
-  const members = [...draft.members]
-  let readDays = 0
+  const cells: { date: string; shiftId: string; role: DutyRole; names: string[] }[] = []
   for (const r of body) {
     const date = toDate(r[0] ?? '')
     if (!date) continue
-    readDays++
-    const cells = colMap.length ? r : r.slice(1).filter((_, k) => !(k === 0 && /^[a-z]{2,3}$/i.test(r[1] ?? '')))
-    cells.forEach((cell, k) => {
-      const pi = colMap.length ? colMap[k] : k
-      if (pi === null || pi === undefined || !positions[pi] || !cell || cell === '—') return
-      const { shift, req } = positions[pi]
-      for (const raw of cell.split(/[,/+&]| and /)) {
-        const name = raw.trim()
-        if (!name) continue
-        let m = members.find((x) => norm(x.name) === norm(name))
-        if (!m) {
-          const type = req.memberType === 'staff' ? 'staff' : 'resident'
-          m = { id: uid(), name, type, jobs: [] }
-          members.push(m)
-          newPeople.set(m.id, { name, type })
-        }
-        duty.push({ date, shiftId: shift.id, requirementId: req.id, memberId: m.id })
-      }
+    const rest = colMap.length ? r : r.slice(1).filter((_, k) => !(k === 0 && /^[a-zก-๙.]{2,4}$/i.test(r[1] ?? '')))
+    rest.forEach((cell, k) => {
+      const ci = colMap.length ? colMap[k] : k
+      if (ci === null || ci === undefined || !cols[ci]) return
+      const names = cell.split(/[,/+&;]| and /).map((n) => n.trim()).filter((n) => n && n !== '—' && n !== '-')
+      cells.push({ date, shiftId: cols[ci].shift.id, role: cols[ci].role, names })
     })
   }
-  return { duty, members, newPeople: [...newPeople.values()], readDays }
+  const known = new Set(draft.members.filter((m) => m.type !== 'student').map((m) => norm(m.name)))
+  const newNames = [...new Set(cells.flatMap((c) => c.names).filter((n) => !known.has(norm(n))))]
+  return { cells, newNames, readDays: new Set(cells.map((c) => c.date)).size }
+}
+
+/** Names typed into one cell, with suggestions from names already in the roster. */
+function NameInput({
+  names,
+  suggestions,
+  label,
+  disabled,
+  onChange,
+}: {
+  names: string[]
+  suggestions: string[]
+  label: string
+  disabled: boolean
+  onChange: (names: string[]) => void
+}) {
+  const [text, setText] = useState('')
+  const [focus, setFocus] = useState(false)
+  const [hi, setHi] = useState(0)
+  const q = norm(text)
+  const matches = q
+    ? suggestions
+        .filter((s) => !names.some((n) => norm(n) === norm(s)) && norm(s).includes(q))
+        .sort((a, b) => Number(!norm(a).startsWith(q)) - Number(!norm(b).startsWith(q)))
+        .slice(0, 6)
+    : []
+  const add = (name: string) => {
+    const n = name.trim().replace(/,$/, '')
+    if (n && !names.some((x) => norm(x) === norm(n))) onChange([...names, n])
+    setText('')
+    setHi(0)
+  }
+  return (
+    <div className="names">
+      {names.map((n, i) => (
+        <span key={n} className="chip name-chip">
+          {n}
+          {!disabled && (
+            <button type="button" className="x" aria-label={`Remove ${n}`} onClick={() => onChange(names.filter((_, k) => k !== i))}>
+              ×
+            </button>
+          )}
+        </span>
+      ))}
+      {!disabled && (
+        <input
+          className="name-input"
+          value={text}
+          aria-label={label}
+          placeholder={names.length ? '' : 'type a name'}
+          onFocus={() => setFocus(true)}
+          onBlur={() => {
+            setFocus(false)
+            if (text.trim()) add(text)
+          }}
+          onChange={(e) => {
+            const v = e.target.value
+            if (v.endsWith(',')) add(v)
+            else setText(v)
+            setHi(0)
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'ArrowDown') {
+              e.preventDefault()
+              setHi((h) => Math.min(h + 1, matches.length))
+            } else if (e.key === 'ArrowUp') {
+              e.preventDefault()
+              setHi((h) => Math.max(h - 1, 0))
+            } else if (e.key === 'Enter') {
+              e.preventDefault()
+              add(hi < matches.length ? matches[hi] : text)
+            } else if (e.key === 'Backspace' && !text && names.length) {
+              onChange(names.slice(0, -1))
+            }
+          }}
+        />
+      )}
+      {focus && q && (
+        <ul className="suggest" role="listbox" aria-label={`Suggestions for ${label}`}>
+          {matches.map((m, i) => (
+            <li key={m}>
+              <button type="button" className={i === hi ? 'on' : ''} onMouseDown={(e) => e.preventDefault()} onClick={() => add(m)}>
+                {m}
+              </button>
+            </li>
+          ))}
+          {!matches.some((m) => norm(m) === q) && (
+            <li>
+              <button type="button" className={hi === matches.length ? 'on' : ''} onMouseDown={(e) => e.preventDefault()} onClick={() => add(text)}>
+                Add “{text.trim()}”
+              </button>
+            </li>
+          )}
+        </ul>
+      )}
+    </div>
+  )
 }
 
 export function DutyRosterCard({ draft, edit, ro }: { draft: SessionConfig; edit: Edit; ro: boolean }) {
@@ -519,99 +645,90 @@ export function DutyRosterCard({ draft, edit, ro }: { draft: SessionConfig; edit
   const [parsed, setParsed] = useState<ReturnType<typeof parseDutyPaste> | null>(null)
   const [msg, setMsg] = useState<string | null>(null)
   const days = dateRange(draft.startDate, draft.endDate)
-  const positions = draft.shifts.flatMap((s) => s.requirements.map((r) => ({ shift: s, req: r })))
-  const job = (id: string) => draft.jobs.find((j) => j.id === id)?.name ?? ''
-  const title = (p: (typeof positions)[number]) => `${p.shift.name} · ${job(p.req.jobId)}`
-  const filled = draft.duty.length
-  const needed = days.reduce((n, d) => n + positions.reduce((k, p) => k + reqCount(draft, p.shift, p.req, d), 0), 0)
-
-  const setCell = (date: string, shiftId: string, reqId: string, slot: number, memberId: string) =>
-    edit((c) => {
-      const here = c.duty.filter((a) => a.date === date && a.shiftId === shiftId && a.requirementId === reqId)
-      const rest = c.duty.filter((a) => a !== here[slot])
-      return { ...c, duty: memberId ? [...rest, { date, shiftId, requirementId: reqId, memberId }] : rest }
-    })
-
-  const template = ['Date\tDay\t' + positions.map(title).join('\t'), ...days.map((d) => `${d}\t${shortDate(d).split(' ')[0]}${'\t'.repeat(positions.length)}`)].join('\n')
+  const cols = draft.shifts.flatMap((shift) => DUTY_ROLES.map((role) => ({ shift, role })))
+  const title = (c: (typeof cols)[number]) => (draft.shifts.length > 1 ? `${c.shift.name} · ${ROLE_LABEL[c.role]}` : ROLE_LABEL[c.role])
+  const doctors = draft.members.filter((m) => m.type !== 'student')
+  const nameOf = (id: string) => draft.members.find((m) => m.id === id)?.name ?? '?'
+  const daysFilled = new Set(draft.duty.map((a) => a.date)).size
+  // Same-role names first, then everyone else in the roster.
+  const suggestFor = (role: DutyRole) => [...doctors.filter((m) => m.type === role), ...doctors.filter((m) => m.type !== role)].map((m) => m.name)
+  const template = ['Date\tDay\t' + cols.map((c) => `${c.shift.name} ${ROLE_LABEL[c.role]}`).join('\t'), ...days.map((d) => `${d}\t${shortDate(d).split(' ')[0]}${'\t'.repeat(cols.length)}`)].join('\n')
 
   return (
     <section className="card">
       <h2>
-        Hospital roster <span className="badge">{filled}/{needed} filled</span>
+        Hospital roster <span className="badge">{daysFilled}/{days.length} days</span>
       </h2>
       <p className="muted small">
-        Who is on duty each date. Pick names below, or paste the hospital’s table from Excel or Google Sheets (first column = date; one
-        column per position, in the order shown). Several people in one cell can be separated with commas. New names are added to People.
+        Who the hospital put on duty. Type names — Wayneday suggests names you’ve already used — or paste the hospital’s table from Excel or
+        Google Sheets (first column = date, then {cols.map((c) => `${c.shift.name.toLowerCase()} ${ROLE_LABEL[c.role]}`).join(', ')}). Separate
+        several names with commas.
       </p>
       {!ro && (
-        <>
-          <div className="row wrap">
-            <button
-              type="button"
-              onClick={async () => {
-                try {
-                  await navigator.clipboard.writeText(template)
-                  setMsg('Empty table copied — paste it into a spreadsheet, fill it in, then copy it back here.')
-                } catch {
-                  setMsg('Couldn’t copy. Type the table in a spreadsheet with these columns: Date, Day, ' + positions.map(title).join(', '))
-                }
-              }}
-            >
-              Copy empty table
-            </button>
-            {filled > 0 && (
-              <button type="button" className="link danger" onClick={() => edit((c) => ({ ...c, duty: [] }))}>
-                Clear roster
+        <details className="paste">
+          <summary className="small">Paste from a spreadsheet</summary>
+          <div className="stack">
+            <div className="row wrap">
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(template)
+                    setMsg('Empty table copied — paste it into a spreadsheet, fill it in, then copy it back here.')
+                  } catch {
+                    setMsg('Couldn’t copy. Make a spreadsheet with columns: Date, Day, ' + cols.map((c) => `${c.shift.name} ${ROLE_LABEL[c.role]}`).join(', '))
+                  }
+                }}
+              >
+                Copy empty table
               </button>
-            )}
-          </div>
-          <label>
-            Paste from a spreadsheet
+              {draft.duty.length > 0 && (
+                <button type="button" className="link danger" onClick={() => edit((c) => pruneDoctors({ ...c, duty: [] }))}>
+                  Clear roster
+                </button>
+              )}
+            </div>
             <textarea
               rows={3}
+              aria-label="Pasted roster"
               value={paste}
-              placeholder={'1/11\tAnn\tBank\tDr. Somchai\n2/11\tPloy\tMint\tDr. Wipa'}
+              placeholder={'1/11\tAnn, Bank\tDr. Somchai\n2/11\tPloy, Mint\tDr. Wipa'}
               onChange={(e) => {
                 setPaste(e.target.value)
                 setParsed(e.target.value.trim() ? parseDutyPaste(e.target.value, draft) : null)
               }}
             />
-          </label>
-          {parsed && (
-            <div className="row wrap">
-              <span className="small">
-                Read {parsed.readDays} day(s), {parsed.duty.length} shift(s).
-                {parsed.newPeople.length > 0 && ` New people: ${parsed.newPeople.map((p) => `${p.name} (${p.type})`).join(', ')}.`}
-              </span>
-              <button
-                type="button"
-                className="primary"
-                disabled={parsed.duty.length === 0}
-                onClick={() => {
-                  const dates = new Set(parsed.duty.map((a) => a.date))
-                  edit((c) => ({ ...c, members: parsed.members, duty: [...c.duty.filter((a) => !dates.has(a.date)), ...parsed.duty] }))
-                  setPaste('')
-                  setParsed(null)
-                  setMsg(`Filled ${dates.size} day(s). Save setup to keep it.`)
-                }}
-              >
-                Use this
-              </button>
-            </div>
-          )}
-          {msg && <p className="small">{msg}</p>}
-        </>
+            {parsed && (
+              <div className="row wrap">
+                <span className="small">
+                  Read {parsed.readDays} day(s).{parsed.newNames.length > 0 && ` New names: ${parsed.newNames.join(', ')}.`}
+                </span>
+                <button
+                  type="button"
+                  className="primary"
+                  disabled={parsed.cells.length === 0}
+                  onClick={() => {
+                    edit((c) => parsed.cells.reduce((acc, cell) => setDutyNames(acc, cell.date, cell.shiftId, cell.role, cell.names), c))
+                    setPaste('')
+                    setParsed(null)
+                    setMsg(`Filled ${parsed.readDays} day(s). Save setup to keep it.`)
+                  }}
+                >
+                  Use this
+                </button>
+              </div>
+            )}
+          </div>
+        </details>
       )}
-      <div className="scroll-x grid-wrap">
+      {msg && <p className="small">{msg}</p>}
+      <div className="scroll-x duty-wrap">
         <table className="roster duty">
           <thead>
             <tr>
               <th className="sticky">Date</th>
-              {positions.map((p) => (
-                <th key={p.req.id}>
-                  {title(p)}
-                  <div className="muted tiny">{p.req.memberType === 'any' ? 'resident or staff' : p.req.memberType}</div>
-                </th>
+              {cols.map((c) => (
+                <th key={`${c.shift.id}-${c.role}`}>{title(c)}</th>
               ))}
             </tr>
           </thead>
@@ -619,30 +736,18 @@ export function DutyRosterCard({ draft, edit, ro }: { draft: SessionConfig; edit
             {days.map((date) => (
               <tr key={date} className={[0, 6].includes(weekday(date)) || draft.holidays.includes(date) ? 'weekend' : ''}>
                 <th className="sticky nowrap">{shortDate(date)}</th>
-                {positions.map((p) => {
-                  const n = reqCount(draft, p.shift, p.req, date)
-                  if (n === 0) return <td key={p.req.id} className="off" />
-                  const here = draft.duty.filter((a) => a.date === date && a.shiftId === p.shift.id && a.requirementId === p.req.id)
-                  const cands = draft.members.filter((m) => m.type !== 'student' && (p.req.memberType === 'any' || m.type === p.req.memberType))
+                {cols.map((c) => {
+                  if (!shiftRuns(draft, c.shift, date)) return <td key={`${c.shift.id}-${c.role}`} className="off" />
+                  const names = draft.duty.filter((a) => a.date === date && a.shiftId === c.shift.id && a.requirementId === c.role).map((a) => nameOf(a.memberId))
                   return (
-                    <td key={p.req.id}>
-                      {Array.from({ length: Math.max(n, here.length) }, (_, k) => (
-                        <select
-                          key={k}
-                          className="cell-select"
-                          disabled={ro}
-                          aria-label={`${shortDate(date)} ${title(p)}`}
-                          value={here[k]?.memberId ?? ''}
-                          onChange={(e) => setCell(date, p.shift.id, p.req.id, k, e.target.value)}
-                        >
-                          <option value="">—</option>
-                          {cands.map((m) => (
-                            <option key={m.id} value={m.id}>
-                              {m.name}
-                            </option>
-                          ))}
-                        </select>
-                      ))}
+                    <td key={`${c.shift.id}-${c.role}`}>
+                      <NameInput
+                        names={names}
+                        suggestions={suggestFor(c.role)}
+                        label={`${shortDate(date)} ${title(c)}`}
+                        disabled={ro}
+                        onChange={(next) => edit((cfg) => setDutyNames(cfg, date, c.shift.id, c.role, next))}
+                      />
                     </td>
                   )
                 })}

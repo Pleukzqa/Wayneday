@@ -76,6 +76,10 @@ export default function SetupTab({ code, session, me, mutate }: SessionProps) {
     0,
   )
   const workers = draft.members.filter((m) => m.type !== 'student').length
+  // Hospital mode: residents/staff exist only through the hospital roster, so People lists students.
+  const hospital = draft.rosterMode === 'hospital'
+  const shownPeople = hospital ? draft.members.filter((m) => m.type === 'student') : draft.members
+  const doctorCount = draft.members.length - shownPeople.length
 
   return (
     <div className="stack">
@@ -122,8 +126,9 @@ export default function SetupTab({ code, session, me, mutate }: SessionProps) {
             </div>
           </label>
           <p className="muted small">
-            {days.length} days · {positionsPerPeriod} positions to fill
-            {workers ? ` · ≈${(positionsPerPeriod / workers).toFixed(1)} per resident/staff` : ''}
+            {hospital
+              ? `${days.length} days · ${positionsPerPeriod} student places · ${shownPeople.length} students × ${draft.students.shiftsPerStudent} shifts = ${shownPeople.length * draft.students.shiftsPerStudent} needed`
+              : `${days.length} days · ${positionsPerPeriod} positions to fill${workers ? ` · ≈${(positionsPerPeriod / workers).toFixed(1)} per resident/staff` : ''}`}
           </p>
         </section>
 
@@ -164,8 +169,15 @@ export default function SetupTab({ code, session, me, mutate }: SessionProps) {
           </div>
         </section>
 
+        <RosterModeCard draft={draft} edit={edit} ro={ro} />
+
         <section className="card">
-          <h2>Shift slots</h2>
+          <h2>{hospital ? 'Shift slots & student places' : 'Shift slots'}</h2>
+          {hospital && (
+            <p className="muted small">
+              Each position is a place for students on that shift, e.g. “Ward × 1” and “ER × 1” means up to two students a night, one in each.
+            </p>
+          )}
           <div className="stack">
             {draft.shifts.map((s) => (
               <div key={s.id} className="shift">
@@ -210,8 +222,8 @@ export default function SetupTab({ code, session, me, mutate }: SessionProps) {
                   <thead>
                     <tr>
                       <th>Job</th>
-                      <th>Who</th>
-                      <th>How many</th>
+                      {!hospital && <th>Who</th>}
+                      <th>{hospital ? 'Students' : 'How many'}</th>
                       <th />
                     </tr>
                   </thead>
@@ -227,13 +239,15 @@ export default function SetupTab({ code, session, me, mutate }: SessionProps) {
                             ))}
                           </select>
                         </td>
-                        <td>
-                          <select value={r.memberType} onChange={(e) => setReq(s.id, r.id, { memberType: e.target.value as Requirement['memberType'] })}>
-                            <option value="resident">Resident</option>
-                            <option value="staff">Staff</option>
-                            <option value="any">Anyone</option>
-                          </select>
-                        </td>
+                        {!hospital && (
+                          <td>
+                            <select value={r.memberType} onChange={(e) => setReq(s.id, r.id, { memberType: e.target.value as Requirement['memberType'] })}>
+                              <option value="resident">Resident</option>
+                              <option value="staff">Staff</option>
+                              <option value="any">Anyone</option>
+                            </select>
+                          </td>
+                        )}
                         <td>
                           <input
                             type="number"
@@ -302,10 +316,15 @@ export default function SetupTab({ code, session, me, mutate }: SessionProps) {
         </section>
 
         <CalendarCard draft={draft} edit={edit} ro={ro} />
-        <RosterModeCard draft={draft} edit={edit} ro={ro} />
 
         <section className="card">
-          <h2>People</h2>
+          <h2>{hospital ? 'Students' : 'People'}</h2>
+          {hospital && (
+            <p className="muted small">
+              Only students go here. Residents and staff come from the hospital roster below
+              {doctorCount ? ` (${doctorCount} names so far)` : ''}.
+            </p>
+          )}
           {me.isHost && <JoinRequests code={code} session={session} me={me} mutate={mutate} dirty={dirty} />}
           {me.isHost && !IS_DEMO && (
             <p className="muted small">
@@ -316,14 +335,16 @@ export default function SetupTab({ code, session, me, mutate }: SessionProps) {
           {!ro && (
             <div className="row wrap align-end">
               <label className="grow">
-                Add people — one name per line
-                <textarea rows={3} value={bulk} onChange={(e) => setBulk(e.target.value)} placeholder={'Dr. Ann\nDr. Ben'} />
+                {hospital ? 'Add students — one name per line' : 'Add people — one name per line'}
+                <textarea rows={3} value={bulk} onChange={(e) => setBulk(e.target.value)} placeholder={hospital ? 'Beam\nPraew' : 'Dr. Ann\nDr. Ben'} />
               </label>
-              <select value={bulkType} onChange={(e) => setBulkType(e.target.value as MemberType)}>
-                <option value="resident">as residents</option>
-                <option value="staff">as staff</option>
-                <option value="student">as students</option>
-              </select>
+              {!hospital && (
+                <select value={bulkType} onChange={(e) => setBulkType(e.target.value as MemberType)}>
+                  <option value="resident">as residents</option>
+                  <option value="staff">as staff</option>
+                  <option value="student">as students</option>
+                </select>
+              )}
               <button
                 type="button"
                 disabled={!bulk.trim()}
@@ -331,7 +352,7 @@ export default function SetupTab({ code, session, me, mutate }: SessionProps) {
                   const names = bulk.split('\n').map((n) => n.trim()).filter(Boolean)
                   edit((c) => ({
                     ...c,
-                    members: [...c.members, ...names.map((name) => ({ id: uid(), name, type: bulkType, jobs: [] }))],
+                    members: [...c.members, ...names.map((name) => ({ id: uid(), name, type: hospital ? ('student' as const) : bulkType, jobs: [] }))],
                   }))
                   setBulk('')
                 }}
@@ -340,7 +361,7 @@ export default function SetupTab({ code, session, me, mutate }: SessionProps) {
               </button>
             </div>
           )}
-          {draft.members.length === 0 ? (
+          {shownPeople.length === 0 ? (
             <p className="muted">No one yet.</p>
           ) : (
             <div className="scroll-x">
@@ -348,7 +369,7 @@ export default function SetupTab({ code, session, me, mutate }: SessionProps) {
                 <thead>
                   <tr>
                     <th>Name</th>
-                    <th>Type</th>
+                    {!hospital && <th>Type</th>}
                     {draft.jobs.length > 1 && <th>Can cover</th>}
                     {draft.rosterMode === 'generate' && <th title="Optional hard cap">Max shifts</th>}
                     <th>Login</th>
@@ -356,11 +377,12 @@ export default function SetupTab({ code, session, me, mutate }: SessionProps) {
                   </tr>
                 </thead>
                 <tbody>
-                  {draft.members.map((m) => (
+                  {shownPeople.map((m) => (
                     <tr key={m.id}>
                       <td>
                         <input value={m.name} onChange={(e) => setMember(m.id, { name: e.target.value })} />
                       </td>
+                      {!hospital && (
                       <td>
                         <select value={m.type} onChange={(e) => setMember(m.id, { type: e.target.value as MemberType })}>
                           <option value="resident">Resident</option>
@@ -368,6 +390,7 @@ export default function SetupTab({ code, session, me, mutate }: SessionProps) {
                           <option value="student">Student</option>
                         </select>
                       </td>
+                      )}
                       {draft.jobs.length > 1 && (
                         <td className="nowrap">
                           {draft.jobs.map((j) => (

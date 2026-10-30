@@ -166,7 +166,7 @@ function LoginCard({ code, session, me, onDone }: SessionProps & { onDone: () =>
   const [memberId, setMemberId] = useState(invited && session.config.members.some((m) => m.id === invited) ? invited : '')
   const [mode, setMode] = useState<'claim' | 'join'>('claim')
   const [name, setName] = useState('')
-  const [type, setType] = useState<MemberType>('resident')
+  const [type, setType] = useState<MemberType>(session.config.rosterMode === 'hospital' ? 'student' : 'resident')
   const [pin, setPin] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -258,11 +258,14 @@ function LoginCard({ code, session, me, onDone }: SessionProps & { onDone: () =>
       <strong>Who are you?</strong>
       <select value={memberId} onChange={(e) => setMemberId(e.target.value)} required aria-label="Your name">
         <option value="">Choose your name…</option>
-        {session.config.members.map((m) => (
-          <option key={m.id} value={m.id}>
-            {m.name} {session.claimed.includes(m.id) ? '(has PIN)' : ''}
-          </option>
-        ))}
+        {session.config.members
+          // Hospital mode: residents and staff only appear in the hospital's roster; students are the ones who log in.
+          .filter((m) => session.config.rosterMode !== 'hospital' || m.type === 'student')
+          .map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.name} {session.claimed.includes(m.id) ? '(has PIN)' : ''}
+            </option>
+          ))}
       </select>
       {pinInput}
       <button className="primary" disabled={busy || !memberId}>

@@ -1,5 +1,5 @@
 import type { Ref } from 'react'
-import { cellNames, columnsFor } from '../export.ts'
+import { cellIds, cellNames, columnsFor } from '../export.ts'
 import { reqCount } from '../shared/calendar.ts'
 import { dateRange, shortDate, weekday } from '../shared/dates.ts'
 import { STUDENT_SLOT, type Concern, type Roster, type SessionConfig, type SwapRequest } from '../shared/types.ts'
@@ -11,7 +11,7 @@ interface Props {
   /** Host manual editing of resident/staff positions. */
   onEdit?: (date: string, shiftId: string, requirementId: string, slot: number, memberId: string) => void
   /** Host manual editing of students on a shift. */
-  onEditStudent?: (date: string, shiftId: string, slot: number, memberId: string) => void
+  onEditStudent?: (date: string, shiftId: string, slot: number, memberId: string, requirementId?: string) => void
   /** Tap on a cell (to raise a concern or ask for a swap). requirementId is STUDENT_SLOT for the students column. */
   onPick?: (date: string, shiftId: string, requirementId: string | null) => void
   concerns?: Concern[]
@@ -34,7 +34,7 @@ export default function RosterTable({ config, roster, myId, onEdit, onEditStuden
           <tr>
             <th className="sticky">Date</th>
             {cols.map((c) => (
-              <th key={c.key} className={c.kind !== 'position' ? 'extra-col' : ''}>
+              <th key={c.key} className={c.kind === 'duty' ? 'duty-col' : c.kind !== 'position' ? 'extra-col' : ''}>
                 {c.title}
               </th>
             ))}
@@ -54,17 +54,22 @@ export default function RosterTable({ config, roster, myId, onEdit, onEditStuden
                 {cols.map((c) => {
                   const names = cellNames(config, roster, c, date)
                   if (names === null) return <td key={c.key} className="off" />
-                  if (c.kind === 'students' && onEditStudent) {
-                    const ids = roster.students.filter((s) => s.date === date && s.shiftId === c.shiftId).map((s) => s.memberId)
+                  const ids = cellIds(config, roster, c, date) ?? []
+                  const studentCol = c.kind === 'students' || c.kind === 'place'
+                  const placeReq = c.kind === 'place' ? c.requirementId : undefined
+                  if (studentCol && onEditStudent) {
+                    const shift = config.shifts.find((x) => x.id === c.shiftId)!
+                    const req = shift.requirements.find((r) => r.id === placeReq)
+                    const slots = req ? reqCount(config, shift, req, date) : config.students.maxPerShift
                     return (
                       <td key={c.key} className="extra-col">
-                        {Array.from({ length: Math.max(config.students.maxPerShift, ids.length) }, (_, k) => (
+                        {Array.from({ length: Math.max(slots, ids.length) }, (_, k) => (
                           <select
                             key={k}
                             className="cell-select"
                             value={ids[k] ?? ''}
                             aria-label={`${shortDate(date)} ${c.title}`}
-                            onChange={(e) => onEditStudent(date, c.shiftId, k, e.target.value)}
+                            onChange={(e) => onEditStudent(date, c.shiftId, k, e.target.value, placeReq)}
                           >
                             <option value="">—</option>
                             {studentList.map((m) => (
@@ -78,15 +83,10 @@ export default function RosterTable({ config, roster, myId, onEdit, onEditStuden
                     )
                   }
                   if (c.kind !== 'position') {
-                    const ids =
-                      c.kind === 'students'
-                        ? roster.students.filter((s) => s.date === date && s.shiftId === c.shiftId).map((s) => s.memberId)
-                        : roster.presenters.filter((p) => p.date === date && p.ruleId === c.ruleId).map((p) => p.memberId)
-                    const studentCol = c.kind === 'students'
                     return (
                       <td
                         key={c.key}
-                        className={`extra-col ${studentCol && onPick ? 'pickable' : ''} ${
+                        className={`${c.kind === 'duty' ? 'duty-col' : 'extra-col'} ${studentCol && onPick ? 'pickable' : ''} ${
                           studentCol && swapOpen.some((s) => s.requirementId === STUDENT_SLOT && s.date === date && s.shiftId === c.shiftId) ? 'swapping' : ''
                         }`}
                         onClick={studentCol && onPick ? () => onPick(date, c.shiftId, STUDENT_SLOT) : undefined}

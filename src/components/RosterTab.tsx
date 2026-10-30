@@ -406,13 +406,13 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
               onPick={!edit && !preview && me.memberId ? pick : undefined}
               onEditStudent={
                 edit && hasStudents
-                  ? (date, shiftId, slot, memberId) =>
+                  ? (date, shiftId, slot, memberId, requirementId) =>
                       setEdit((cur) => {
                         const list = cur?.students ?? []
-                        const here = list.filter((x) => x.date === date && x.shiftId === shiftId)
+                        const here = list.filter((x) => x.date === date && x.shiftId === shiftId && x.requirementId === requirementId)
                         const target = here[slot]
                         const rest = list.filter((x) => x !== target)
-                        return { ...cur!, students: memberId ? [...rest, { date, shiftId, memberId }] : rest }
+                        return { ...cur!, students: memberId ? [...rest, { date, shiftId, ...(requirementId ? { requirementId } : {}), memberId }] : rest }
                       })
                   : undefined
               }

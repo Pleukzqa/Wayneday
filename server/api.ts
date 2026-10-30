@@ -188,7 +188,8 @@ function cleanSchedule(raw: unknown): Schedule | null {
   })
   const students: StudentAssignment[] = arr(s.students, 20_000).map((a) => {
     const o = a as Record<string, unknown>
-    return { date: str(o.date, 10), shiftId: str(o.shiftId, 40), memberId: str(o.memberId, 40) }
+    const requirementId = str(o.requirementId, 40)
+    return { date: str(o.date, 10), shiftId: str(o.shiftId, 40), ...(requirementId ? { requirementId } : {}), memberId: str(o.memberId, 40) }
   })
   const presenters: PresenterAssignment[] = arr(s.presenters, 20_000).map((a) => {
     const o = a as Record<string, unknown>

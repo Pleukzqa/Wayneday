@@ -23,7 +23,7 @@ interface Store {
   acting: Record<string, string>
 }
 
-const KEY = 'wayneday-demo-v3'
+const KEY = 'wayneday-demo-v4'
 export const SAMPLE_CODE = 'sample-night-ward'
 
 let store: Store = load()
@@ -233,9 +233,9 @@ function sample(): PublicSession {
   // The hospital's roster, as if pasted in: a simple rotation (Ward, ER, staff on duty each night).
   const days = Math.round((Date.parse(end) - Date.parse(start)) / 86_400_000) + 1
   const duty = Array.from({ length: days }, (_, i) => [
-    { date: d(i + 1), shiftId: 'night', requirementId: 'night-ward', memberId: rid(residents[i % 8]) },
-    { date: d(i + 1), shiftId: 'night', requirementId: 'night-er', memberId: rid(residents[(i + 3) % 8]) },
-    { date: d(i + 1), shiftId: 'night', requirementId: 'night-staff', memberId: `s-${i % 4}` },
+    { date: d(i + 1), shiftId: 'night', requirementId: 'resident', memberId: rid(residents[i % 8]) },
+    { date: d(i + 1), shiftId: 'night', requirementId: 'resident', memberId: rid(residents[(i + 3) % 8]) },
+    { date: d(i + 1), shiftId: 'night', requirementId: 'staff', memberId: `s-${i % 4}` },
   ]).flat()
   // Week 3 is exam week: one presentation a day instead of two.
   const third = Array.from({ length: 7 }, (_, i) => d(15 + i)).filter((x) => [1, 2, 3, 4, 5].includes(new Date(x + 'T00:00:00Z').getUTCDay()))
@@ -262,16 +262,16 @@ function sample(): PublicSession {
           start: '16:00',
           end: '08:00',
           days: all,
+          // Student places: one on the ward and one in the ER each night.
           requirements: [
-            { id: 'night-ward', jobId: 'ward', memberType: 'resident', count: 1 },
-            { id: 'night-er', jobId: 'er', memberType: 'resident', count: 1 },
-            { id: 'night-staff', jobId: 'ward', memberType: 'staff', count: 1 },
+            { id: 'night-ward', jobId: 'ward', memberType: 'any', count: 1 },
+            { id: 'night-er', jobId: 'er', memberType: 'any', count: 1 },
           ],
         },
       ],
       overrides: [],
       members,
-      students: { shiftIds: ['night'], maxPerShift: 1, shiftsPerStudent: 5 },
+      students: { shiftIds: ['night'], maxPerShift: 1, shiftsPerStudent: 6 },
       presentations: [
         {
           id: 'morning-report',

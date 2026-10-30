@@ -137,8 +137,14 @@ export interface Assignment {
 export interface StudentAssignment {
   date: string
   shiftId: string
+  /** Hospital mode: which student place (job) on the shift. */
+  requirementId?: string
   memberId: string
 }
+
+/** Roles in the hospital roster (hospital mode); stored as an Assignment's requirementId. */
+export const DUTY_ROLES = ['resident', 'staff'] as const
+export type DutyRole = (typeof DUTY_ROLES)[number]
 
 export interface PresenterAssignment {
   date: string

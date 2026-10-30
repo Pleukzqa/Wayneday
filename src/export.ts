@@ -3,15 +3,30 @@ import { presentationOn, reqCount, shiftRuns } from './shared/calendar.ts'
 import { addDays, dateRange, shortDate, weekday } from './shared/dates.ts'
 import { buildProblem, statsFor } from './shared/solver.ts'
 import { studentExposure } from './shared/students.ts'
-import type { Assignment, MemberResponse, Roster, SessionConfig } from './shared/types.ts'
+import { DUTY_ROLES, type Assignment, type DutyRole, type MemberResponse, type Roster, type SessionConfig } from './shared/types.ts'
 
 export type Column =
   | { kind: 'position'; key: string; shiftId: string; requirementId: string; title: string }
   | { kind: 'students'; key: string; shiftId: string; title: string }
+  | { kind: 'duty'; key: string; shiftId: string; role: DutyRole; title: string }
+  | { kind: 'place'; key: string; shiftId: string; requirementId: string; title: string }
   | { kind: 'presenters'; key: string; ruleId: string; title: string }
 
 export function columnsFor(config: SessionConfig): Column[] {
   const job = (id: string) => config.jobs.find((j) => j.id === id)?.name ?? ''
+  const presenters = config.presentations.map((r): Column => ({ kind: 'presenters', key: `pr-${r.id}`, ruleId: r.id, title: r.name }))
+  if (config.rosterMode === 'hospital') {
+    // The hospital's people per shift, then each student place.
+    return [
+      ...config.shifts.flatMap((s): Column[] => [
+        ...DUTY_ROLES.map((role): Column => ({ kind: 'duty', key: `d-${s.id}-${role}`, shiftId: s.id, role, title: `${s.name} · ${role === 'resident' ? 'residents' : 'staff'}` })),
+        ...s.requirements.map(
+          (r): Column => ({ kind: 'place', key: r.id, shiftId: s.id, requirementId: r.id, title: `${s.name} · ${job(r.jobId)} student${r.count > 1 ? 's' : ''}` }),
+        ),
+      ]),
+      ...presenters,
+    ]
+  }
   const hasStudents = config.members.some((m) => m.type === 'student')
   return [
     ...config.shifts.flatMap((s): Column[] => [
@@ -31,24 +46,36 @@ export function columnsFor(config: SessionConfig): Column[] {
         ? [{ kind: 'students' as const, key: `st-${s.id}`, shiftId: s.id, title: `${s.name} · students` }]
         : []),
     ]),
-    ...config.presentations.map((r): Column => ({ kind: 'presenters', key: `pr-${r.id}`, ruleId: r.id, title: r.name })),
+    ...presenters,
   ]
+}
+
+/** Member ids in one cell of the roster table, or null when that column doesn't apply that day. */
+export function cellIds(config: SessionConfig, roster: Roster, c: Column, date: string): string[] | null {
+  if (c.kind === 'presenters') {
+    const rule = config.presentations.find((r) => r.id === c.ruleId)
+    if (!rule || !presentationOn(config, rule, date)) return null
+    return roster.presenters.filter((p) => p.date === date && p.ruleId === c.ruleId).map((p) => p.memberId)
+  }
+  const shift = config.shifts.find((s) => s.id === c.shiftId)
+  if (!shift || !shiftRuns(config, shift, date)) return null
+  if (c.kind === 'duty') return roster.assignments.filter((a) => a.date === date && a.shiftId === c.shiftId && a.requirementId === c.role).map((a) => a.memberId)
+  if (c.kind === 'students') return roster.students.filter((s) => s.date === date && s.shiftId === c.shiftId).map((s) => s.memberId)
+  const req = shift.requirements.find((r) => r.id === c.requirementId)
+  if (!req || reqCount(config, shift, req, date) === 0) return null
+  if (c.kind === 'place') return roster.students.filter((s) => s.date === date && s.shiftId === c.shiftId && s.requirementId === c.requirementId).map((s) => s.memberId)
+  return roster.assignments.filter((a) => a.date === date && a.shiftId === c.shiftId && a.requirementId === c.requirementId).map((a) => a.memberId)
 }
 
 /** Names in one cell of the roster table, or null when that column doesn't apply that day. */
 export function cellNames(config: SessionConfig, roster: Roster, c: Column, date: string): string[] | null {
+  const ids = cellIds(config, roster, c, date)
+  if (!ids) return null
   const name = (id: string) => config.members.find((m) => m.id === id)?.name ?? '?'
   if (c.kind === 'presenters') {
-    const rule = config.presentations.find((r) => r.id === c.ruleId)
-    if (!rule || !presentationOn(config, rule, date)) return null
-    return roster.presenters.filter((p) => p.date === date && p.ruleId === c.ruleId).map((p) => name(p.memberId) + (p.postCall ? ' ●' : ''))
+    return ids.map((id) => name(id) + (roster.presenters.find((p) => p.date === date && p.ruleId === c.ruleId && p.memberId === id)?.postCall ? ' ●' : ''))
   }
-  const shift = config.shifts.find((s) => s.id === c.shiftId)
-  if (!shift || !shiftRuns(config, shift, date)) return null
-  if (c.kind === 'students') return roster.students.filter((s) => s.date === date && s.shiftId === c.shiftId).map((s) => name(s.memberId))
-  const req = shift.requirements.find((r) => r.id === c.requirementId)
-  if (!req || reqCount(config, shift, req, date) === 0) return null
-  return roster.assignments.filter((a) => a.date === date && a.shiftId === c.shiftId && a.requirementId === c.requirementId).map((a) => name(a.memberId))
+  return ids.map(name)
 }
 
 /** Date rows × columns, names joined in each cell. */
@@ -76,6 +103,15 @@ export function personTable(config: SessionConfig, responses: Record<string, Mem
     assign[s.index] = config.members.findIndex((m) => m.id === a.memberId)
   }
   const stats = statsFor(p, assign)
+  if (config.rosterMode === 'hospital') {
+    // The hospital roster isn't seat-based; count its shifts directly.
+    config.members.forEach((m, i) => {
+      const mine = assignments.filter((a) => a.memberId === m.id)
+      const byShift: Record<string, number> = {}
+      for (const a of mine) byShift[a.shiftId] = (byShift[a.shiftId] ?? 0) + 1
+      stats[i] = { ...stats[i], total: mine.length, weekend: mine.filter((a) => [0, 6].includes(weekday(a.date)) || config.holidays.includes(a.date)).length, byShift }
+    })
+  }
   const hasStudents = config.members.some((m) => m.type === 'student')
   const exposure = studentExposure(config, assignments, roster.students)
   const header = [
@@ -308,9 +344,13 @@ export function buildEvents(config: SessionConfig, roster: Roster, memberIds: st
     if (!want(a.memberId)) continue
     const shift = config.shifts.find((s) => s.id === a.shiftId)
     const req = shift?.requirements.find((r) => r.id === a.requirementId)
-    make(a.date, a.shiftId, a.memberId, config.jobs.find((j) => j.id === req?.jobId)?.name ?? '', 'duty')
+    make(a.date, a.shiftId, a.memberId, config.jobs.find((j) => j.id === req?.jobId)?.name ?? a.requirementId, 'duty')
   }
-  for (const s of roster.students) if (want(s.memberId)) make(s.date, s.shiftId, s.memberId, 'student', 'student')
+  for (const s of roster.students) {
+    if (!want(s.memberId)) continue
+    const req = config.shifts.find((x) => x.id === s.shiftId)?.requirements.find((r) => r.id === s.requirementId)
+    make(s.date, s.shiftId, s.memberId, s.requirementId ? (config.jobs.find((j) => j.id === req?.jobId)?.name ?? 'student') : 'student', 'student')
+  }
   for (const p of roster.presenters) {
     if (!want(p.memberId)) continue
     const rule = config.presentations.find((r) => r.id === p.ruleId)

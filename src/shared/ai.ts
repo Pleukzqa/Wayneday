@@ -25,7 +25,12 @@ export function rosterToJson(config: SessionConfig, roster: Roster) {
       job: reqJob(a.shiftId, a.requirementId),
       member: member(a.memberId),
     })),
-    students: byDate(roster.students).map((s) => ({ date: s.date, shift: shift(s.shiftId), member: member(s.memberId) })),
+    students: byDate(roster.students).map((s) => ({
+      date: s.date,
+      shift: shift(s.shiftId),
+      ...(s.requirementId ? { job: reqJob(s.shiftId, s.requirementId) } : {}),
+      member: member(s.memberId),
+    })),
     presenters: byDate(roster.presenters).map((p) => ({
       date: p.date,
       presentation: config.presentations.find((r) => r.id === p.ruleId)?.name ?? p.ruleId,
@@ -52,10 +57,10 @@ export function buildAiPrompt(config: SessionConfig, responses: Record<string, M
   lines.push(`## Period\n${config.startDate} to ${config.endDate} (${days.length} days).`)
   if (config.holidays.length) lines.push(`Holidays (count as weekend days for fairness): ${config.holidays.join(', ')}.`)
   lines.push('')
-  lines.push('## Shifts and positions (weekly pattern)')
+  lines.push(hospital ? '## Shifts and student places (weekly pattern)' : '## Shifts and positions (weekly pattern)')
   for (const s of config.shifts) {
     const reqs = s.requirements
-      .map((r) => `${r.count} × ${job(r.jobId)} (${r.memberType === 'any' ? 'resident or staff' : r.memberType})`)
+      .map((r) => (hospital ? `up to ${r.count} student(s) in ${job(r.jobId)}` : `${r.count} × ${job(r.jobId)} (${r.memberType === 'any' ? 'resident or staff' : r.memberType})`))
       .join(', ')
     lines.push(`- "${s.name}" ${s.start}–${s.end}, runs on ${s.days.map((d) => WEEKDAYS[d]).join('/') || 'no regular days'}: ${reqs}`)
   }
@@ -75,11 +80,10 @@ export function buildAiPrompt(config: SessionConfig, responses: Record<string, M
   lines.push('')
   if (hospital) {
     lines.push('## Fixed roster from the hospital (do not change)')
-    lines.push('date | shift | job | person')
+    lines.push('date | shift | role | person')
     for (const a of [...config.duty].sort((x, y) => x.date.localeCompare(y.date))) {
-      const req = config.shifts.find((s) => s.id === a.shiftId)?.requirements.find((r) => r.id === a.requirementId)
       const who = config.members.find((m) => m.id === a.memberId)
-      lines.push(`${a.date} | ${shiftName(a.shiftId)} | ${req ? job(req.jobId) : ''} | ${who?.name ?? '?'} (${who?.type ?? ''})`)
+      lines.push(`${a.date} | ${shiftName(a.shiftId)} | ${a.requirementId} | ${who?.name ?? '?'}`)
     }
   } else {
     lines.push('## Residents and staff')
@@ -90,7 +94,9 @@ export function buildAiPrompt(config: SessionConfig, responses: Record<string, M
     lines.push('')
     lines.push('## Students')
     lines.push(
-      `Students do not fill positions. Each student joins ${st.shiftsPerStudent} shift(s) of ${st.shiftIds.map(shiftName).map((n) => `"${n}"`).join(' or ') || '(none set)'}, at most ${st.maxPerShift} student(s) per shift. Spread students so every resident and every staff member is on duty with students about equally often.`,
+      hospital
+        ? `Each student does ${st.shiftsPerStudent} shift(s), taking one of the student places above (give the job). Spread students so every resident and every staff member in the hospital roster is on duty with students about equally often.`
+        : `Students do not fill positions. Each student joins ${st.shiftsPerStudent} shift(s) of ${st.shiftIds.map(shiftName).map((n) => `"${n}"`).join(' or ') || '(none set)'}, at most ${st.maxPerShift} student(s) per shift. Spread students so every resident and every staff member is on duty with students about equally often.`,
     )
     for (const m of students) lines.push(personLine(config, responses, m.id, job, shiftName))
   }
@@ -149,7 +155,9 @@ export function buildAiPrompt(config: SessionConfig, responses: Record<string, M
     JSON.stringify({
       format: AI_FORMAT_TAG,
       assignments: hospital ? [] : [{ date: 'YYYY-MM-DD', shift: '<shift name>', job: '<job name>', member: '<name>' }],
-      students: students.length ? [{ date: 'YYYY-MM-DD', shift: '<shift name>', member: '<student name>' }] : [],
+      students: students.length
+        ? [{ date: 'YYYY-MM-DD', shift: '<shift name>', ...(hospital ? { job: '<job name>' } : {}), member: '<student name>' }]
+        : [],
       presenters: config.presentations.length ? [{ date: 'YYYY-MM-DD', presentation: '<presentation name>', member: '<name>' }] : [],
     }),
   )
@@ -242,6 +250,16 @@ export function importAiResult(text: string, config: SessionConfig): ImportResul
     const member = findMember(row.member)
     if (!shift || !member || member.type !== 'student' || !isDate(row.date)) {
       skipped.push(`student ${String(row.date)} ${String(row.member)}`)
+      continue
+    }
+    if (config.rosterMode === 'hospital') {
+      // Pick the student place (job) on that shift, preferring the job named, then any with room.
+      const date = String(row.date)
+      const named = config.jobs.find((j) => norm(j.name) === norm(row.job))
+      const reqs = shift.requirements.filter((r) => !named || r.jobId === named.id)
+      const req =
+        reqs.find((r) => students.filter((x) => x.date === date && x.requirementId === r.id).length < reqCount(config, shift, r, date)) ?? reqs[0]
+      students.push({ date, shiftId: shift.id, ...(req ? { requirementId: req.id } : {}), memberId: member.id })
       continue
     }
     students.push({ date: String(row.date), shiftId: shift.id, memberId: member.id })

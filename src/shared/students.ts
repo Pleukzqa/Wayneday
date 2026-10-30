@@ -4,20 +4,54 @@
 //   locks, minimum interval and spread/grouped preference;
 // - pick presenters for presentation rules, taking the required number from yesterday's shift first.
 
-import { presentationOn, shiftRuns } from './calendar.ts'
+import { presentationOn, reqCount, shiftRuns } from './calendar.ts'
 import { addDays, dateRange, dayDiff, weekday } from './dates.ts'
 import { preferenceCost, responseFor, rng, variance } from './scoring.ts'
-import type { Assignment, MemberResponse, PresenterAssignment, SessionConfig, StudentAssignment } from './types.ts'
+import type { Assignment, Member, MemberResponse, PresenterAssignment, SessionConfig, StudentAssignment } from './types.ts'
 
-interface Occ {
+/** A place students can take: one shift on one date (and, in hospital mode, one job within it). */
+export interface Occ {
   i: number
   day: number
   date: string
   shiftId: string
+  /** Hospital mode: the shift slot position (job) students fill. */
+  requirementId?: string
+  jobId?: string
+  /** Most students on it. */
+  cap: number
   weekend: boolean
   /** Resident/staff member ids on duty in this shift that day. */
   workers: string[]
 }
+
+/**
+ * Student places. Hospital mode: each shift slot position is a student place (job × count, per date).
+ * Generate mode: the shift slots chosen under Students, up to `maxPerShift` each.
+ */
+export function studentOccs(config: SessionConfig, assignments: Assignment[]): Occ[] {
+  const holidays = new Set(config.holidays)
+  const occs: Occ[] = []
+  dateRange(config.startDate, config.endDate).forEach((date, day) => {
+    const wd = weekday(date)
+    const weekend = wd === 0 || wd === 6 || holidays.has(date)
+    for (const shift of config.shifts) {
+      if (!shiftRuns(config, shift, date)) continue
+      const workers = assignments.filter((a) => a.date === date && a.shiftId === shift.id).map((a) => a.memberId)
+      if (config.rosterMode === 'hospital') {
+        for (const req of shift.requirements) {
+          const cap = reqCount(config, shift, req, date)
+          if (cap > 0) occs.push({ i: occs.length, day, date, shiftId: shift.id, requirementId: req.id, jobId: req.jobId, cap, weekend, workers })
+        }
+      } else if (config.students.shiftIds.includes(shift.id)) {
+        occs.push({ i: occs.length, day, date, shiftId: shift.id, cap: Math.max(1, config.students.maxPerShift), weekend, workers })
+      }
+    }
+  })
+  return occs
+}
+
+const canDo = (m: Member, o: Occ) => !o.jobId || m.jobs.length === 0 || m.jobs.includes(o.jobId)
 
 export type StudentResult =
   | { ok: true; students: StudentAssignment[]; warnings: string[]; score: number }
@@ -33,35 +67,29 @@ export function arrangeStudents(
   const students = config.members.filter((m) => m.type === 'student')
   const settings = config.students
   if (students.length === 0) return { ok: true, students: [], warnings: [], score: 0 }
-  if (settings.shiftIds.length === 0 || settings.shiftsPerStudent <= 0) {
-    return { ok: true, students: [], warnings: ['Students are listed but no shift slots are set for them (Setup → Students).'], score: 0 }
-  }
   const days = dateRange(config.startDate, config.endDate)
-  const holidays = new Set(config.holidays)
-  const occs: Occ[] = []
-  days.forEach((date, day) => {
-    const wd = weekday(date)
-    for (const shift of config.shifts) {
-      if (!settings.shiftIds.includes(shift.id) || !shiftRuns(config, shift, date)) continue
-      occs.push({
-        i: occs.length,
-        day,
-        date,
-        shiftId: shift.id,
-        weekend: wd === 0 || wd === 6 || holidays.has(date),
-        workers: assignments.filter((a) => a.date === date && a.shiftId === shift.id).map((a) => a.memberId),
-      })
+  const occs = studentOccs(config, assignments)
+  if (occs.length === 0 || settings.shiftsPerStudent <= 0) {
+    return {
+      ok: true,
+      students: [],
+      warnings: [
+        config.rosterMode === 'hospital'
+          ? 'No student places: add positions (e.g. “Ward × 1”) to a shift slot in Setup.'
+          : 'Students are listed but no shift slots are set for them (Setup → Students).',
+      ],
+      score: 0,
     }
-  })
-  const cap = Math.max(1, settings.maxPerShift)
+  }
   const need = settings.shiftsPerStudent
   const resp = students.map((s) => responseFor(responses, s.id))
-  const allowed = students.map((_, si) => occs.filter((o) => !resp[si].unavailable.includes(o.date)).map((o) => o.i))
+  const allowed = students.map((m, si) => occs.filter((o) => !resp[si].unavailable.includes(o.date) && canDo(m, o)).map((o) => o.i))
   const problems: string[] = []
 
   // Quick capacity checks.
-  if (students.length * need > occs.length * cap) {
-    problems.push(`Students need ${students.length * need} shifts but student slots only hold ${occs.length * cap} (${occs.length} shifts × ${cap}).`)
+  const places = occs.reduce((n, o) => n + o.cap, 0)
+  if (students.length * need > places) {
+    problems.push(`Students need ${students.length * need} shifts but there are only ${places} student places in the period.`)
   }
   students.forEach((s, si) => {
     const gap = resp[si].minInterval
@@ -83,7 +111,7 @@ export function arrangeStudents(
   let load: number[] = []
   let fixed: Set<string> = new Set()
   const fits = (si: number, oi: number, ignore = -1) =>
-    load[oi] < cap &&
+    load[oi] < occs[oi].cap &&
     !mine[si].includes(oi) &&
     mine[si].every((x) => x === ignore || Math.abs(occs[x].day - occs[oi].day) >= resp[si].minInterval)
   const add = (si: number, oi: number) => {
@@ -105,7 +133,8 @@ export function arrangeStudents(
     lockIssues.length = 0
     students.forEach((s, si) => {
       for (const l of resp[si].locks) {
-        const o = occs.find((x) => x.date === l.date && x.shiftId === l.shiftId)
+        const here = occs.filter((x) => x.date === l.date && x.shiftId === l.shiftId && canDo(s, x))
+        const o = here.find((x) => fits(si, x.i)) ?? here[0]
         if (!o) lockIssues.push(`${s.name}: locked to a shift students don't join on ${l.date}.`)
         else if (resp[si].unavailable.includes(l.date)) lockIssues.push(`${s.name}: both locked and unavailable on ${l.date}.`)
         else if (!fits(si, o.i)) lockIssues.push(`${s.name}: lock on ${l.date} clashes with another lock or a full shift.`)
@@ -177,7 +206,16 @@ export function arrangeStudents(
   }
 
   const out: StudentAssignment[] = []
-  mine.forEach((m, si) => m.forEach((oi) => out.push({ date: occs[oi].date, shiftId: occs[oi].shiftId, memberId: students[si].id })))
+  mine.forEach((m, si) =>
+    m.forEach((oi) =>
+      out.push({
+        date: occs[oi].date,
+        shiftId: occs[oi].shiftId,
+        ...(occs[oi].requirementId ? { requirementId: occs[oi].requirementId } : {}),
+        memberId: students[si].id,
+      }),
+    ),
+  )
   out.sort((a, b) => a.date.localeCompare(b.date))
   return { ok: true, students: out, warnings: [], score: cur }
 }
@@ -248,13 +286,17 @@ export function pickPresenters(
 /** Hard-rule checks for students in an edited roster. */
 export function validateStudents(config: SessionConfig, responses: Record<string, MemberResponse>, students: StudentAssignment[]): string[] {
   const out: string[] = []
-  const settings = config.students
-  const perOcc = new Map<string, number>()
-  for (const s of students) {
-    const k = `${s.date}|${s.shiftId}`
-    perOcc.set(k, (perOcc.get(k) ?? 0) + 1)
+  const occs = studentOccs(config, [])
+  const job = (id?: string) => config.jobs.find((j) => j.id === id)?.name ?? ''
+  for (const o of occs) {
+    const n = students.filter((s) => s.date === o.date && s.shiftId === o.shiftId && (!o.requirementId || s.requirementId === o.requirementId)).length
+    if (n > o.cap) out.push(`${o.date}${o.jobId ? ` ${job(o.jobId)}` : ''}: ${n} students, above the limit of ${o.cap}.`)
   }
-  for (const [k, n] of perOcc) if (n > settings.maxPerShift) out.push(`${k.replace('|', ' ')}: ${n} students, above the limit of ${settings.maxPerShift}.`)
+  for (const s of students) {
+    if (!occs.some((o) => o.date === s.date && o.shiftId === s.shiftId && (!o.requirementId || !s.requirementId || o.requirementId === s.requirementId))) {
+      out.push(`${config.members.find((m) => m.id === s.memberId)?.name ?? '?'} is on ${s.date}, which has no student place.`)
+    }
+  }
   for (const m of config.members.filter((x) => x.type === 'student')) {
     const r = responseFor(responses, m.id)
     const dates = students.filter((s) => s.memberId === m.id).map((s) => s.date).sort()
@@ -311,20 +353,18 @@ export function countStudentArrangements(
 ): { exact: true; count: number } | { exact: false; log10: number } {
   const students = config.members.filter((m) => m.type === 'student')
   const st = config.students
-  if (!students.length || !st.shiftIds.length || st.shiftsPerStudent <= 0) return { exact: true, count: students.length ? 0 : 1 }
-  const days = dateRange(config.startDate, config.endDate)
-  const occs: { day: number; date: string; shiftId: string }[] = []
-  days.forEach((date, day) => {
-    for (const shift of config.shifts) if (st.shiftIds.includes(shift.id) && shiftRuns(config, shift, date)) occs.push({ day, date, shiftId: shift.id })
-  })
+  const occs = studentOccs(config, config.duty)
+  if (!students.length || !occs.length || st.shiftsPerStudent <= 0) return { exact: true, count: students.length ? 0 : 1 }
   const resp = students.map((m) => responseFor(responses, m.id))
   const need = st.shiftsPerStudent
-  const cap = Math.max(1, st.maxPerShift)
   const load = occs.map(() => 0)
   const locks = students.map((_, si) =>
-    resp[si].locks.map((l) => occs.findIndex((o) => o.date === l.date && o.shiftId === l.shiftId)).filter((i) => i >= 0).sort((a, b) => a - b),
+    resp[si].locks
+      .map((l) => occs.findIndex((o) => o.date === l.date && o.shiftId === l.shiftId && canDo(students[si], o)))
+      .filter((i) => i >= 0)
+      .sort((a, b) => a - b),
   )
-  const free = (si: number, i: number) => load[i] < cap && !resp[si].unavailable.includes(occs[i].date)
+  const free = (si: number, i: number) => load[i] < occs[i].cap && !resp[si].unavailable.includes(occs[i].date) && canDo(students[si], occs[i])
   /** Most further picks possible after occurrence i (greedy earliest is optimal for spacing). */
   const room = (si: number, i: number) => {
     let n = 0

@@ -184,12 +184,14 @@ function hospital(): SessionConfig {
   const c = config(4, 2)
   c.rosterMode = 'hospital'
   c.members.push(...['A', 'B', 'C'].map((n) => ({ id: `st${n}`, name: `Student ${n}`, type: 'student' as const, jobs: [] })))
-  c.students = { shiftIds: ['night'], maxPerShift: 1, shiftsPerStudent: 5 }
+  c.students = { shiftIds: [], maxPerShift: 1, shiftsPerStudent: 5 }
+  // In hospital mode a shift's positions are the student places: here one ER student per night.
+  c.shifts[0].requirements = [{ id: 'p1', jobId: 'er', memberType: 'any', count: 1 }]
   // The hospital's roster: a fixed rotation, deliberately with back-to-back nights (not ours to judge).
   for (let i = 0; i < 30; i++) {
     const date = `2026-11-${String(i + 1).padStart(2, '0')}`
-    c.duty.push({ date, shiftId: 'night', requirementId: 'r1', memberId: `r${Math.floor(i / 2) % 4}` })
-    c.duty.push({ date, shiftId: 'night', requirementId: 'r2', memberId: `s${i % 2}` })
+    c.duty.push({ date, shiftId: 'night', requirementId: 'resident', memberId: `r${Math.floor(i / 2) % 4}` })
+    c.duty.push({ date, shiftId: 'night', requirementId: 'staff', memberId: `s${i % 2}` })
   }
   return c
 }
@@ -202,6 +204,7 @@ test('hospital mode keeps residents/staff as given and only places students', ()
   for (const o of r.alternatives) {
     assert.deepEqual(o.roster.assignments, c.duty)
     assert.equal(o.roster.students.length, 15)
+    assert.ok(o.roster.students.every((x) => x.requirementId === 'p1'))
     assert.deepEqual(validate(c, {}, o.roster), [], 'hospital roster isn’t judged against intervals')
   }
   const exp = studentExposure(c, r.alternatives[0].roster.assignments, r.alternatives[0].roster.students)
@@ -213,7 +216,7 @@ test('counts student arrangements exactly when small', () => {
   const c = hospital()
   c.endDate = '2026-11-04'
   c.members = c.members.filter((m) => m.id !== 'stB' && m.id !== 'stC')
-  c.students = { shiftIds: ['night'], maxPerShift: 1, shiftsPerStudent: 2 }
+  c.students = { ...c.students, shiftsPerStudent: 2 }
   // One student, 2 nights out of 4, at least 2 days apart: {1,3},{1,4},{2,4} = 3
   assert.deepEqual(countStudentArrangements(c, {}), { exact: true, count: 3 })
 })
@@ -242,7 +245,7 @@ test('AI replies in hospital mode only change students', () => {
   const reply = JSON.stringify({
     format: 'wayneday-roster',
     assignments: [{ date: '2026-11-01', shift: 'Night', job: 'ER', member: 'Res 3' }],
-    students: [{ date: '2026-11-01', shift: 'Night', member: 'Student A' }],
+    students: [{ date: '2026-11-01', shift: 'Night', job: 'ER', member: 'Student A' }],
   })
   const r = importAiResult(reply, c)
   assert.ok(r.ok)
