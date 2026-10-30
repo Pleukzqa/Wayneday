@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { dayDiff } from './dates.ts'
 import { countArrangements, solve, solveMany, validate } from './solver.ts'
-import { arrangeStudents, countStudentArrangements, pickPresenters, placeKey, studentCellIssues, studentExposure, studentOptions, studentTargets } from './students.ts'
+import { arrangeStudents, countStudentArrangements, pickPresenters, placeKey, studentCellIssues, studentExposure, studentOptions, studentRuleReport, studentTargets } from './students.ts'
 import { importAiResult } from './ai.ts'
 import { DEFAULT_RESPONSE, DEFAULT_STUDENTS, type MemberResponse, type SessionConfig, type StudentAssignment } from './types.ts'
 
@@ -272,4 +272,44 @@ test('hand-moving a student: legal targets and marked problems', () => {
   const bad: StudentAssignment[] = r.students.filter((x) => !(x.date === '2026-11-20' && x !== a)).map((x) => (x === a ? { ...x, date: '2026-11-20' } : x))
   const issues = studentCellIssues(c, responses, bad)
   assert.match(issues.get(placeKey({ date: '2026-11-20', shiftId: 'night', requirementId: 'p1' }))?.join() ?? '', /unavailable/)
+})
+
+test('two rooms, one of each per student, every room filled, no repeats, avoid requests', () => {
+  const c = hospital()
+  // Long room every weekday, short room not on Tuesdays; 1–2 students each.
+  c.shifts = [
+    { id: 'L', name: 'Long', start: '16:30', end: '24:00', days: [1, 2, 3, 4, 5], requirements: [{ id: 'Lp', jobId: 'er', memberType: 'any', count: 2, min: 1 }] },
+    { id: 'S', name: 'Short', start: '16:30', end: '20:00', days: [1, 3, 4, 5], requirements: [{ id: 'Sp', jobId: 'er', memberType: 'any', count: 2, min: 1 }] },
+  ]
+  c.overrides = [{ date: '2026-11-13', shiftId: 'L', active: false }, { date: '2026-11-13', shiftId: 'S', active: false }]
+  c.members = Array.from({ length: 22 }, (_, i) => ({ id: `s${i}`, name: `S${i}`, type: 'student' as const, jobs: [] }))
+  const docs = ['R1', 'R2', 'R3', 'R4', 'R5', 'R6']
+  c.members.push(...docs.map((d) => ({ id: d, name: d, type: 'resident' as const, jobs: [] })), { id: 'T', name: 'T', type: 'staff', jobs: [] })
+  c.duty = []
+  for (let day = 2; day <= 27; day++) {
+    const date = `2026-11-${String(day).padStart(2, '0')}`
+    c.duty.push({ date, shiftId: 'L', requirementId: 'resident', memberId: docs[day % 6] }, { date, shiftId: 'S', requirementId: 'resident', memberId: docs[(day + 2) % 6] })
+  }
+  c.startDate = '2026-11-02'
+  c.endDate = '2026-11-27'
+  c.students = { shiftIds: [], maxPerShift: 2, shiftsPerStudent: 2, perSlot: { L: 1, S: 1 }, avoidRepeatResident: true, avoidRepeatPartner: true, minGap: 7 }
+  const responses = { s0: resp({ avoid: [{ date: '2026-11-03', level: 3 }, { date: '2026-11-04', level: 3 }] }) }
+  const r = studentOptions(c, responses, c.duty, { count: 2 })
+  assert.ok(r.ok, JSON.stringify(!r.ok && r.problems))
+  if (!r.ok) return
+  const roster = r.alternatives[0].roster
+  assert.deepEqual(validate(c, responses, roster), [])
+  assert.equal(studentCellIssues(c, responses, roster.students).size, 0)
+  for (const m of c.members.filter((x) => x.type === 'student')) {
+    assert.equal(roster.students.filter((s) => s.memberId === m.id && s.shiftId === 'L').length, 1)
+    assert.equal(roster.students.filter((s) => s.memberId === m.id && s.shiftId === 'S').length, 1)
+  }
+  const report = studentRuleReport(c, responses, roster)
+  assert.equal(report.repeats, 0, report.details.join('\n'))
+  assert.equal(report.avoidHits[3], 0)
+  // Every open room-day has 1–2 students.
+  const rooms = new Map<string, number>()
+  for (const s of roster.students) rooms.set(`${s.date}|${s.shiftId}`, (rooms.get(`${s.date}|${s.shiftId}`) ?? 0) + 1)
+  assert.equal(rooms.size, 19 + 15)
+  assert.ok([...rooms.values()].every((n) => n >= 1 && n <= 2))
 })

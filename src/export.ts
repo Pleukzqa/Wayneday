@@ -2,7 +2,7 @@
 import { presentationOn, reqCount, shiftRuns } from './shared/calendar.ts'
 import { addDays, dateRange, shortDate, weekday } from './shared/dates.ts'
 import { buildProblem, statsFor } from './shared/solver.ts'
-import { studentExposure } from './shared/students.ts'
+import { studentExposure, studentSummaryTable } from './shared/students.ts'
 import { DUTY_ROLES, type Assignment, type DutyRole, type MemberResponse, type Roster, type SessionConfig } from './shared/types.ts'
 
 export type Column =
@@ -203,7 +203,8 @@ export async function exportXlsx(config: SessionConfig, responses: Record<string
     ws.views = [{ state: 'frozen', xSplit: 1, ySplit: 1 }]
   }
   add('Roster', rosterTable(config, roster), 0)
-  add('By person', personTable(config, responses, roster))
+  if (config.members.some((m) => m.type === 'student')) add('Per student', studentSummaryTable(config, roster))
+  if (config.rosterMode === 'generate') add('By person', personTable(config, responses, roster))
   const buf = await wb.xlsx.writeBuffer()
   await download(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), `${fileBase(config)}.xlsx`)
 }

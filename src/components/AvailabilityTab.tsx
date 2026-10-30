@@ -3,10 +3,12 @@ import { api } from '../api.ts'
 import { shiftRuns, shiftsForType, shiftsOn } from '../shared/calendar.ts'
 import { dateRange, shortDate, weekday } from '../shared/dates.ts'
 import { responseFor } from '../shared/solver.ts'
-import { DEFAULT_RESPONSE, type AnswerChange, type MemberResponse } from '../shared/types.ts'
+import { DEFAULT_RESPONSE, type AnswerChange, type AvoidLevel, type MemberResponse } from '../shared/types.ts'
 import type { SessionProps } from './props.ts'
 
-type Tool = 'unavailable' | 'lock' | 'clear'
+type Tool = 'unavailable' | 'avoid' | 'lock' | 'clear'
+
+const AVOID_LABEL = ['', 'Rather not', 'Important', 'Really need off']
 
 export default function AvailabilityTab({ code, session, me, mutate }: SessionProps) {
   const { config } = session
@@ -14,6 +16,7 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'error'>('idle')
   const [tool, setTool] = useState<Tool>('unavailable')
   const [editOthers, setEditOthers] = useState(false)
+  const [avoidLvl, setAvoidLvl] = useState<AvoidLevel>(3)
   const [notice, setNotice] = useState<string | null>(null)
   const myType = config.members.find((m) => m.id === me.memberId)?.type
   // A member only sees shift slots they can actually work; the host sees all.
@@ -76,7 +79,9 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
   function cellState(r: MemberResponse, date: string) {
     if (r.unavailable.includes(date)) return { kind: 'unavailable' as const }
     const lock = r.locks.find((l) => l.date === date)
-    return lock ? { kind: 'lock' as const, shiftId: lock.shiftId } : { kind: 'free' as const }
+    if (lock) return { kind: 'lock' as const, shiftId: lock.shiftId }
+    const avoid = r.avoid?.find((a) => a.date === date)
+    return avoid ? { kind: 'avoid' as const, level: avoid.level } : { kind: 'free' as const }
   }
 
   function apply(memberId: string, date: string, mode: Tool) {
@@ -94,9 +99,11 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
     update(memberId, (r) => {
       const unavailable = r.unavailable.filter((d) => d !== date)
       const locks = r.locks.filter((l) => l.date !== date)
+      const avoid = (r.avoid ?? []).filter((a) => a.date !== date)
+      if (mode === 'avoid') avoid.push({ date, level: avoidLvl })
       if (mode === 'unavailable') unavailable.push(date)
       if (mode === 'lock') locks.push({ date, shiftId: lockShift })
-      return { ...r, unavailable, locks }
+      return { ...r, unavailable, locks, avoid }
     })
   }
 
@@ -110,7 +117,10 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
     if (!c || !canEdit(c.memberId)) return
     const st = cellState(respOf(c.memberId), c.date)
     // Pressing on a cell that already has this state erases instead.
-    const same = (tool === 'unavailable' && st.kind === 'unavailable') || (tool === 'lock' && st.kind === 'lock' && st.shiftId === lockShift)
+    const same =
+      (tool === 'unavailable' && st.kind === 'unavailable') ||
+      (tool === 'lock' && st.kind === 'lock' && st.shiftId === lockShift) ||
+      (tool === 'avoid' && st.kind === 'avoid' && st.level === avoidLvl)
     const mode: Tool = same ? 'clear' : tool
     paint.current = { mode }
     stroke.current = new Map()
@@ -123,7 +133,11 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
     if (c) {
       const st = cellState(respOf(c.memberId), c.date)
       const want = paint.current.mode
-      const already = (want === 'clear' && st.kind === 'free') || (want === 'unavailable' && st.kind === 'unavailable') || (want === 'lock' && st.kind === 'lock' && st.shiftId === lockShift)
+      const already =
+        (want === 'clear' && st.kind === 'free') ||
+        (want === 'unavailable' && st.kind === 'unavailable') ||
+        (want === 'lock' && st.kind === 'lock' && st.shiftId === lockShift) ||
+        (want === 'avoid' && st.kind === 'avoid' && st.level === avoidLvl)
       if (!already) apply(c.memberId, c.date, want)
     }
   }
@@ -275,7 +289,8 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
         </div>
         <p className="muted small">
           {me.memberId ? 'Edit your own column; everyone’s answers are visible.' : me.isHost ? 'Everyone’s answers are visible.' : 'Log in above to fill in your column.'}{' '}
-          Tap or drag over cells. <strong>Unavailable</strong> = you can’t work that day. <strong>Lock in</strong> = you must work
+          Tap or drag over cells. <strong>Unavailable</strong> = you can’t work that day. <strong>Avoid</strong> = you’d rather not, in
+          three levels (!!! really need it off, !! important, ! rather not) — Wayneday tries hardest for !!!. <strong>Lock in</strong> = you must work
           that day, on the shift slot you pick
           {lockChoices.length > 1 ? ` (${lockChoices.map((s) => s.name).join(' or ')})` : ''}.
         </p>
@@ -294,6 +309,9 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
             <button role="radio" aria-checked={tool === 'lock'} className={tool === 'lock' ? 'on' : ''} onClick={() => setTool('lock')}>
               <span className="swatch lock">🔒</span> Lock in
             </button>
+            <button role="radio" aria-checked={tool === 'avoid'} className={tool === 'avoid' ? 'on' : ''} onClick={() => setTool('avoid')}>
+              <span className="swatch avoid">!</span> Avoid
+            </button>
             <button role="radio" aria-checked={tool === 'clear'} className={tool === 'clear' ? 'on' : ''} onClick={() => setTool('clear')}>
               Clear
             </button>
@@ -301,6 +319,15 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
           <button onClick={undo} disabled={undoCount === 0} title="Undo your last change">
             ↶ Undo
           </button>
+          {tool === 'avoid' && (
+            <div className="segmented" role="radiogroup" aria-label="How much it matters">
+              {([3, 2, 1] as const).map((l) => (
+                <button key={l} role="radio" aria-checked={avoidLvl === l} className={`${avoidLvl === l ? 'on' : ''} lvl-${l}`} onClick={() => setAvoidLvl(l)}>
+                  {'!'.repeat(l)} {AVOID_LABEL[l]}
+                </button>
+              ))}
+            </div>
+          )}
           {tool === 'lock' && lockChoices.length > 1 && (
             <label className="inline">
               into
@@ -350,10 +377,24 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
                           key={m.id}
                           data-date={date}
                           data-member={m.id}
-                          className={`cell ${st.kind} ${editable ? 'editable' : ''} ${off ? 'off' : ''} ${m.id === me.memberId ? 'me' : ''}`}
-                          title={`${m.name} · ${date}${st.kind === 'lock' ? ` · locked to ${config.shifts.find((s) => s.id === st.shiftId)?.name}` : st.kind === 'unavailable' ? ' · unavailable' : ''}`}
+                          className={`cell ${st.kind} ${st.kind === 'avoid' ? `avoid-${st.level}` : ''} ${editable ? 'editable' : ''} ${off ? 'off' : ''} ${m.id === me.memberId ? 'me' : ''}`}
+                          title={`${m.name} · ${date}${
+                            st.kind === 'lock'
+                              ? ` · locked to ${config.shifts.find((s) => s.id === st.shiftId)?.name}`
+                              : st.kind === 'unavailable'
+                                ? ' · unavailable'
+                                : st.kind === 'avoid'
+                                  ? ` · avoid: ${AVOID_LABEL[st.level]}`
+                                  : ''
+                          }`}
                         >
-                          {st.kind === 'unavailable' ? '✕' : st.kind === 'lock' ? `🔒${config.shifts.length > 1 ? shiftShort(st.shiftId) : ''}` : ''}
+                          {st.kind === 'unavailable'
+                            ? '✕'
+                            : st.kind === 'lock'
+                              ? `🔒${config.shifts.length > 1 ? shiftShort(st.shiftId) : ''}`
+                              : st.kind === 'avoid'
+                                ? '!'.repeat(st.level)
+                                : ''}
                         </td>
                       )
                     })}
@@ -375,6 +416,7 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
                 <th>Pattern</th>
                 <th>Min interval</th>
                 <th>Unavailable</th>
+                <th>Avoid</th>
                 <th>Locked</th>
                 <th>Note</th>
                 <th>Updated</th>
@@ -394,12 +436,13 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
                         <td>{r.preference === 'distributed' ? 'Spread out' : 'Grouped'}</td>
                         <td>{r.minInterval} d</td>
                         <td>{r.unavailable.length}</td>
+                        <td>{r.avoid?.length ?? 0}</td>
                         <td>{r.locks.length}</td>
                         <td className="note">{r.note}</td>
                         <td className="muted small nowrap">{r.updatedAt ? new Date(r.updatedAt).toLocaleString() : 'now'}</td>
                       </>
                     ) : (
-                      <td colSpan={6} className="muted small">
+                      <td colSpan={7} className="muted small">
                         No answer yet — defaults: spread out, {r.minInterval}-day interval
                       </td>
                     )}

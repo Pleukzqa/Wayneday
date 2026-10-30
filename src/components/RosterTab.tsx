@@ -6,8 +6,17 @@ import { buildAiPrompt, importAiResult } from '../shared/ai.ts'
 import { shortDate } from '../shared/dates.ts'
 import { reqCount } from '../shared/calendar.ts'
 import { validate, type CountResult } from '../shared/solver.ts'
-import { pickPresenters, placeKey, studentCellIssues, studentExposure, studentTargets, type StudentOption } from '../shared/students.ts'
-import { STUDENT_SLOT, type Roster, type Schedule, type SessionConfig, type StudentAssignment } from '../shared/types.ts'
+import {
+  pickPresenters,
+  placeKey,
+  studentCellIssues,
+  studentExposure,
+  studentRuleReport,
+  studentSummaryTable,
+  studentTargets,
+  type StudentOption,
+} from '../shared/students.ts'
+import { STUDENT_SLOT, type MemberResponse, type Roster, type Schedule, type SessionConfig, type StudentAssignment } from '../shared/types.ts'
 import CalendarExport from './CalendarExport.tsx'
 import ConfirmButton from './ConfirmButton.tsx'
 import RosterTable, { type Arrange } from './RosterTable.tsx'
@@ -55,7 +64,7 @@ function countText(c: CountResult, shown: number, what: string): string {
 }
 
 /** One-line fairness summary of a roster, for comparing options. */
-function summary(config: SessionConfig, roster: Roster): string {
+function summary(config: SessionConfig, roster: Roster, responses: Record<string, MemberResponse>): string {
   const parts: string[] = []
   const isWeekend = (d: string) => [0, 6].includes(new Date(d + 'T00:00:00Z').getUTCDay()) || config.holidays.includes(d)
   if (config.rosterMode === 'generate') {
@@ -71,7 +80,8 @@ function summary(config: SessionConfig, roster: Roster): string {
   } else {
     const ids = config.members.filter((m) => m.type === 'student').map((m) => m.id)
     const wk = ids.map((id) => roster.students.filter((s) => s.memberId === id && isWeekend(s.date)).length)
-    if (wk.length) parts.push(`student weekends ${Math.min(...wk)}–${Math.max(...wk)}`)
+    if (wk.length && wk.some((n) => n > 0)) parts.push(`student weekends ${Math.min(...wk)}–${Math.max(...wk)}`)
+    parts.push(...studentRuleReport(config, responses, roster).summary)
   }
   if (roster.students.length) {
     const exp = studentExposure(config, roster.assignments, roster.students)
@@ -311,7 +321,7 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
                       Option {i + 1}
                       {i === 0 ? ' · fairest' : ''}
                     </strong>
-                    <span className="small muted">{summary(config, o.roster)}</span>
+                    <span className="small muted">{summary(config, o.roster, responses)}</span>
                     {i > 0 && <span className="small">{differs(options[0].roster, o.roster)} shifts differ from option 1</span>}
                   </button>
                 )
@@ -524,8 +534,10 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
             />
           </section>
           {config.presentations.length > 0 && <p className="muted small">● = presenting after being on the previous night’s shift.</p>}
+          {hasStudents && <RulesCheck config={config} responses={responses} roster={shown} />}
           <Exports {...{ code, session, me, mutate }} roster={shown} tableRef={tableRef} />
-          <Stats {...{ code, session, me, mutate }} roster={shown} />
+          {hasStudents && <StudentSummary config={config} roster={shown} myId={me.memberId} />}
+          {!hospital && <Stats {...{ code, session, me, mutate }} roster={shown} />}
         </>
       )}
 
@@ -741,6 +753,58 @@ function Concerns({
           ))}
         </ul>
       )}
+    </section>
+  )
+}
+
+function RulesCheck({ config, responses, roster }: { config: SessionConfig; responses: Record<string, MemberResponse>; roster: Roster }) {
+  const r = studentRuleReport(config, responses, roster)
+  if (!r.summary.length) return null
+  const ok = r.details.length === 0
+  return (
+    <section className={`card rules-check ${ok ? 'ok' : ''}`}>
+      <h2>Rules check</h2>
+      <p className="small">{r.summary.join(' · ')}</p>
+      {!ok && (
+        <ul className="small">
+          {r.details.slice(0, 15).map((d) => (
+            <li key={d}>{d}</li>
+          ))}
+          {r.details.length > 15 && <li>…and {r.details.length - 15} more</li>}
+        </ul>
+      )}
+    </section>
+  )
+}
+
+function StudentSummary({ config, roster, myId }: { config: SessionConfig; roster: Roster; myId: string | null }) {
+  const t = studentSummaryTable(config, roster)
+  const students = config.members.filter((m) => m.type === 'student')
+  return (
+    <section className="card">
+      <h2>Per student</h2>
+      <div className="scroll-x">
+        <table className="mini">
+          <thead>
+            <tr>
+              {t.header.map((h, i) => (
+                <th key={i}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {t.rows.map((r, i) => (
+              <tr key={students[i].id} className={students[i].id === myId ? 'me' : ''}>
+                {r.map((v, j) => (
+                  <td key={j} className={j >= 2 && (j - 2) % 6 === 0 ? 'nowrap' : ''}>
+                    {j >= 2 && (j - 2) % 6 === 0 && v ? shortDate(v) : v}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </section>
   )
 }

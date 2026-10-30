@@ -15,6 +15,11 @@ export function reqCount(config: SessionConfig, shift: ShiftSlot, req: Requireme
   return overrideFor(config, date, shift.id)?.counts?.[req.id] ?? req.count
 }
 
+/** Fewest people a position needs on a date (hospital-mode student places), never above that day's count. */
+export function reqMin(config: SessionConfig, shift: ShiftSlot, req: Requirement, date: string): number {
+  return Math.min(req.min ?? 0, reqCount(config, shift, req, date))
+}
+
 export function shiftsOn(config: SessionConfig, date: string): ShiftSlot[] {
   return config.shifts.filter((s) => shiftRuns(config, s, date))
 }

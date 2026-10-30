@@ -23,7 +23,7 @@ interface Store {
   acting: Record<string, string>
 }
 
-const KEY = 'wayneday-demo-v4'
+const KEY = 'wayneday-demo-v5'
 export const SAMPLE_CODE = 'sample-night-ward'
 
 let store: Store = load()
@@ -271,7 +271,7 @@ function sample(): PublicSession {
       ],
       overrides: [],
       members,
-      students: { shiftIds: ['night'], maxPerShift: 1, shiftsPerStudent: 6 },
+      students: { shiftIds: ['night'], maxPerShift: 1, shiftsPerStudent: 6, avoidRepeatPartner: true, minGap: 2 },
       presentations: [
         {
           id: 'morning-report',
@@ -288,7 +288,8 @@ function sample(): PublicSession {
     },
     claimed: ['st-beam', 'st-praew', 'st-kaew'],
     responses: {
-      'st-beam': r({ unavailable: [d(3), d(4), d(5)], note: 'Surgery rotation exam on the 4th' }),
+      'st-beam': r({ unavailable: [d(3), d(4), d(5)], avoid: [{ date: d(10), level: 3 }, { date: d(11), level: 2 }], note: 'Surgery rotation exam on the 4th' }),
+      'st-jane': r({ avoid: [{ date: d(20), level: 1 }, { date: d(21), level: 1 }] }),
       'st-praew': r({ preference: 'dense', minInterval: 2, note: 'Prefer to finish nights early' }),
       'st-kaew': r({ minInterval: 3, unavailable: [d(13), d(14)], locks: [{ date: d(20), shiftId: 'night' }] }),
     },

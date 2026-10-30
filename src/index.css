@@ -1117,3 +1117,71 @@ button.chip-btn.picked:hover:not(:disabled) {
   margin-top: 0.15rem;
   max-width: 12rem;
 }
+
+.rules {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+/* avoid levels, like a red / orange / yellow sheet */
+:root {
+  --avoid-3: #f6c9c2;
+  --avoid-2: #f9dcb8;
+  --avoid-1: #fbf0b5;
+  --avoid-text: #6b3a00;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --avoid-3: #5a2a24;
+    --avoid-2: #57391c;
+    --avoid-1: #4d4317;
+    --avoid-text: #f5d9b5;
+  }
+}
+:root[data-theme='dark'] {
+  --avoid-3: #5a2a24;
+  --avoid-2: #57391c;
+  --avoid-1: #4d4317;
+  --avoid-text: #f5d9b5;
+}
+.grid tr .cell.avoid {
+  color: var(--avoid-text);
+  font-weight: 700;
+}
+.grid tr .cell.avoid-3 {
+  background: var(--avoid-3);
+}
+.grid tr .cell.avoid-2 {
+  background: var(--avoid-2);
+}
+.grid tr .cell.avoid-1 {
+  background: var(--avoid-1);
+}
+.segmented button.lvl-3.on {
+  background: var(--avoid-3);
+  color: var(--avoid-text);
+}
+.segmented button.lvl-2.on {
+  background: var(--avoid-2);
+  color: var(--avoid-text);
+}
+.segmented button.lvl-1.on {
+  background: var(--avoid-1);
+  color: var(--avoid-text);
+}
+.swatch.avoid {
+  color: var(--warn);
+  font-weight: 700;
+}
+
+.rules-check {
+  border-color: var(--warn);
+}
+.rules-check.ok {
+  border-color: var(--accent);
+}
+.rules-check ul {
+  margin: 0;
+  padding-left: 1.1rem;
+}

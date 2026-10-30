@@ -259,6 +259,14 @@ export function StudentsCard({ draft, edit, ro }: { draft: SessionConfig; edit: 
   const count = draft.members.filter((m) => m.type === 'student').length
   const set = (patch: Partial<SessionConfig['students']>) => edit((c) => ({ ...c, students: { ...c.students, ...patch } }))
   if (draft.rosterMode === 'hospital') {
+    const slots = draft.shifts.filter((x) => x.requirements.length > 0)
+    const perSlot = Object.keys(st.perSlot ?? {}).length > 0
+    const check = (key: 'avoidRepeatResident' | 'avoidRepeatStaff' | 'avoidRepeatPartner' | 'wantPartner', label: string) => (
+      <label className="check">
+        <input type="checkbox" disabled={ro} checked={Boolean(st[key])} onChange={(e) => set({ [key]: e.target.checked })} />
+        {label}
+      </label>
+    )
     return (
       <section className="card">
         <h2>Student shifts</h2>
@@ -266,11 +274,58 @@ export function StudentsCard({ draft, edit, ro }: { draft: SessionConfig; edit: 
           Wayneday places students in the student places of each shift so every resident and every staff member in the hospital roster is on
           duty with students about equally often. {count ? `${count} student(s).` : 'Add students above.'}
         </p>
+        <div className="segmented wrap-seg" role="radiogroup" aria-label="How many shifts each student does">
+          <button type="button" role="radio" aria-checked={!perSlot} className={!perSlot ? 'on' : ''} disabled={ro} onClick={() => set({ perSlot: {} })}>
+            A total
+          </button>
+          <button
+            type="button"
+            role="radio"
+            aria-checked={perSlot}
+            className={perSlot ? 'on' : ''}
+            disabled={ro}
+            onClick={() => set({ perSlot: Object.fromEntries(slots.map((x) => [x.id, 1])) })}
+          >
+            A number of each shift
+          </button>
+        </div>
+        {perSlot ? (
+          <div className="row wrap">
+            <span className="small">Each student does exactly</span>
+            {slots.map((x) => (
+              <label key={x.id} className="inline">
+                <input
+                  type="number"
+                  min={0}
+                  max={50}
+                  disabled={ro}
+                  value={st.perSlot?.[x.id] ?? 0}
+                  onChange={(e) => set({ perSlot: { ...st.perSlot, [x.id]: Math.max(0, Number(e.target.value) || 0) } })}
+                />
+                × {x.name}
+              </label>
+            ))}
+          </div>
+        ) : (
+          <label className="inline">
+            Each student does
+            <input type="number" min={0} max={100} disabled={ro} value={st.shiftsPerStudent} onChange={(e) => set({ shiftsPerStudent: Math.max(0, Number(e.target.value) || 0) })} />
+            shifts
+          </label>
+        )}
         <label className="inline">
-          Each student does
-          <input type="number" min={0} max={100} disabled={ro} value={st.shiftsPerStudent} onChange={(e) => set({ shiftsPerStudent: Math.max(0, Number(e.target.value) || 0) })} />
-          shifts
+          A student’s shifts at least
+          <input type="number" min={0} max={60} disabled={ro} value={st.minGap ?? 0} onChange={(e) => set({ minGap: Math.max(0, Number(e.target.value) || 0) })} />
+          days apart <span className="muted small">(0 = each student’s own answer)</span>
         </label>
+        <div className="rules">
+          <span className="small">Try to avoid:</span>
+          {check('avoidRepeatResident', 'the same resident twice for a student')}
+          {check('avoidRepeatStaff', 'the same staff (อาจารย์) twice for a student')}
+          {check('avoidRepeatPartner', 'the same two students together twice')}
+          {check('wantPartner', 'a student being alone on every shift')}
+        </div>
+        <p className="muted small">These are tried as hard as possible; the Roster tab says if any couldn’t be met.</p>
       </section>
     )
   }

@@ -25,6 +25,8 @@ export interface Requirement {
   jobId: string
   memberType: WorkerType | 'any'
   count: number
+  /** Hospital mode: fewest students this place must have (count is the most). */
+  min?: number
 }
 
 export interface ShiftSlot {
@@ -54,6 +56,18 @@ export interface StudentSettings {
   maxPerShift: number
   /** Shifts each student must do. */
   shiftsPerStudent: number
+  /** Keep a student from working with the same resident twice. */
+  avoidRepeatResident?: boolean
+  /** Keep a student from working with the same staff member (อาจารย์) twice. */
+  avoidRepeatStaff?: boolean
+  /** Never put the same two students together twice. */
+  avoidRepeatPartner?: boolean
+  /** Try to give every student a fellow student on at least one shift. */
+  wantPartner?: boolean
+  /** Shift slot id -> exactly how many of that slot each student does (replaces the single total when set). */
+  perSlot?: Record<string, number>
+  /** Fewest days between two shifts of the same student, whatever they asked for themselves. */
+  minGap?: number
 }
 
 /** "On these days, `count` presentations; at least `fromCount` by people who were on `fromShiftId` the day before." */
@@ -120,6 +134,14 @@ export interface MemberResponse {
   updatedAt: number
   /** Set when the host last changed this member's answers. */
   editedByHost?: number
+  /** Dates they'd rather not work, by how much it matters: 3 = really need it off, 2 = important, 1 = would rather not. */
+  avoid?: AvoidDate[]
+}
+
+export type AvoidLevel = 1 | 2 | 3
+export interface AvoidDate {
+  date: string
+  level: AvoidLevel
 }
 
 export interface Lock {

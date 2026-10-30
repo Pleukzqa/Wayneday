@@ -223,7 +223,7 @@ export default function SetupTab({ code, session, me, mutate }: SessionProps) {
                     <tr>
                       <th>Job</th>
                       {!hospital && <th>Who</th>}
-                      <th>{hospital ? 'Students' : 'How many'}</th>
+                      <th>{hospital ? 'Students (at least – at most)' : 'How many'}</th>
                       <th />
                     </tr>
                   </thead>
@@ -248,11 +248,27 @@ export default function SetupTab({ code, session, me, mutate }: SessionProps) {
                             </select>
                           </td>
                         )}
-                        <td>
+                        <td className="nowrap">
+                          {hospital && (
+                            <>
+                              <input
+                                type="number"
+                                min={0}
+                                max={r.count}
+                                aria-label="At least"
+                                title="At least"
+                                value={r.min ?? 0}
+                                onChange={(e) => setReq(s.id, r.id, { min: Math.min(r.count, Math.max(0, Number(e.target.value) || 0)) })}
+                              />{' '}
+                              –{' '}
+                            </>
+                          )}
                           <input
                             type="number"
                             min={1}
                             max={20}
+                            aria-label={hospital ? 'At most' : 'How many'}
+                            title={hospital ? 'At most' : undefined}
                             value={r.count}
                             onChange={(e) => setReq(s.id, r.id, { count: Math.max(1, Number(e.target.value) || 1) })}
                           />

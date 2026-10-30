@@ -82,7 +82,9 @@ function cleanConfig(raw: unknown): SessionConfig {
           const q = r as Record<string, unknown>
           const memberType: 'resident' | 'staff' | 'any' =
             q.memberType === 'resident' || q.memberType === 'staff' ? q.memberType : 'any'
-          return { id: str(q.id, 40) || id(), jobId: str(q.jobId, 40), memberType, count: int(q.count, 1, 20, 1) }
+          const count = int(q.count, 1, 20, 1)
+          const min = q.min === undefined || q.min === null ? undefined : int(q.min, 0, count, 0)
+          return { id: str(q.id, 40) || id(), jobId: str(q.jobId, 40), memberType, count, ...(min === undefined ? {} : { min }) }
         })
         .filter((r) => jobIds.has(r.jobId)),
     }
@@ -113,6 +115,16 @@ function cleanConfig(raw: unknown): SessionConfig {
     shiftIds: arr(st.shiftIds, 12).map((x) => str(x, 40)).filter((x) => shiftIds.has(x)),
     maxPerShift: int(st.maxPerShift, 1, 20, DEFAULT_STUDENTS.maxPerShift),
     shiftsPerStudent: int(st.shiftsPerStudent, 0, 100, DEFAULT_STUDENTS.shiftsPerStudent),
+    avoidRepeatResident: Boolean(st.avoidRepeatResident),
+    avoidRepeatStaff: Boolean(st.avoidRepeatStaff),
+    avoidRepeatPartner: Boolean(st.avoidRepeatPartner),
+    wantPartner: Boolean(st.wantPartner),
+    minGap: int(st.minGap, 0, 60, 0),
+    perSlot: Object.fromEntries(
+      Object.entries((st.perSlot ?? {}) as Record<string, unknown>)
+        .filter(([k]) => shiftIds.has(k))
+        .map(([k, v]) => [k, int(v, 0, 50, 0)]),
+    ),
   }
   const presentations: PresentationRule[] = arr(c.presentations, 10).map((x) => {
     const o = x as Record<string, unknown>
@@ -175,6 +187,10 @@ function cleanResponse(raw: unknown): MemberResponse {
       .filter((l) => isDate(l.date))
       .map((l) => ({ date: l.date as string, shiftId: str(l.shiftId, 40) })),
     note: str(r.note, 1000),
+    avoid: arr(r.avoid, 400)
+      .map((a) => a as Record<string, unknown>)
+      .filter((a) => isDate(a.date))
+      .map((a) => ({ date: a.date as string, level: int(a.level, 1, 3, 1) as 1 | 2 | 3 })),
     updatedAt: Date.now(),
   }
 }

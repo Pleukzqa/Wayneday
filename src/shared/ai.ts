@@ -60,7 +60,11 @@ export function buildAiPrompt(config: SessionConfig, responses: Record<string, M
   lines.push(hospital ? '## Shifts and student places (weekly pattern)' : '## Shifts and positions (weekly pattern)')
   for (const s of config.shifts) {
     const reqs = s.requirements
-      .map((r) => (hospital ? `up to ${r.count} student(s) in ${job(r.jobId)}` : `${r.count} × ${job(r.jobId)} (${r.memberType === 'any' ? 'resident or staff' : r.memberType})`))
+      .map((r) =>
+        hospital
+          ? `${r.min ? `${r.min}–${r.count}` : `up to ${r.count}`} student(s) in ${job(r.jobId)}`
+          : `${r.count} × ${job(r.jobId)} (${r.memberType === 'any' ? 'resident or staff' : r.memberType})`,
+      )
       .join(', ')
     lines.push(`- "${s.name}" ${s.start}–${s.end}, runs on ${s.days.map((d) => WEEKDAYS[d]).join('/') || 'no regular days'}: ${reqs}`)
   }
@@ -95,7 +99,20 @@ export function buildAiPrompt(config: SessionConfig, responses: Record<string, M
     lines.push('## Students')
     lines.push(
       hospital
-        ? `Each student does ${st.shiftsPerStudent} shift(s), taking one of the student places above (give the job). Spread students so every resident and every staff member in the hospital roster is on duty with students about equally often.`
+        ? [
+            st.perSlot && Object.keys(st.perSlot).length
+              ? `Each student does exactly ${Object.entries(st.perSlot).filter(([, n]) => n > 0).map(([id, n]) => `${n} × "${shiftName(id)}"`).join(' and ')}.`
+              : `Each student does ${st.shiftsPerStudent} shift(s).`,
+            'Students take the student places above (give the job); every place must have at least its minimum number of students.',
+            st.minGap ? `A student's shifts must be at least ${st.minGap} days apart.` : '',
+            st.avoidRepeatResident ? 'A student should not meet the same resident twice.' : '',
+            st.avoidRepeatStaff ? 'A student should not meet the same staff member twice.' : '',
+            st.avoidRepeatPartner ? 'The same two students should never be together twice.' : '',
+            st.wantPartner ? 'Every student should have a fellow student on at least one shift.' : '',
+            'Spread students so every resident and every staff member is on duty with students about equally often. Say clearly if any of these cannot be met.',
+          ]
+            .filter(Boolean)
+            .join(' ')
         : `Students do not fill positions. Each student joins ${st.shiftsPerStudent} shift(s) of ${st.shiftIds.map(shiftName).map((n) => `"${n}"`).join(' or ') || '(none set)'}, at most ${st.maxPerShift} student(s) per shift. Spread students so every resident and every staff member is on duty with students about equally often.`,
     )
     for (const m of students) lines.push(personLine(config, responses, m.id, job, shiftName))
@@ -182,6 +199,10 @@ function personLine(
   ]
   if (m.maxShifts != null) parts.push(`max ${m.maxShifts} shifts`)
   if (r.unavailable.length) parts.push(`UNAVAILABLE on ${[...r.unavailable].sort().join(', ')}`)
+  for (const level of [3, 2, 1] as const) {
+    const dates = (r.avoid ?? []).filter((x) => x.level === level).map((x) => x.date).sort()
+    if (dates.length) parts.push(`${['', 'would rather avoid', 'should avoid (important)', 'must try hardest to avoid'][level]}: ${dates.join(', ')}`)
+  }
   if (r.locks.length) parts.push(`MUST work ${r.locks.map((l) => `${shiftName(l.shiftId)} on ${l.date}`).join(', ')}`)
   if (r.note.trim()) parts.push(`note: "${r.note.trim()}"`)
   return `- "${m.name}": ${parts.join('; ')}`
