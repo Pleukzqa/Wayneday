@@ -64,6 +64,9 @@ export async function postgresStore(connectionString: string): Promise<Store> {
       updated_at timestamptz NOT NULL DEFAULT now()
     );
     CREATE INDEX IF NOT EXISTS wayneday_sessions_host_emails ON wayneday_sessions USING gin (host_emails);
+    -- Supabase also serves public tables over its web API; with row level security on and no policies,
+    -- that API sees nothing. The server connects as the table's owner, which isn't affected.
+    ALTER TABLE wayneday_sessions ENABLE ROW LEVEL SECURITY;
   `)
   return {
     kind: 'postgres',

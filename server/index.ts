@@ -6,10 +6,13 @@ import { storeFromEnv } from './store.ts'
 
 const root = join(import.meta.dirname, '..')
 const store = await storeFromEnv(process.env.DATA_DIR ?? join(root, 'data'))
+// Ignore a placeholder until a real "….apps.googleusercontent.com" ID is pasted in.
+const googleClientId = process.env.GOOGLE_CLIENT_ID?.trim() ?? ''
+if (googleClientId && !googleClientId.endsWith('.apps.googleusercontent.com')) console.warn('GOOGLE_CLIENT_ID doesn’t look like a Google client ID; sign-in stays off.')
 const app = express()
 // Behind the host's proxy (Render, Cloudflare…), so rate limits see the visitor's address.
 app.set('trust proxy', 1)
-app.use('/api', createApi({ store, googleClientId: process.env.GOOGLE_CLIENT_ID }))
+app.use('/api', createApi({ store, googleClientId: googleClientId.endsWith('.apps.googleusercontent.com') ? googleClientId : '' }))
 app.use(express.static(join(root, 'dist')))
 app.get(/^(?!\/api).*/, (_req, res) => res.sendFile(join(root, 'dist', 'index.html')))
 

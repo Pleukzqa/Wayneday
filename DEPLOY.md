@@ -4,7 +4,7 @@ About 20 minutes, no credit card. You end up with a link like `https://wayneday.
 
 | Piece | Service | Why |
 | --- | --- | --- |
-| Data | **Supabase** (your existing project) | Postgres that keeps the rosters |
+| Data | **Supabase**, free project | Postgres that keeps the rosters |
 | Website + API | **Render**, free web service | Runs the Node server straight from this GitHub repo |
 | Host sign-in | **Google Cloud**, OAuth client | "Sign in with Google" for hosts and co-hosts |
 | Your own domain (optional) | **Cloudflare** | Point e.g. `roster.yourdomain.com` at Render |
@@ -13,12 +13,13 @@ Members never need an account — they join with the session code and a PIN. Onl
 
 ## 1. Database — Supabase
 
-Wayneday keeps everything in one table, `wayneday_sessions`, which it creates itself. It can share your existing project without touching your other tables, or you can make a new free project for it.
+Wayneday keeps everything in one table, `wayneday_sessions`, which it creates itself (with row level security on, so Supabase's public web API can't read it). A new free project is the cleanest; the free plan allows two.
 
-1. Open your project at [supabase.com/dashboard](https://supabase.com/dashboard) → **Connect** (top bar).
-2. Under **Connection string**, pick **Session pooler** (works from Render, which has no IPv6) and copy the URI. It looks like
+1. [supabase.com/dashboard](https://supabase.com/dashboard) → **New project**.
+2. **Project name** `wayneday`. **Database password** → *Generate a password*, then make sure it has only letters and digits (symbols like `@ # / ? %` break the connection string — generate again or type your own) and save it somewhere. **Region**: *Southeast Asia (Singapore)*. **Create new project**, and wait a minute or two while it sets up.
+3. Press **Connect** in the top bar. In *Connection String*, set **Method** to **Session pooler** (Render can't reach the *Direct connection*), and copy the URI. It looks like
    `postgresql://postgres.abcdefgh:[YOUR-PASSWORD]@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres`
-3. Put your database password in place of `[YOUR-PASSWORD]`. Forgot it? **Project Settings → Database → Reset database password**.
+4. Replace `[YOUR-PASSWORD]` — brackets included — with your password. Forgot it? **Project Settings → Database → Reset database password**.
 
 Keep this as your `DATABASE_URL`. Free Supabase projects pause after a week with no activity; if the app ever says it can't reach the database, open the dashboard and press **Restore**.
 
@@ -29,7 +30,7 @@ Keep this as your `DATABASE_URL`. Free Supabase projects pause after a week with
 3. **New → Blueprint**, choose the `pleukzqa/wayneday` repo. Render reads `render.yaml` and sets up a free web service.
 4. It asks for two values:
    - `DATABASE_URL` — the Supabase URI from step 1.
-   - `GOOGLE_CLIENT_ID` — leave it empty for now (you'll add it in step 3).
+   - `GOOGLE_CLIENT_ID` — leave it empty for now (you'll add it in step 3). If Render won't accept an empty value, type `later`; anything that isn't a real client ID is ignored.
 5. **Apply**. The first build takes a few minutes. When it's live, open `https://<your-service>.onrender.com/api/health` — it should say `{"ok":true,"store":"postgres"}`.
 
 `SESSION_SECRET` is generated for you; it keeps hosts signed in across restarts.
