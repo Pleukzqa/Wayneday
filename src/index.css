@@ -941,3 +941,17 @@ body:has(.demobar) .savebar {
 .host-login {
   align-self: flex-start;
 }
+
+.cal-talks {
+  font-size: 0.62rem;
+  color: var(--accent);
+  font-weight: 600;
+  min-height: 0.8rem;
+}
+.cal-copy {
+  border-top: 1px solid var(--border);
+  padding-top: 0.5rem;
+}
+.wrap-seg {
+  flex-wrap: wrap;
+}

@@ -2,7 +2,7 @@ import type { Ref } from 'react'
 import { cellNames, columnsFor } from '../export.ts'
 import { reqCount } from '../shared/calendar.ts'
 import { dateRange, shortDate, weekday } from '../shared/dates.ts'
-import type { Concern, Roster, SessionConfig, SwapRequest } from '../shared/types.ts'
+import { STUDENT_SLOT, type Concern, type Roster, type SessionConfig, type SwapRequest } from '../shared/types.ts'
 
 interface Props {
   config: SessionConfig
@@ -10,14 +10,17 @@ interface Props {
   myId: string | null
   /** Host manual editing of resident/staff positions. */
   onEdit?: (date: string, shiftId: string, requirementId: string, slot: number, memberId: string) => void
-  /** Tap on a cell (to raise a concern or ask for a swap). */
+  /** Host manual editing of students on a shift. */
+  onEditStudent?: (date: string, shiftId: string, slot: number, memberId: string) => void
+  /** Tap on a cell (to raise a concern or ask for a swap). requirementId is STUDENT_SLOT for the students column. */
   onPick?: (date: string, shiftId: string, requirementId: string | null) => void
   concerns?: Concern[]
   swaps?: SwapRequest[]
   tableRef?: Ref<HTMLDivElement>
 }
 
-export default function RosterTable({ config, roster, myId, onEdit, onPick, concerns = [], swaps = [], tableRef }: Props) {
+export default function RosterTable({ config, roster, myId, onEdit, onEditStudent, onPick, concerns = [], swaps = [], tableRef }: Props) {
+  const studentList = config.members.filter((m) => m.type === 'student')
   const cols = columnsFor(config)
   const holidays = new Set(config.holidays)
   const open = concerns.filter((c) => !c.resolved && c.date)
@@ -51,13 +54,43 @@ export default function RosterTable({ config, roster, myId, onEdit, onPick, conc
                 {cols.map((c) => {
                   const names = cellNames(config, roster, c, date)
                   if (names === null) return <td key={c.key} className="off" />
+                  if (c.kind === 'students' && onEditStudent) {
+                    const ids = roster.students.filter((s) => s.date === date && s.shiftId === c.shiftId).map((s) => s.memberId)
+                    return (
+                      <td key={c.key} className="extra-col">
+                        {Array.from({ length: Math.max(config.students.maxPerShift, ids.length) }, (_, k) => (
+                          <select
+                            key={k}
+                            className="cell-select"
+                            value={ids[k] ?? ''}
+                            aria-label={`${shortDate(date)} ${c.title}`}
+                            onChange={(e) => onEditStudent(date, c.shiftId, k, e.target.value)}
+                          >
+                            <option value="">—</option>
+                            {studentList.map((m) => (
+                              <option key={m.id} value={m.id}>
+                                {m.name}
+                              </option>
+                            ))}
+                          </select>
+                        ))}
+                      </td>
+                    )
+                  }
                   if (c.kind !== 'position') {
                     const ids =
                       c.kind === 'students'
                         ? roster.students.filter((s) => s.date === date && s.shiftId === c.shiftId).map((s) => s.memberId)
                         : roster.presenters.filter((p) => p.date === date && p.ruleId === c.ruleId).map((p) => p.memberId)
+                    const studentCol = c.kind === 'students'
                     return (
-                      <td key={c.key} className="extra-col">
+                      <td
+                        key={c.key}
+                        className={`extra-col ${studentCol && onPick ? 'pickable' : ''} ${
+                          studentCol && swapOpen.some((s) => s.requirementId === STUDENT_SLOT && s.date === date && s.shiftId === c.shiftId) ? 'swapping' : ''
+                        }`}
+                        onClick={studentCol && onPick ? () => onPick(date, c.shiftId, STUDENT_SLOT) : undefined}
+                      >
                         {ids.length === 0 && <span className="muted tiny">—</span>}
                         {ids.map((id, k) => (
                           <span key={k} className={`who-chip small-chip ${id === myId ? 'mine' : ''}`}>

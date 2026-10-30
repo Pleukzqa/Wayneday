@@ -141,8 +141,12 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
   }, [])
 
   const days = dateRange(config.startDate, config.endDate)
-  const members = [...config.members].sort((a, b) => Number(b.id === me.memberId) - Number(a.id === me.memberId))
-  const mine = me.memberId ? respOf(me.memberId) : null
+  // In hospital mode residents/staff come from the hospital's roster; only students answer here.
+  const hospital = config.rosterMode === 'hospital'
+  const answering = config.members.filter((m) => !hospital || m.type === 'student')
+  const members = [...answering].sort((a, b) => Number(b.id === me.memberId) - Number(a.id === me.memberId))
+  const iAnswer = Boolean(me.memberId && answering.some((m) => m.id === me.memberId))
+  const mine = me.memberId && iAnswer ? respOf(me.memberId) : null
   const holidays = new Set(config.holidays)
   const shiftShort = (id: string) => config.shifts.find((s) => s.id === id)?.name.slice(0, 5) ?? '?'
 
@@ -182,6 +186,9 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
   if (config.members.length === 0) {
     return <p className="muted">The host hasn't added anyone yet.</p>
   }
+  if (members.length === 0) {
+    return <p className="muted">No students yet. Residents and staff come from the hospital roster, so only students fill in this page.</p>
+  }
 
   return (
     <div className="stack">
@@ -202,6 +209,9 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
             </button>
           </div>
         </div>
+      )}
+      {hospital && me.memberId && !iAnswer && (
+        <p className="muted small">Your shifts come from the hospital roster, so there’s nothing for you to fill in here. Students’ answers are below.</p>
       )}
       {mine && me.memberId && (
         <section className="card">
@@ -371,7 +381,7 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
               </tr>
             </thead>
             <tbody>
-              {config.members.map((m) => {
+              {answering.map((m) => {
                 const answered = Boolean(session.responses[m.id])
                 const r = respOf(m.id)
                 return (

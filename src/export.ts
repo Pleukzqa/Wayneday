@@ -1,5 +1,5 @@
 // Roster exports: CSV, Excel, PNG, Google Sheets (Drive) and calendars (Google Calendar, .ics, Google CSV).
-import { reqCount, shiftRuns } from './shared/calendar.ts'
+import { presentationOn, reqCount, shiftRuns } from './shared/calendar.ts'
 import { addDays, dateRange, shortDate, weekday } from './shared/dates.ts'
 import { buildProblem, statsFor } from './shared/solver.ts'
 import { studentExposure } from './shared/students.ts'
@@ -40,7 +40,7 @@ export function cellNames(config: SessionConfig, roster: Roster, c: Column, date
   const name = (id: string) => config.members.find((m) => m.id === id)?.name ?? '?'
   if (c.kind === 'presenters') {
     const rule = config.presentations.find((r) => r.id === c.ruleId)
-    if (!rule?.days.includes(weekday(date))) return null
+    if (!rule || !presentationOn(config, rule, date)) return null
     return roster.presenters.filter((p) => p.date === date && p.ruleId === c.ruleId).map((p) => name(p.memberId) + (p.postCall ? ' ●' : ''))
   }
   const shift = config.shifts.find((s) => s.id === c.shiftId)

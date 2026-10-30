@@ -1,6 +1,6 @@
 // Which shifts run on a date and how many people each position needs, after per-date overrides.
 import { weekday } from './dates.ts'
-import type { Requirement, SessionConfig, ShiftSlot } from './types.ts'
+import type { PresentationRule, Requirement, SessionConfig, ShiftSlot } from './types.ts'
 
 export function overrideFor(config: SessionConfig, date: string, shiftId: string) {
   return config.overrides.find((o) => o.date === date && o.shiftId === shiftId)
@@ -23,4 +23,13 @@ export function shiftsOn(config: SessionConfig, date: string): ShiftSlot[] {
 export function shiftsForType(config: SessionConfig, type: string): ShiftSlot[] {
   if (type === 'student') return config.shifts.filter((s) => config.students.shiftIds.includes(s.id))
   return config.shifts.filter((s) => s.requirements.some((r) => r.memberType === 'any' || r.memberType === type))
+}
+
+/** Presentation numbers on a date after per-date changes, or null when there is none that day. */
+export function presentationOn(config: SessionConfig, rule: PresentationRule, date: string): { count: number; fromCount: number } | null {
+  const o = config.presentationOverrides.find((x) => x.date === date && x.ruleId === rule.id)
+  const active = o?.active ?? rule.days.includes(weekday(date))
+  if (!active) return null
+  const count = o?.count ?? rule.count
+  return { count, fromCount: Math.min(count, o?.fromCount ?? rule.fromCount) }
 }

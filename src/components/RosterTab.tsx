@@ -4,9 +4,9 @@ import { exportCsv, exportPng, exportToDrive, exportXlsx, GOOGLE_CLIENT_ID, pers
 import { findArrangements, rearrangeStudents } from '../runSolver.ts'
 import { buildAiPrompt, importAiResult } from '../shared/ai.ts'
 import { shortDate } from '../shared/dates.ts'
-import { validate, type Alternative, type CountResult } from '../shared/solver.ts'
-import { studentExposure } from '../shared/students.ts'
-import type { Roster, Schedule, SessionConfig } from '../shared/types.ts'
+import { validate, type CountResult } from '../shared/solver.ts'
+import { studentExposure, type StudentOption } from '../shared/students.ts'
+import { STUDENT_SLOT, type Roster, type Schedule, type SessionConfig } from '../shared/types.ts'
 import CalendarExport from './CalendarExport.tsx'
 import ConfirmButton from './ConfirmButton.tsx'
 import RosterTable from './RosterTable.tsx'
@@ -36,31 +36,40 @@ function duration(ms: number) {
 
 const rosterOf = (s: Schedule): Roster => ({ assignments: s.assignments, students: s.students, presenters: s.presenters })
 
-function countText(c: CountResult, shown: number): string {
+function countText(c: CountResult, shown: number, what: string): string {
   if (c.exact) {
-    if (c.count === 0) return 'No possible arrangement.'
+    if (c.count === 0) return `No possible ${what}.`
     return c.count <= shown
-      ? `There ${c.count === 1 ? 'is exactly 1 possible arrangement' : `are exactly ${c.count.toLocaleString()} possible arrangements`} — all shown below.`
-      : `There are exactly ${c.count.toLocaleString()} possible arrangements. Showing the ${shown} best.`
+      ? `There ${c.count === 1 ? `is exactly 1 possible ${what}` : `are exactly ${c.count.toLocaleString()} possible ${what}s`} — all shown below.`
+      : `There are exactly ${c.count.toLocaleString()} possible ${what}s. Showing the ${shown} best.`
+  }
+  // A very tight setup can defeat the random estimate; then all we know is that the options shown exist.
+  if (!Number.isFinite(c.log10) || 10 ** c.log10 < shown * 2) {
+    return `There are at least ${shown} possible ${what}s — too many combinations to count exactly. Showing the ${shown} best distinct ones.`
   }
   const approx = c.log10 < 15 ? `about ${Number((10 ** c.log10).toPrecision(2)).toLocaleString()}` : `about 10^${Math.round(c.log10)}`
-  return `There are ${approx} possible arrangements (estimated — too many to list). Showing the ${shown} best distinct ones.`
+  return `There are ${approx} possible ${what}s (estimated — too many to list). Showing the ${shown} best distinct ones.`
 }
 
 /** One-line fairness summary of a roster, for comparing options. */
 function summary(config: SessionConfig, roster: Roster): string {
   const parts: string[] = []
-  for (const type of ['resident', 'staff'] as const) {
-    const ids = config.members.filter((m) => m.type === type).map((m) => m.id)
-    if (!ids.length) continue
-    const totals = ids.map((id) => roster.assignments.filter((a) => a.memberId === id).length)
-    parts.push(`${type === 'resident' ? 'Residents' : 'Staff'} ${Math.min(...totals)}–${Math.max(...totals)}`)
+  const isWeekend = (d: string) => [0, 6].includes(new Date(d + 'T00:00:00Z').getUTCDay()) || config.holidays.includes(d)
+  if (config.rosterMode === 'generate') {
+    for (const type of ['resident', 'staff'] as const) {
+      const ids = config.members.filter((m) => m.type === type).map((m) => m.id)
+      if (!ids.length) continue
+      const totals = ids.map((id) => roster.assignments.filter((a) => a.memberId === id).length)
+      parts.push(`${type === 'resident' ? 'Residents' : 'Staff'} ${Math.min(...totals)}–${Math.max(...totals)}`)
+    }
+    const workers = config.members.filter((m) => m.type !== 'student').map((m) => m.id)
+    const wk = workers.map((id) => roster.assignments.filter((a) => a.memberId === id && isWeekend(a.date)).length)
+    if (wk.length) parts.push(`weekends ${Math.min(...wk)}–${Math.max(...wk)}`)
+  } else {
+    const ids = config.members.filter((m) => m.type === 'student').map((m) => m.id)
+    const wk = ids.map((id) => roster.students.filter((s) => s.memberId === id && isWeekend(s.date)).length)
+    if (wk.length) parts.push(`student weekends ${Math.min(...wk)}–${Math.max(...wk)}`)
   }
-  const workers = config.members.filter((m) => m.type !== 'student').map((m) => m.id)
-  const wk = workers.map(
-    (id) => roster.assignments.filter((a) => a.memberId === id && ([0, 6].includes(new Date(a.date + 'T00:00:00Z').getUTCDay()) || config.holidays.includes(a.date))).length,
-  )
-  if (wk.length) parts.push(`weekends ${Math.min(...wk)}–${Math.max(...wk)}`)
   if (roster.students.length) {
     const exp = studentExposure(config, roster.assignments, roster.students)
     for (const type of ['resident', 'staff'] as const) {
@@ -73,16 +82,16 @@ function summary(config: SessionConfig, roster: Roster): string {
 
 /** Positions held by a different person than in `a`. */
 function differs(a: Roster, b: Roster): number {
-  const key = (x: { date: string; shiftId: string; requirementId: string; memberId: string }) => `${x.date}|${x.shiftId}|${x.requirementId}|${x.memberId}`
-  const inA = new Set(a.assignments.map(key))
-  return b.assignments.filter((x) => !inA.has(key(x))).length
+  const key = (x: { date: string; shiftId: string; requirementId?: string; memberId: string }) => `${x.date}|${x.shiftId}|${x.requirementId ?? ''}|${x.memberId}`
+  const inA = new Set([...a.assignments, ...a.students].map(key))
+  return [...b.assignments, ...b.students].filter((x) => !inA.has(key(x))).length
 }
 
 export default function RosterTab({ code, session, me, mutate }: SessionProps) {
   const { config, responses, schedule } = session
   const now = useNow()
   const [preview, setPreview] = useState<Preview | null>(null)
-  const [options, setOptions] = useState<Alternative[] | null>(null)
+  const [options, setOptions] = useState<StudentOption[] | null>(null)
   const [count, setCount] = useState<CountResult | null>(null)
   const [problems, setProblems] = useState<string[] | null>(null)
   const [running, setRunning] = useState<string | null>(null)
@@ -98,6 +107,12 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
   const violations = useMemo(() => (shown ? validate(config, responses, shown) : []), [shown, config, responses])
   const inReview = schedule?.status === 'review' && now < schedule.reviewUntil
   const hasStudents = config.members.some((m) => m.type === 'student')
+  const hospital = config.rosterMode === 'hospital'
+  const what = hospital ? 'student arrangement' : 'arrangement'
+  // Hospital mode: the published roster should carry the hospital roster as it now stands in Setup.
+  const dutyKey = (xs: { date: string; shiftId: string; requirementId: string; memberId: string }[]) =>
+    xs.map((a) => `${a.date}|${a.shiftId}|${a.requirementId}|${a.memberId}`).sort().join(',')
+  const dutyChanged = hospital && schedule !== null && dutyKey(schedule.assignments) !== dutyKey(config.duty)
 
   async function find() {
     setRunning('Finding arrangements…')
@@ -174,11 +189,13 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
     }
   }
 
-  const missingAnswers = config.members.filter((m) => !responses[m.id])
+  const missingAnswers = config.members.filter((m) => !responses[m.id] && (!hospital || m.type === 'student'))
   const pick = (date: string, shiftId: string, requirementId: string | null) => {
     const mineHere =
       requirementId &&
-      schedule?.assignments.some((a) => a.memberId === me.memberId && a.date === date && a.shiftId === shiftId && a.requirementId === requirementId)
+      (requirementId === STUDENT_SLOT
+        ? schedule?.students.some((a) => a.memberId === me.memberId && a.date === date && a.shiftId === shiftId)
+        : schedule?.assignments.some((a) => a.memberId === me.memberId && a.date === date && a.shiftId === shiftId && a.requirementId === requirementId))
     if (mineHere && requirementId) {
       setSwapDraft({ date, shiftId, requirementId })
       document.getElementById('swaps')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -192,7 +209,14 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
     <div className="stack">
       {me.isHost && (
         <section className="card">
-          <h2>Generate</h2>
+          <h2>{hospital ? 'Arrange students' : 'Generate'}</h2>
+          {hospital && (
+            <p className="muted small">
+              Residents and staff come from the hospital roster you entered in Setup ({config.duty.length} shifts). Wayneday arranges the students
+              {config.presentations.length ? ' and presenters' : ''} around it.
+            </p>
+          )}
+          {hospital && config.duty.length === 0 && <p className="small warn-text">Enter the hospital roster in Setup first.</p>}
           {missingAnswers.length > 0 && (
             <p className="muted small">
               Waiting on {missingAnswers.length}: {missingAnswers.map((m) => m.name).join(', ')}. They’ll get default preferences if you
@@ -200,16 +224,16 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
             </p>
           )}
           <div className="row wrap">
-            <button className="primary" disabled={running !== null} onClick={() => void find()}>
+            <button className="primary" disabled={running !== null || (hospital && config.duty.length === 0)} onClick={() => void find()}>
               {running?.startsWith('Finding') ? running : options ? 'Find different arrangements' : 'Find arrangements'}
             </button>
-            {hasStudents && shown && (
+            {!hospital && hasStudents && shown && (
               <button disabled={running !== null} onClick={() => void studentsOnly()} title="Keep residents and staff exactly as they are">
                 {running?.startsWith('Arranging') ? running : 'Re-arrange students & presenters only'}
               </button>
             )}
           </div>
-          {count && options && <p className="small count-line">{countText(count, options.length)}</p>}
+          {count && options && <p className="small count-line">{countText(count, options.length, what)}</p>}
           {options && options.length > 0 && (
             <div className="options" role="radiogroup" aria-label="Arrangements">
               {options.map((o, i) => {
@@ -322,7 +346,7 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
                 <button onClick={() => void setStatus({ status: 'review', reviewUntil: now + 24 * 3_600_000 })}>Reopen for review</button>
               )}
               {!edit ? (
-                <button onClick={() => setEdit(rosterOf(schedule))}>Edit cells</button>
+                <button onClick={() => setEdit(rosterOf(schedule))}>{hospital ? 'Edit students' : 'Edit cells'}</button>
               ) : (
                 <>
                   <button className="primary" onClick={() => void publish(edit, 'manual', schedule.status, true)}>
@@ -344,6 +368,15 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
       )}
 
       {error && <p className="error">{error}</p>}
+      {me.isHost && dutyChanged && !preview && (
+        <div className="alert warn">
+          The hospital roster in Setup has changed since you published.{' '}
+          <button onClick={() => void publish({ ...rosterOf(schedule!), assignments: config.duty }, 'manual', schedule!.status, true)}>
+            Use the new hospital roster
+          </button>{' '}
+          <span className="small">(students stay where they are — find arrangements again if they should move)</span>
+        </div>
+      )}
 
       {schedule && !preview && <Swaps {...{ code, session, me, mutate }} draft={swapDraft} clearDraft={() => setSwapDraft(null)} />}
 
@@ -371,8 +404,20 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
               swaps={session.swaps}
               tableRef={tableRef}
               onPick={!edit && !preview && me.memberId ? pick : undefined}
+              onEditStudent={
+                edit && hasStudents
+                  ? (date, shiftId, slot, memberId) =>
+                      setEdit((cur) => {
+                        const list = cur?.students ?? []
+                        const here = list.filter((x) => x.date === date && x.shiftId === shiftId)
+                        const target = here[slot]
+                        const rest = list.filter((x) => x !== target)
+                        return { ...cur!, students: memberId ? [...rest, { date, shiftId, memberId }] : rest }
+                      })
+                  : undefined
+              }
               onEdit={
-                edit
+                edit && !hospital
                   ? (date, shiftId, requirementId, slot, memberId) =>
                       setEdit((cur) => {
                         const list = cur?.assignments ?? []

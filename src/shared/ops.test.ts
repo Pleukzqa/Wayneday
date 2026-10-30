@@ -10,6 +10,9 @@ function session(): PublicSession {
     version: 0,
     config: {
       title: 'T',
+      rosterMode: 'generate',
+      duty: [],
+      presentationOverrides: [],
       startDate: '2026-11-01',
       endDate: '2026-11-03',
       holidays: [],
@@ -86,4 +89,24 @@ test('join requests become new people or link to existing ones', () => {
   assert.equal(decideJoin(s, host, b.id, true, 'ben'), 'ben')
   assert.equal(s.config.members.length, 4)
   assert.throws(() => decideJoin(s, as('ann'), createJoin(s, 'X', 'staff').id, true), /host/)
+})
+
+test('students can swap their places too', () => {
+  const s = session()
+  s.config.members.push({ id: 'stu1', name: 'stu1', type: 'student', jobs: [] }, { id: 'stu2', name: 'stu2', type: 'student', jobs: [] })
+  s.schedule!.students = [
+    { date: '2026-11-01', shiftId: 'n', memberId: 'stu1' },
+    { date: '2026-11-03', shiftId: 'n', memberId: 'stu2' },
+  ]
+  const req = requestSwap(s, as('stu1'), { date: '2026-11-01', shiftId: 'n', requirementId: 'student', note: '' })
+  actOnSwap(s, as('stu2'), req.id, { action: 'offer', give: { date: '2026-11-03', shiftId: 'n', requirementId: 'student' } })
+  actOnSwap(s, as('stu1'), req.id, { action: 'accept', offerId: s.swaps[0].offers[0].id })
+  actOnSwap(s, host, req.id, { action: 'approve' })
+  assert.deepEqual(
+    s.schedule!.students.map((x) => [x.date, x.memberId]),
+    [
+      ['2026-11-01', 'stu2'],
+      ['2026-11-03', 'stu1'],
+    ],
+  )
 })

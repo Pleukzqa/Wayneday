@@ -2,7 +2,7 @@
 // The prompt carries the whole roster problem plus the current roster in the exact JSON the AI must answer with,
 // and importAiResult turns the reply back into a roster.
 
-import { reqCount, shiftRuns } from './calendar.ts'
+import { presentationOn, reqCount, shiftRuns } from './calendar.ts'
 import { dateRange, WEEKDAYS } from './dates.ts'
 import { responseFor } from './scoring.ts'
 import type { Assignment, MemberResponse, PresenterAssignment, Roster, SessionConfig, StudentAssignment } from './types.ts'
@@ -41,8 +41,13 @@ export function buildAiPrompt(config: SessionConfig, responses: Record<string, M
   const workers = config.members.filter((m) => m.type !== 'student')
   const students = config.members.filter((m) => m.type === 'student')
 
+  const hospital = config.rosterMode === 'hospital'
   const lines: string[] = []
-  lines.push(`You are scheduling hospital duty shifts ("${config.title}"). Produce a complete roster that satisfies every rule below.`)
+  lines.push(
+    hospital
+      ? `You are arranging medical students onto hospital duty shifts ("${config.title}"). The residents' and staff roster is FIXED by the hospital; place the students (and pick presenters) so every rule below holds.`
+      : `You are scheduling hospital duty shifts ("${config.title}"). Produce a complete roster that satisfies every rule below.`,
+  )
   lines.push('')
   lines.push(`## Period\n${config.startDate} to ${config.endDate} (${days.length} days).`)
   if (config.holidays.length) lines.push(`Holidays (count as weekend days for fairness): ${config.holidays.join(', ')}.`)
@@ -68,8 +73,18 @@ export function buildAiPrompt(config: SessionConfig, responses: Record<string, M
     }
   }
   lines.push('')
-  lines.push('## Residents and staff')
-  for (const m of workers) lines.push(personLine(config, responses, m.id, job, shiftName))
+  if (hospital) {
+    lines.push('## Fixed roster from the hospital (do not change)')
+    lines.push('date | shift | job | person')
+    for (const a of [...config.duty].sort((x, y) => x.date.localeCompare(y.date))) {
+      const req = config.shifts.find((s) => s.id === a.shiftId)?.requirements.find((r) => r.id === a.requirementId)
+      const who = config.members.find((m) => m.id === a.memberId)
+      lines.push(`${a.date} | ${shiftName(a.shiftId)} | ${req ? job(req.jobId) : ''} | ${who?.name ?? '?'} (${who?.type ?? ''})`)
+    }
+  } else {
+    lines.push('## Residents and staff')
+    for (const m of workers) lines.push(personLine(config, responses, m.id, job, shiftName))
+  }
   if (students.length) {
     const st = config.students
     lines.push('')
@@ -86,20 +101,36 @@ export function buildAiPrompt(config: SessionConfig, responses: Record<string, M
       lines.push(
         `- "${r.name}" on ${r.days.map((d) => WEEKDAYS[d]).join('/')}: ${r.count} presenter(s), at least ${r.fromCount} of them must have worked "${shiftName(r.fromShiftId)}" the day before. Presenters can be: ${r.types.join(', ')}. Share presentations evenly.`,
       )
+      const changes = config.presentationOverrides.filter((o) => o.ruleId === r.id).sort((x, y) => x.date.localeCompare(y.date))
+      for (const o of changes) {
+        const p = presentationOn(config, r, o.date)
+        lines.push(`  - ${o.date}: ${p ? `${p.count} presenter(s), at least ${p.fromCount} from the day before` : 'no presentation'}`)
+      }
     }
   }
   lines.push('')
   lines.push('## Hard rules')
-  lines.push('1. Every position on every day is filled by exactly one eligible resident/staff member (matching type and job).')
-  lines.push('2. Nobody works two shifts on the same date, or on dates closer together than their minimum interval.')
-  lines.push('3. Never schedule someone on an UNAVAILABLE date; always honour MUST-work entries and max-shift caps.')
+  if (hospital) {
+    lines.push('1. Keep the hospital roster exactly as given.')
+    lines.push('2. Each student does exactly their number of shifts, never on an UNAVAILABLE date, never two shifts closer together than their minimum interval, and always on their MUST-work dates.')
+    lines.push('3. Never more students on one shift than the limit.')
+  } else {
+    lines.push('1. Every position on every day is filled by exactly one eligible resident/staff member (matching type and job).')
+    lines.push('2. Nobody works two shifts on the same date, or on dates closer together than their minimum interval.')
+    lines.push('3. Never schedule someone on an UNAVAILABLE date; always honour MUST-work entries and max-shift caps.')
+  }
   lines.push('')
   lines.push('## Extra conditions (highest priority after the hard rules)')
   lines.push(config.extraConditions.trim() || '(none)')
   lines.push('')
   lines.push('## Soft goals, in priority order')
-  lines.push('1. Equal total shifts among people of the same type, then equal weekend/holiday shifts, then equal counts of each shift.')
-  lines.push('2. People who prefer "spread evenly" get the most even spacing; people who prefer "grouped" get shifts near their minimum interval.')
+  if (hospital) {
+    lines.push('1. Every resident gets about the same number of shifts with a student, and so does every staff member.')
+    lines.push('2. Students share weekend/holiday shifts evenly; "spread evenly" students get even spacing, "grouped" students get shifts near their minimum interval.')
+  } else {
+    lines.push('1. Equal total shifts among people of the same type, then equal weekend/holiday shifts, then equal counts of each shift.')
+    lines.push('2. People who prefer "spread evenly" get the most even spacing; people who prefer "grouped" get shifts near their minimum interval.')
+  }
   lines.push('')
   if (roster?.assignments.length) {
     lines.push('## Current roster')
@@ -111,13 +142,13 @@ export function buildAiPrompt(config: SessionConfig, responses: Record<string, M
   }
   lines.push('## Output format')
   lines.push(
-    `First, in one short list, say which rules you could not satisfy (if any) and what you changed. Then output the COMPLETE roster as ONE \`\`\`json code block in exactly this shape, using the exact names above. Keep "format": "${AI_FORMAT_TAG}" so the app can read it back:`,
+    `First, in one short list, say which rules you could not satisfy (if any) and what you changed. Then output the COMPLETE ${hospital ? 'student and presenter lists' : 'roster'} as ONE \`\`\`json code block in exactly this shape, using the exact names above. Keep "format": "${AI_FORMAT_TAG}" so the app can read it back:`,
   )
   lines.push('```json')
   lines.push(
     JSON.stringify({
       format: AI_FORMAT_TAG,
-      assignments: [{ date: 'YYYY-MM-DD', shift: '<shift name>', job: '<job name>', member: '<name>' }],
+      assignments: hospital ? [] : [{ date: 'YYYY-MM-DD', shift: '<shift name>', job: '<job name>', member: '<name>' }],
       students: students.length ? [{ date: 'YYYY-MM-DD', shift: '<shift name>', member: '<student name>' }] : [],
       presenters: config.presentations.length ? [{ date: 'YYYY-MM-DD', presentation: '<presentation name>', member: '<name>' }] : [],
     }),
@@ -159,10 +190,12 @@ export function importAiResult(text: string, config: SessionConfig): ImportResul
     try {
       const parsed = JSON.parse(c) as unknown
       const obj = (Array.isArray(parsed) ? { assignments: parsed } : parsed) as Record<string, unknown>
-      if (Array.isArray(obj?.assignments)) {
+      const rows = (obj?.assignments as unknown[] | undefined)?.length ?? 0
+      const studentRows = Array.isArray(obj?.students) ? (obj.students as unknown[]).length : 0
+      if (Array.isArray(obj?.assignments) || Array.isArray(obj?.students)) {
         data = obj
         // Prefer the block tagged with our format (the reply may also echo the template).
-        if (obj.format === AI_FORMAT_TAG && (obj.assignments as unknown[]).length > 1) break
+        if (obj.format === AI_FORMAT_TAG && rows + studentRows > 1) break
       }
     } catch {
       // try the next candidate
@@ -178,7 +211,10 @@ export function importAiResult(text: string, config: SessionConfig): ImportResul
 
   const assignments: Assignment[] = []
   const filled = new Map<string, number>()
-  for (const row of data.assignments as Record<string, unknown>[]) {
+  // Hospital mode: the residents/staff roster is the hospital's; ignore whatever the AI said about it.
+  const rows = config.rosterMode === 'hospital' ? [] : ((Array.isArray(data.assignments) ? data.assignments : []) as Record<string, unknown>[])
+  if (config.rosterMode === 'hospital') assignments.push(...config.duty)
+  for (const row of rows) {
     const shift = findShift(row.shift)
     const member = findMember(row.member)
     const job = config.jobs.find((j) => norm(j.name) === norm(row.job))
@@ -227,6 +263,8 @@ export function importAiResult(text: string, config: SessionConfig): ImportResul
     presenters.push({ date, ruleId: rule.id, memberId: member.id, postCall })
   }
 
-  if (assignments.length === 0) return { ok: false, error: 'No rows matched the session’s shift and member names.' }
+  if (config.rosterMode === 'hospital' ? students.length === 0 : assignments.length === 0) {
+    return { ok: false, error: 'No rows matched the session’s shift and member names.' }
+  }
   return { ok: true, roster: { assignments, students, presenters }, skipped }
 }

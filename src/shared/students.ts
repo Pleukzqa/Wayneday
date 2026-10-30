@@ -4,7 +4,7 @@
 //   locks, minimum interval and spread/grouped preference;
 // - pick presenters for presentation rules, taking the required number from yesterday's shift first.
 
-import { shiftRuns } from './calendar.ts'
+import { presentationOn, shiftRuns } from './calendar.ts'
 import { addDays, dateRange, dayDiff, weekday } from './dates.ts'
 import { preferenceCost, responseFor, rng, variance } from './scoring.ts'
 import type { Assignment, MemberResponse, PresenterAssignment, SessionConfig, StudentAssignment } from './types.ts'
@@ -20,7 +20,7 @@ interface Occ {
 }
 
 export type StudentResult =
-  | { ok: true; students: StudentAssignment[]; warnings: string[] }
+  | { ok: true; students: StudentAssignment[]; warnings: string[]; score: number }
   | { ok: false; problems: string[] }
 
 export function arrangeStudents(
@@ -32,9 +32,9 @@ export function arrangeStudents(
 ): StudentResult {
   const students = config.members.filter((m) => m.type === 'student')
   const settings = config.students
-  if (students.length === 0) return { ok: true, students: [], warnings: [] }
+  if (students.length === 0) return { ok: true, students: [], warnings: [], score: 0 }
   if (settings.shiftIds.length === 0 || settings.shiftsPerStudent <= 0) {
-    return { ok: true, students: [], warnings: ['Students are listed but no shift slots are set for them (Setup → Students).'] }
+    return { ok: true, students: [], warnings: ['Students are listed but no shift slots are set for them (Setup → Students).'], score: 0 }
   }
   const days = dateRange(config.startDate, config.endDate)
   const holidays = new Set(config.holidays)
@@ -179,7 +179,7 @@ export function arrangeStudents(
   const out: StudentAssignment[] = []
   mine.forEach((m, si) => m.forEach((oi) => out.push({ date: occs[oi].date, shiftId: occs[oi].shiftId, memberId: students[si].id })))
   out.sort((a, b) => a.date.localeCompare(b.date))
-  return { ok: true, students: out, warnings: [] }
+  return { ok: true, students: out, warnings: [], score: cur }
 }
 
 /** Student-shifts each resident/staff member shares. */
@@ -213,7 +213,8 @@ export function pickPresenters(
     const shiftName = config.shifts.find((s) => s.id === rule.fromShiftId)?.name ?? 'that shift'
     const short: string[] = []
     for (const date of days) {
-      if (!rule.days.includes(weekday(date))) continue
+      const today = presentationOn(config, rule, date)
+      if (!today) continue
       const yesterday = addDays(date, -1)
       const eligible = config.members.filter((m) => rule.types.includes(m.type) && available(m.id, date)).map((m) => m.id)
       let post: string[] = []
@@ -223,13 +224,13 @@ export function pickPresenters(
           ...students.filter((s) => s.date === yesterday && s.shiftId === rule.fromShiftId).map((s) => s.memberId),
         ].filter((id, i, arr) => arr.indexOf(id) === i && eligible.includes(id))
       }
-      const chosen = byFewest(post).slice(0, Math.min(rule.fromCount, rule.count))
-      if (chosen.length < Math.min(rule.fromCount, rule.count) && yesterday >= config.startDate) short.push(date)
+      const chosen = byFewest(post).slice(0, today.fromCount)
+      if (chosen.length < today.fromCount && yesterday >= config.startDate) short.push(date)
       for (const id of byFewest(eligible.filter((id) => !chosen.includes(id)))) {
-        if (chosen.length >= rule.count) break
+        if (chosen.length >= today.count) break
         chosen.push(id)
       }
-      if (chosen.length < rule.count) warnings.push(`${date} ${rule.name}: only ${chosen.length} of ${rule.count} presenters available.`)
+      if (chosen.length < today.count) warnings.push(`${date} ${rule.name}: only ${chosen.length} of ${today.count} presenters available.`)
       for (const id of chosen) {
         count.set(id, (count.get(id) ?? 0) + 1)
         presenters.push({ date, ruleId: rule.id, memberId: id, postCall: post.includes(id) })
@@ -263,4 +264,146 @@ export function validateStudents(config: SessionConfig, responses: Record<string
     }
   }
   return out
+}
+
+// ---------- hospital mode: options and counting for students only ----------
+
+export interface StudentOption {
+  id: string
+  score: number
+  roster: { assignments: Assignment[]; students: StudentAssignment[]; presenters: PresenterAssignment[] }
+  warnings: string[]
+}
+
+/** Several distinct student arrangements around a fixed resident/staff roster, best first. */
+export function studentOptions(
+  config: SessionConfig,
+  responses: Record<string, MemberResponse>,
+  assignments: Assignment[],
+  opts: { seed?: number; count?: number } = {},
+): { ok: true; alternatives: StudentOption[] } | { ok: false; problems: string[] } {
+  const want = opts.count ?? 6
+  const seed0 = opts.seed ?? 1
+  const seen = new Set<string>()
+  const out: StudentOption[] = []
+  for (let k = 0; k < want * 3 && out.length < want; k++) {
+    const seed = seed0 + k * 101
+    const r = arrangeStudents(config, responses, assignments, seed)
+    if (!r.ok) return k === 0 ? { ok: false, problems: r.problems } : { ok: true, alternatives: out }
+    const key = r.students.map((x) => `${x.memberId}${x.date}${x.shiftId}`).join(',')
+    if (seen.has(key)) continue
+    seen.add(key)
+    const p = pickPresenters(config, responses, assignments, r.students, seed)
+    out.push({ id: `st-${seed}`, score: r.score, roster: { assignments, students: r.students, presenters: p.presenters }, warnings: [...r.warnings, ...p.warnings] })
+  }
+  out.sort((a, b) => a.score - b.score)
+  return { ok: true, alternatives: out }
+}
+
+/**
+ * How many ways students can be placed (availability, locks, intervals, shifts each, places per shift).
+ * Exact by enumeration when small, otherwise a Knuth random-probe estimate.
+ */
+export function countStudentArrangements(
+  config: SessionConfig,
+  responses: Record<string, MemberResponse>,
+  opts: { nodeLimit?: number; probes?: number; seed?: number } = {},
+): { exact: true; count: number } | { exact: false; log10: number } {
+  const students = config.members.filter((m) => m.type === 'student')
+  const st = config.students
+  if (!students.length || !st.shiftIds.length || st.shiftsPerStudent <= 0) return { exact: true, count: students.length ? 0 : 1 }
+  const days = dateRange(config.startDate, config.endDate)
+  const occs: { day: number; date: string; shiftId: string }[] = []
+  days.forEach((date, day) => {
+    for (const shift of config.shifts) if (st.shiftIds.includes(shift.id) && shiftRuns(config, shift, date)) occs.push({ day, date, shiftId: shift.id })
+  })
+  const resp = students.map((m) => responseFor(responses, m.id))
+  const need = st.shiftsPerStudent
+  const cap = Math.max(1, st.maxPerShift)
+  const load = occs.map(() => 0)
+  const locks = students.map((_, si) =>
+    resp[si].locks.map((l) => occs.findIndex((o) => o.date === l.date && o.shiftId === l.shiftId)).filter((i) => i >= 0).sort((a, b) => a - b),
+  )
+  const free = (si: number, i: number) => load[i] < cap && !resp[si].unavailable.includes(occs[i].date)
+  /** Most further picks possible after occurrence i (greedy earliest is optimal for spacing). */
+  const room = (si: number, i: number) => {
+    let n = 0
+    let lastDay = occs[i].day
+    for (let j = i + 1; j < occs.length; j++) {
+      if (free(si, j) && occs[j].day - lastDay >= resp[si].minInterval) {
+        n++
+        lastDay = occs[j].day
+      }
+    }
+    return n
+  }
+  // Each student's picks are an increasing list of occurrence indexes, so every set is counted once.
+  // Choices that can't lead to a full set (no room left, or skipping a lock) are pruned; that keeps the
+  // random estimate unbiased while making far fewer probes dead-end.
+  const options = (si: number, picked: number[]) => {
+    const last = picked.length ? picked[picked.length - 1] : -1
+    const lockNext = locks[si].find((l) => !picked.includes(l))
+    const locksLeft = locks[si].filter((l) => !picked.includes(l)).length
+    const left = need - picked.length
+    return occs
+      .map((_, i) => i)
+      .filter((i) => {
+        if (i <= last || !free(si, i)) return false
+        if (picked.length && occs[i].day - occs[picked[picked.length - 1]].day < resp[si].minInterval) return false
+        if (lockNext !== undefined && i > lockNext) return false
+        if (left === locksLeft && lockNext !== undefined && i !== lockNext) return false
+        return room(si, i) >= left - 1
+      })
+  }
+  const complete = (si: number, picked: number[]) => picked.length === need && locks[si].every((l) => picked.includes(l))
+
+  let nodes = 0
+  const limit = opts.nodeLimit ?? 80_000
+  let total = 0
+  const walk = (si: number, picked: number[]): boolean => {
+    if (++nodes > limit) return false
+    if (si === students.length) {
+      total++
+      return true
+    }
+    if (picked.length === need) return complete(si, picked) ? walk(si + 1, []) : true
+    for (const i of options(si, picked)) {
+      load[i]++
+      const ok = walk(si, [...picked, i])
+      load[i]--
+      if (!ok) return false
+    }
+    return true
+  }
+  if (walk(0, [])) return { exact: true, count: total }
+
+  load.fill(0)
+  const rand = rng(opts.seed ?? 5)
+  const logs: number[] = []
+  for (let k = 0; k < (opts.probes ?? 4000); k++) {
+    load.fill(0)
+    let log = 0
+    let dead = false
+    for (let si = 0; si < students.length && !dead; si++) {
+      const picked: number[] = []
+      while (picked.length < need) {
+        const o = options(si, picked)
+        if (!o.length) {
+          dead = true
+          break
+        }
+        log += Math.log10(o.length)
+        const i = o[Math.floor(rand() * o.length)]
+        picked.push(i)
+        load[i]++
+      }
+      if (!dead && !complete(si, picked)) dead = true
+    }
+    logs.push(dead ? -Infinity : log)
+  }
+  const finite = logs.filter(Number.isFinite)
+  if (!finite.length) return { exact: false, log10: Number.NaN }
+  const max = Math.max(...finite)
+  const mean = finite.reduce((a, l) => a + 10 ** (l - max), 0) / logs.length
+  return { exact: false, log10: max + Math.log10(mean) }
 }

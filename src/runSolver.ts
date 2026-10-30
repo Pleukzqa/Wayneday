@@ -1,4 +1,5 @@
-import type { Alternative, CountResult } from './shared/solver.ts'
+import type { CountResult } from './shared/solver.ts'
+import type { StudentOption } from './shared/students.ts'
 import type { Assignment, MemberResponse, PresenterAssignment, SessionConfig, StudentAssignment } from './shared/types.ts'
 import type { WorkerRequest } from './solver.worker.ts'
 
@@ -26,7 +27,7 @@ function run<T>(req: WorkerRequest): Promise<T> {
 }
 
 export type ManyResult = {
-  result: { ok: true; alternatives: Alternative[] } | { ok: false; problems: string[] }
+  result: { ok: true; alternatives: StudentOption[] } | { ok: false; problems: string[] }
   count: CountResult | null
 }
 

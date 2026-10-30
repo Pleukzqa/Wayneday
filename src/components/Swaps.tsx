@@ -4,7 +4,7 @@ import { api } from '../api.ts'
 import { shortDate } from '../shared/dates.ts'
 import { validate } from '../shared/solver.ts'
 import { applySwapPreview } from '../shared/ops.ts'
-import type { Assignment } from '../shared/types.ts'
+import { STUDENT_SLOT, type Assignment } from '../shared/types.ts'
 import type { SessionProps } from './props.ts'
 
 export interface SwapDraft {
@@ -22,7 +22,12 @@ export default function Swaps({ code, session, me, mutate, draft, clearDraft }: 
   const name = (id: string) => config.members.find((m) => m.id === id)?.name ?? '?'
   const shiftName = (id: string) => config.shifts.find((s) => s.id === id)?.name ?? '?'
   const label = (x: { date: string; shiftId: string }) => `${shortDate(x.date)} · ${shiftName(x.shiftId)}`
-  const mine = me.memberId ? schedule.assignments.filter((a) => a.memberId === me.memberId).sort((a, b) => a.date.localeCompare(b.date)) : []
+  const mine = me.memberId
+    ? [
+        ...schedule.assignments.filter((a) => a.memberId === me.memberId),
+        ...schedule.students.filter((a) => a.memberId === me.memberId).map((a) => ({ ...a, requirementId: STUDENT_SLOT })),
+      ].sort((a, b) => a.date.localeCompare(b.date))
+    : []
   const key = (a: Pick<Assignment, 'date' | 'shiftId' | 'requirementId'>) => `${a.date}|${a.shiftId}|${a.requirementId}`
   const act = async (fn: () => Promise<unknown>) => {
     setError(null)

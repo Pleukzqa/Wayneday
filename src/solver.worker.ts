@@ -1,5 +1,5 @@
 import { countArrangements, solveMany, type SolveOptions } from './shared/solver.ts'
-import { arrangeStudents, pickPresenters } from './shared/students.ts'
+import { arrangeStudents, countStudentArrangements, pickPresenters, studentOptions } from './shared/students.ts'
 import type { Assignment, MemberResponse, SessionConfig } from './shared/types.ts'
 
 export type WorkerRequest =
@@ -7,6 +7,12 @@ export type WorkerRequest =
   | { kind: 'students'; config: SessionConfig; responses: Record<string, MemberResponse>; assignments: Assignment[]; seed: number }
 
 export function handle(req: WorkerRequest) {
+  if (req.kind === 'many' && req.config.rosterMode === 'hospital') {
+    // Residents and staff are the hospital's; only students (and presenters) are arranged.
+    const result = studentOptions(req.config, req.responses, req.config.duty, req.opts)
+    const count = result.ok ? countStudentArrangements(req.config, req.responses) : null
+    return { result, count }
+  }
   if (req.kind === 'many') {
     const result = solveMany(req.config, req.responses, req.opts)
     const count = result.ok ? countArrangements(req.config, req.responses) : null

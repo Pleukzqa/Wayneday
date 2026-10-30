@@ -23,7 +23,7 @@ interface Store {
   acting: Record<string, string>
 }
 
-const KEY = 'wayneday-demo-v2'
+const KEY = 'wayneday-demo-v3'
 export const SAMPLE_CODE = 'sample-night-ward'
 
 let store: Store = load()
@@ -117,6 +117,9 @@ export const api = {
       version: 0,
       config: {
         title,
+        rosterMode: 'hospital',
+        duty: [],
+        presentationOverrides: [],
         startDate: today,
         endDate: today,
         holidays: [],
@@ -211,9 +214,10 @@ function sample(): PublicSession {
 
   const residents = ['Ann', 'Bank', 'Ploy', 'Mint', 'Tonkla', 'Fah', 'Ice', 'Nat']
   const staff = ['Dr. Somchai', 'Dr. Wipa', 'Dr. Kanok', 'Dr. Pim']
-  const studentNames = ['Beam', 'Praew', 'Kaew']
+  const studentNames = ['Beam', 'Praew', 'Kaew', 'Jane']
+  const rid = (n: string) => `r-${n.toLowerCase()}`
   const members = [
-    ...residents.map((name) => ({ id: `r-${name.toLowerCase()}`, name, type: 'resident' as const, jobs: [] })),
+    ...residents.map((name) => ({ id: rid(name), name, type: 'resident' as const, jobs: [] })),
     ...staff.map((name, i) => ({ id: `s-${i}`, name, type: 'staff' as const, jobs: [] })),
     ...studentNames.map((name) => ({ id: `st-${name.toLowerCase()}`, name, type: 'student' as const, jobs: [] })),
   ]
@@ -226,6 +230,15 @@ function sample(): PublicSession {
     updatedAt: Date.now() - 3_600_000,
     ...o,
   })
+  // The hospital's roster, as if pasted in: a simple rotation (Ward, ER, staff on duty each night).
+  const days = Math.round((Date.parse(end) - Date.parse(start)) / 86_400_000) + 1
+  const duty = Array.from({ length: days }, (_, i) => [
+    { date: d(i + 1), shiftId: 'night', requirementId: 'night-ward', memberId: rid(residents[i % 8]) },
+    { date: d(i + 1), shiftId: 'night', requirementId: 'night-er', memberId: rid(residents[(i + 3) % 8]) },
+    { date: d(i + 1), shiftId: 'night', requirementId: 'night-staff', memberId: `s-${i % 4}` },
+  ]).flat()
+  // Week 3 is exam week: one presentation a day instead of two.
+  const third = Array.from({ length: 7 }, (_, i) => d(15 + i)).filter((x) => [1, 2, 3, 4, 5].includes(new Date(x + 'T00:00:00Z').getUTCDay()))
 
   return {
     code: SAMPLE_CODE,
@@ -233,6 +246,8 @@ function sample(): PublicSession {
     version: 1,
     config: {
       title: `Medicine ward — ${month} nights`,
+      rosterMode: 'hospital',
+      duty,
       startDate: start,
       endDate: end,
       holidays: first.getUTCMonth() === 11 ? [d(5), d(10), d(31)] : [],
@@ -250,24 +265,13 @@ function sample(): PublicSession {
           requirements: [
             { id: 'night-ward', jobId: 'ward', memberType: 'resident', count: 1 },
             { id: 'night-er', jobId: 'er', memberType: 'resident', count: 1 },
+            { id: 'night-staff', jobId: 'ward', memberType: 'staff', count: 1 },
           ],
         },
-        {
-          id: 'oncall',
-          name: 'Staff on-call',
-          start: '08:00',
-          end: '08:00',
-          days: all,
-          requirements: [{ id: 'oncall-any', jobId: 'ward', memberType: 'staff', count: 1 }],
-        },
       ],
-      // The 1st Sunday runs with an extra ER resident; the last day has no staff on-call (covered by another ward).
-      overrides: [
-        { date: d(7), shiftId: 'night', active: true, counts: { 'night-er': 2 } },
-        { date: end, shiftId: 'oncall', active: false },
-      ],
+      overrides: [],
       members,
-      students: { shiftIds: ['night'], maxPerShift: 1, shiftsPerStudent: 6 },
+      students: { shiftIds: ['night'], maxPerShift: 1, shiftsPerStudent: 5 },
       presentations: [
         {
           id: 'morning-report',
@@ -279,21 +283,19 @@ function sample(): PublicSession {
           types: ['resident', 'student'],
         },
       ],
-      extraConditions:
-        'Ann and Bank are first-years and should not be on the same night.',
+      presentationOverrides: third.map((date) => ({ date, ruleId: 'morning-report', active: true, count: 1 })),
+      extraConditions: 'Beam and Praew are from the same group and shouldn’t be on nights back to back.',
     },
-    claimed: ['r-ann', 'r-bank', 'r-ploy', 'r-mint', 's-1'],
+    claimed: ['st-beam', 'st-praew', 'st-kaew'],
     responses: {
-      'r-ann': r({ preference: 'dense', minInterval: 2, unavailable: [d(3), d(4), d(5)], locks: [{ date: d(12), shiftId: 'night' }], note: 'Prefer to finish my nights early in the month' }),
-      'r-bank': r({ minInterval: 3, unavailable: [d(15)], note: 'Board exam on the 15th' }),
-      'r-ploy': r({ unavailable: [d(6), d(7), d(13), d(14)], note: 'Family weekend trips' }),
-      'r-mint': r({ preference: 'dense', minInterval: 3, locks: [{ date: d(20), shiftId: 'night' }] }),
-      's-1': r({ unavailable: [d(8), d(9), d(10), d(11), d(12)], note: 'Conference' }),
+      'st-beam': r({ unavailable: [d(3), d(4), d(5)], note: 'Surgery rotation exam on the 4th' }),
+      'st-praew': r({ preference: 'dense', minInterval: 2, note: 'Prefer to finish nights early' }),
+      'st-kaew': r({ minInterval: 3, unavailable: [d(13), d(14)], locks: [{ date: d(20), shiftId: 'night' }] }),
     },
     schedule: null,
     concerns: [],
     swaps: [],
-    joinRequests: [{ id: 'join-pond', name: 'Pond', type: 'resident', status: 'pending', createdAt: Date.now() - 600_000 }],
+    joinRequests: [{ id: 'join-pond', name: 'Pond', type: 'student', status: 'pending', createdAt: Date.now() - 600_000 }],
     changes: [],
   }
 }

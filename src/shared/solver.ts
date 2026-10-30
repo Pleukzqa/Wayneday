@@ -476,6 +476,8 @@ export function solve(
 
 /** Check any arrangement (AI output, manual edits, swaps) against the hard rules. */
 export function validate(config: SessionConfig, responses: Record<string, MemberResponse>, roster: Roster): string[] {
+  // The hospital's own roster isn't ours to judge; only students are checked.
+  if (config.rosterMode === 'hospital') return validateStudents(config, responses, roster.students)
   const { assignments } = roster
   const p = buildProblem(config, responses)
   const out: string[] = []
@@ -607,7 +609,7 @@ export function countArrangements(
     logs.push(log)
   }
   const finite = logs.filter((l) => Number.isFinite(l))
-  if (finite.length === 0) return { exact: false, log10: 0 }
+  if (finite.length === 0) return { exact: false, log10: Number.NaN }
   // log10(mean(10^l)) computed stably.
   const max = Math.max(...finite)
   const mean = finite.reduce((a, l) => a + 10 ** (l - max), 0) / logs.length

@@ -5,7 +5,7 @@ import type { Member, MemberType, Requirement, SessionConfig, ShiftSlot } from '
 import { IS_DEMO, sessionHash } from '../routes.ts'
 import { reqCount } from '../shared/calendar.ts'
 import ConfirmButton from './ConfirmButton.tsx'
-import { CalendarCard, JoinRequests, PresentationsCard, StudentsCard } from './SetupExtras.tsx'
+import { CalendarCard, DutyRosterCard, JoinRequests, PresentationsCard, RosterModeCard, StudentsCard } from './SetupExtras.tsx'
 import { uid, type SessionProps } from './props.ts'
 
 const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6]
@@ -302,6 +302,7 @@ export default function SetupTab({ code, session, me, mutate }: SessionProps) {
         </section>
 
         <CalendarCard draft={draft} edit={edit} ro={ro} />
+        <RosterModeCard draft={draft} edit={edit} ro={ro} />
 
         <section className="card">
           <h2>People</h2>
@@ -349,7 +350,7 @@ export default function SetupTab({ code, session, me, mutate }: SessionProps) {
                     <th>Name</th>
                     <th>Type</th>
                     {draft.jobs.length > 1 && <th>Can cover</th>}
-                    <th title="Optional hard cap">Max shifts</th>
+                    {draft.rosterMode === 'generate' && <th title="Optional hard cap">Max shifts</th>}
                     <th>Login</th>
                     <th />
                   </tr>
@@ -385,6 +386,7 @@ export default function SetupTab({ code, session, me, mutate }: SessionProps) {
                           ))}
                         </td>
                       )}
+                      {draft.rosterMode === 'generate' && (
                       <td>
                         <input
                           type="number"
@@ -394,6 +396,7 @@ export default function SetupTab({ code, session, me, mutate }: SessionProps) {
                           onChange={(e) => setMember(m.id, { maxShifts: e.target.value === '' ? undefined : Math.max(0, Number(e.target.value)) })}
                         />
                       </td>
+                      )}
                       <td className="nowrap small">
                         {session.claimed.includes(m.id) ? (
                           <>
@@ -431,6 +434,7 @@ export default function SetupTab({ code, session, me, mutate }: SessionProps) {
           )}
         </section>
 
+        {draft.rosterMode === 'hospital' && <DutyRosterCard draft={draft} edit={edit} ro={ro} />}
         <StudentsCard draft={draft} edit={edit} ro={ro} />
         <PresentationsCard draft={draft} edit={edit} ro={ro} />
 

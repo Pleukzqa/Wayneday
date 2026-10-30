@@ -67,8 +67,30 @@ export interface PresentationRule {
   types: MemberType[]
 }
 
+/** A one-off change to a presentation rule on a single date. */
+export interface PresentationOverride {
+  date: string
+  ruleId: string
+  active: boolean
+  count?: number
+  fromCount?: number
+}
+
+/**
+ * 'hospital': residents and staff come from the hospital's roster (typed or pasted into `duty`);
+ * Wayneday only arranges students and presenters.
+ * 'generate': Wayneday also schedules residents and staff.
+ */
+export type RosterMode = 'hospital' | 'generate'
+
+/** Requirement id used when a swap or edit refers to a student's place on a shift. */
+export const STUDENT_SLOT = 'student'
+
 export interface SessionConfig {
   title: string
+  rosterMode: RosterMode
+  /** The hospital's resident/staff roster (hospital mode). */
+  duty: Assignment[]
   startDate: string // YYYY-MM-DD
   endDate: string // YYYY-MM-DD
   /** Dates treated like weekends for fairness (public holidays). */
@@ -79,6 +101,7 @@ export interface SessionConfig {
   members: Member[]
   students: StudentSettings
   presentations: PresentationRule[]
+  presentationOverrides: PresentationOverride[]
   /** Free-text rules the built-in solver can't express. */
   extraConditions: string
 }
@@ -230,6 +253,9 @@ export function normalizeSession(s: PublicSession): PublicSession {
     ...s,
     config: {
       ...s.config,
+      rosterMode: s.config.rosterMode ?? 'hospital',
+      duty: s.config.duty ?? [],
+      presentationOverrides: s.config.presentationOverrides ?? [],
       overrides: s.config.overrides ?? [],
       students: { ...DEFAULT_STUDENTS, ...s.config.students },
       presentations: s.config.presentations ?? [],

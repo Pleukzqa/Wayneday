@@ -15,6 +15,7 @@ import {
   type Member,
   type MemberResponse,
   type MemberType,
+  type PresentationOverride,
   type PresentationRule,
   type PresenterAssignment,
   type PublicSession,
@@ -126,11 +127,30 @@ function cleanConfig(raw: unknown): SessionConfig {
       types: [...new Set(arr(o.types, 3).map(memberType))],
     }
   })
+  const ruleIds = new Set(presentations.map((r) => r.id))
+  const presentationOverrides: PresentationOverride[] = arr(c.presentationOverrides, 2000)
+    .map((x) => x as Record<string, unknown>)
+    .filter((o) => isDate(o.date) && ruleIds.has(str(o.ruleId, 40)))
+    .map((o) => ({
+      date: o.date as string,
+      ruleId: str(o.ruleId, 40),
+      active: Boolean(o.active),
+      ...(o.count === undefined ? {} : { count: int(o.count, 0, 20, 1) }),
+      ...(o.fromCount === undefined ? {} : { fromCount: int(o.fromCount, 0, 20, 0) }),
+    }))
+  const memberIds = new Set(members.map((m) => m.id))
+  const duty: Assignment[] = arr(c.duty, 20_000)
+    .map((a) => a as Record<string, unknown>)
+    .filter((o) => isDate(o.date) && shiftIds.has(str(o.shiftId, 40)) && memberIds.has(str(o.memberId, 40)))
+    .map((o) => ({ date: o.date as string, shiftId: str(o.shiftId, 40), requirementId: str(o.requirementId, 40), memberId: str(o.memberId, 40) }))
   let startDate = isDate(c.startDate) ? c.startDate : new Date().toISOString().slice(0, 10)
   let endDate = isDate(c.endDate) ? c.endDate : startDate
   if (endDate < startDate) [startDate, endDate] = [endDate, startDate]
   return {
     title: str(c.title, 100) || 'Untitled roster',
+    rosterMode: c.rosterMode === 'generate' ? 'generate' : 'hospital',
+    duty,
+    presentationOverrides,
     startDate,
     endDate,
     holidays: arr(c.holidays, 100).filter(isDate),

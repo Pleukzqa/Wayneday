@@ -1,5 +1,5 @@
 // Session changes shared by the API server and the in-browser demo, so both enforce the same rules.
-import type { AnswerChange, JoinRequest, MemberResponse, MemberType, PublicSession, Roster, SwapRequest } from './types.ts'
+import { STUDENT_SLOT, type AnswerChange, type JoinRequest, type MemberResponse, type MemberType, type PublicSession, type Roster, type SwapRequest } from './types.ts'
 
 export interface Actor {
   isHost: boolean
@@ -65,12 +65,38 @@ export function saveResponse(s: PublicSession, actor: Actor, memberId: string, r
 
 // ---------- swaps ----------
 
-function ownsShift(s: PublicSession, memberId: string, x: { date: string; shiftId: string; requirementId: string }) {
-  return Boolean(
-    s.schedule?.assignments.some(
-      (a) => a.memberId === memberId && a.date === x.date && a.shiftId === x.shiftId && a.requirementId === x.requirementId,
-    ),
+type Place = { date: string; shiftId: string; requirementId: string }
+
+/** Where a member's place sits in a roster: a position, or (requirementId = STUDENT_SLOT) a student spot. */
+function findPlace(r: Roster, memberId: string, x: Place, skip?: { list: 'a' | 's'; i: number }) {
+  if (x.requirementId === STUDENT_SLOT) {
+    const i = r.students.findIndex((a, k) => !(skip?.list === 's' && skip.i === k) && a.memberId === memberId && a.date === x.date && a.shiftId === x.shiftId)
+    return i < 0 ? null : { list: 's' as const, i }
+  }
+  const i = r.assignments.findIndex(
+    (a, k) => !(skip?.list === 'a' && skip.i === k) && a.memberId === memberId && a.date === x.date && a.shiftId === x.shiftId && a.requirementId === x.requirementId,
   )
+  return i < 0 ? null : { list: 'a' as const, i }
+}
+
+function ownsShift(s: PublicSession, memberId: string, x: Place) {
+  return Boolean(s.schedule && findPlace(s.schedule, memberId, x))
+}
+
+/** The roster with a swap applied (the asker's place goes to the offerer, and the offered place, if any, to the asker). */
+export function applySwapPreview<R extends Roster>(roster: R, swap: SwapRequest, offerId: string): R {
+  const offer = swap.offers.find((o) => o.id === offerId)
+  if (!offer) return roster
+  const out = { ...roster, assignments: roster.assignments.map((a) => ({ ...a })), students: roster.students.map((a) => ({ ...a })) }
+  const set = (p: { list: 'a' | 's'; i: number }, memberId: string) => {
+    if (p.list === 'a') out.assignments[p.i].memberId = memberId
+    else out.students[p.i].memberId = memberId
+  }
+  const take = findPlace(roster, swap.memberId, swap)
+  const give = offer.give ? findPlace(roster, offer.memberId, offer.give, take ?? undefined) : null
+  if (take) set(take, offer.memberId)
+  if (give) set(give, swap.memberId)
+  return out
 }
 
 export function requestSwap(
@@ -142,22 +168,8 @@ export function actOnSwap(s: PublicSession, actor: Actor, swapId: string, a: Swa
       if (!sched || !ownsShift(s, swap.memberId, swap) || (offer.give && !ownsShift(s, offer.memberId, offer.give))) {
         throw new OpError(409, 'The roster changed since this swap was agreed; it can no longer be applied')
       }
-      const take = sched.assignments.find(
-        (x) => x.memberId === swap.memberId && x.date === swap.date && x.shiftId === swap.shiftId && x.requirementId === swap.requirementId,
-      )!
-      take.memberId = offer.memberId
-      if (offer.give) {
-        const give = sched.assignments.find(
-          (x) =>
-            x.memberId === offer.memberId &&
-            x !== take &&
-            x.date === offer.give!.date &&
-            x.shiftId === offer.give!.shiftId &&
-            x.requirementId === offer.give!.requirementId,
-        )!
-        give.memberId = swap.memberId
-      }
-      // Presenter duties follow the people only via the next regenerate; nothing else to move.
+      s.schedule = applySwapPreview(sched, swap, offer.id)
+      // Presenter duties stay with whoever was picked; re-arrange presenters to recompute them.
       swap.status = 'approved'
       swap.resolvedAt = Date.now()
       return
@@ -178,23 +190,6 @@ export function actOnSwap(s: PublicSession, actor: Actor, swapId: string, a: Swa
 }
 
 /** The roster as it would be if this swap (with this offer) were applied. */
-export function applySwapPreview(roster: Roster, swap: SwapRequest, offerId: string): Roster {
-  const offer = swap.offers.find((o) => o.id === offerId)
-  if (!offer) return roster
-  const assignments = roster.assignments.map((a) => ({ ...a }))
-  const take = assignments.find(
-    (a) => a.memberId === swap.memberId && a.date === swap.date && a.shiftId === swap.shiftId && a.requirementId === swap.requirementId,
-  )
-  if (take) take.memberId = offer.memberId
-  if (offer.give) {
-    const give = assignments.find(
-      (a) => a !== take && a.memberId === offer.memberId && a.date === offer.give!.date && a.shiftId === offer.give!.shiftId && a.requirementId === offer.give!.requirementId,
-    )
-    if (give) give.memberId = swap.memberId
-  }
-  return { ...roster, assignments }
-}
-
 // ---------- joining ----------
 
 export function createJoin(s: PublicSession, name: string, type: MemberType): JoinRequest {

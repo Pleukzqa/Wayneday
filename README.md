@@ -1,17 +1,19 @@
 # Wayneday — แอปจัดเวร
 
-A group duty-roster app. A host opens a session, everyone joins with a three-word code, fills in their availability and preferences, and the host simulates and publishes a fair roster with a review period before it's final.
+A group duty-roster app. A host opens a session, everyone joins with a three-word code, and the app arranges students around the hospital's resident/staff roster (or, optionally, schedules residents and staff too), with a review period before the roster is final.
 
 ## How it works
 
 1. **Host creates a session** → gets a code like `amber-otter-river` and an invite link.
-2. **Setup (host):** period and holidays, jobs (ER, Ward…), shift slots (times, weekdays, positions like "1 resident + 1 staff"), a **calendar** to change single dates (switch a shift off or on, change how many people it needs), people (resident / staff / student, jobs they can cover, optional max shifts), **student** settings, **presentation rules**, and free-text **other conditions**.
+2. **Setup (host):** period and holidays, jobs (ER, Ward…), shift slots (times, weekdays, positions like "1 resident + 1 staff"), people (resident / staff / student), **student** settings, **presentation rules**, free-text **other conditions**, and a **calendar** to change single dates — switch a shift or presentation off or on, change how many people or presentations it needs — and copy a day's changes to the rest of its week or to every same weekday.
+   - **Residents & staff roster — From the hospital (default):** enter who is on duty each date, or paste the hospital's table from Excel / Google Sheets (new names are added to People). Wayneday arranges only the students and presenters.
+   - **Made by Wayneday:** Wayneday also schedules residents and staff from their availability.
 3. **People join:** pick their name and set a PIN — or open their **personal link** with the name pre-picked. Anyone not on the list can **ask to join**; the host adds them as a new person or links them to an existing name, and their device logs in automatically.
-4. **Members fill in:** **Spread out** or **Grouped** shifts, minimum days between shifts, and a dates × people grid to mark days **unavailable** or **lock** themselves into a shift slot. Everyone sees everyone's answers. The host can only edit other people's columns after switching that on; every host edit is logged, the member is told, and can restore their previous answers. **Undo** works for everyone.
-5. **Find arrangements (host):** shows how many valid rosters exist (exact when small, estimated otherwise), lists the best distinct options to compare, or explains why none is possible.
+4. **Members fill in** (in hospital mode, only students): **Spread out** or **Grouped** shifts, minimum days between shifts, and a dates × people grid to mark days **unavailable** or **lock** themselves into a shift slot. Everyone sees everyone's answers. The host can only edit other people's columns after switching that on; every host edit is logged, the member is told, and can restore their previous answers. **Undo** works for everyone.
+5. **Find arrangements (host):** shows how many valid arrangements exist (exact when small, estimated otherwise), lists the best distinct options to compare, or explains why none is possible.
 6. **Students** are placed after residents and staff, so every resident and every staff member is on duty with students about equally often. **Presenters** are picked for each presentation rule, taking the required number from the previous day's shift first and sharing the load.
 7. **AI hand-off:** the prompt includes the whole problem and the roster on screen, in the exact JSON the app reads back; the reply is checked against the hard rules before publishing.
-8. **Publish for review** with a concern period. Members raise concerns (tap a cell) or **ask to swap** one of their shifts: the request is announced to the group, others offer to take it or trade, the asker accepts, and the host approves (the app shows any rule the swap would break).
+8. **Publish for review** with a concern period. Members raise concerns (tap a cell) or **ask to swap** one of their shifts or student places: the request is announced to the group, others offer to take it or trade, the asker accepts, and the host approves (the app shows any rule the swap would break).
 9. **Export:** Excel, CSV, PNG, Google Sheets, and **calendar** — pick whose shifts, the event name, a colour and the Google calendar (or a new one), or download .ics / Google Calendar CSV.
 
 ### Solver

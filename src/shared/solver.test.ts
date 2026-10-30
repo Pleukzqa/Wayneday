@@ -2,13 +2,16 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { dayDiff } from './dates.ts'
 import { countArrangements, solve, solveMany, validate } from './solver.ts'
-import { studentExposure } from './students.ts'
+import { arrangeStudents, countStudentArrangements, pickPresenters, studentExposure, studentOptions } from './students.ts'
 import { importAiResult } from './ai.ts'
 import { DEFAULT_RESPONSE, DEFAULT_STUDENTS, type MemberResponse, type SessionConfig } from './types.ts'
 
 function config(residents: number, staff = 0): SessionConfig {
   return {
     title: 'Test',
+    rosterMode: 'generate',
+    duty: [],
+    presentationOverrides: [],
     startDate: '2026-11-01',
     endDate: '2026-11-30',
     holidays: [],
@@ -173,4 +176,77 @@ test('offers several distinct arrangements, best first', () => {
   if (!r.ok) return
   assert.equal(r.alternatives.length, 4)
   for (let i = 1; i < r.alternatives.length; i++) assert.ok(r.alternatives[i - 1].score <= r.alternatives[i].score)
+})
+
+// ---------- hospital mode ----------
+
+function hospital(): SessionConfig {
+  const c = config(4, 2)
+  c.rosterMode = 'hospital'
+  c.members.push(...['A', 'B', 'C'].map((n) => ({ id: `st${n}`, name: `Student ${n}`, type: 'student' as const, jobs: [] })))
+  c.students = { shiftIds: ['night'], maxPerShift: 1, shiftsPerStudent: 5 }
+  // The hospital's roster: a fixed rotation, deliberately with back-to-back nights (not ours to judge).
+  for (let i = 0; i < 30; i++) {
+    const date = `2026-11-${String(i + 1).padStart(2, '0')}`
+    c.duty.push({ date, shiftId: 'night', requirementId: 'r1', memberId: `r${Math.floor(i / 2) % 4}` })
+    c.duty.push({ date, shiftId: 'night', requirementId: 'r2', memberId: `s${i % 2}` })
+  }
+  return c
+}
+
+test('hospital mode keeps residents/staff as given and only places students', () => {
+  const c = hospital()
+  const r = studentOptions(c, {}, c.duty, { count: 3 })
+  assert.ok(r.ok)
+  if (!r.ok) return
+  for (const o of r.alternatives) {
+    assert.deepEqual(o.roster.assignments, c.duty)
+    assert.equal(o.roster.students.length, 15)
+    assert.deepEqual(validate(c, {}, o.roster), [], 'hospital roster isn’t judged against intervals')
+  }
+  const exp = studentExposure(c, r.alternatives[0].roster.assignments, r.alternatives[0].roster.students)
+  const res = ['r0', 'r1', 'r2', 'r3'].map((id) => exp[id])
+  assert.ok(Math.max(...res) - Math.min(...res) <= 1, `resident exposure ${res}`)
+})
+
+test('counts student arrangements exactly when small', () => {
+  const c = hospital()
+  c.endDate = '2026-11-04'
+  c.members = c.members.filter((m) => m.id !== 'stB' && m.id !== 'stC')
+  c.students = { shiftIds: ['night'], maxPerShift: 1, shiftsPerStudent: 2 }
+  // One student, 2 nights out of 4, at least 2 days apart: {1,3},{1,4},{2,4} = 3
+  assert.deepEqual(countStudentArrangements(c, {}), { exact: true, count: 3 })
+})
+
+test('presentation numbers can change on single dates', () => {
+  const c = hospital()
+  c.presentations = [{ id: 'mr', name: 'Morning report', days: [1, 2, 3, 4, 5], count: 2, fromShiftId: 'night', fromCount: 1, types: ['resident', 'student'] }]
+  c.presentationOverrides = [
+    { date: '2026-11-03', ruleId: 'mr', active: true, count: 1 },
+    { date: '2026-11-04', ruleId: 'mr', active: false },
+    { date: '2026-11-07', ruleId: 'mr', active: true }, // a Saturday
+  ]
+  const s = arrangeStudents(c, {}, c.duty)
+  assert.ok(s.ok)
+  if (!s.ok) return
+  const p = pickPresenters(c, {}, c.duty, s.students).presenters
+  const on = (d: string) => p.filter((x) => x.date === d).length
+  assert.equal(on('2026-11-02'), 2)
+  assert.equal(on('2026-11-03'), 1)
+  assert.equal(on('2026-11-04'), 0)
+  assert.equal(on('2026-11-07'), 2)
+})
+
+test('AI replies in hospital mode only change students', () => {
+  const c = hospital()
+  const reply = JSON.stringify({
+    format: 'wayneday-roster',
+    assignments: [{ date: '2026-11-01', shift: 'Night', job: 'ER', member: 'Res 3' }],
+    students: [{ date: '2026-11-01', shift: 'Night', member: 'Student A' }],
+  })
+  const r = importAiResult(reply, c)
+  assert.ok(r.ok)
+  if (!r.ok) return
+  assert.deepEqual(r.roster.assignments, c.duty)
+  assert.equal(r.roster.students.length, 1)
 })
