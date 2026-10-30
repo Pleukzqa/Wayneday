@@ -17,3 +17,6 @@ services:
         sync: false
       - key: SESSION_SECRET
         generateValue: true
+      # Optional: who may create rosters, e.g. "me@gmail.com, @docchula.com". Empty = anyone signed in.
+      - key: HOST_EMAILS
+        sync: false

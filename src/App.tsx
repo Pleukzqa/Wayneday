@@ -4,6 +4,7 @@ import SessionPage from './pages/SessionPage.tsx'
 import { codeFromHash, IS_DEMO } from './routes.ts'
 import { setLang, t, type Lang } from './shared/i18n.ts'
 import { AccountChip } from './components/GoogleButton.tsx'
+import Logo from './components/Logo.tsx'
 
 // Only bundled into the phone demo build.
 const DemoBar = IS_DEMO ? lazy(() => import('./demo/DemoBar.tsx')) : null
@@ -51,9 +52,7 @@ export default function App() {
     <>
       <header className="topbar">
         <a href="#home" className="brand">
-          <span className="brand-mark" aria-hidden>
-            ◷
-          </span>
+          <Logo />
           Wayneday <span className="brand-sub">{t('Duty roster planner')}</span>
         </a>
         <div className="topbar-right">

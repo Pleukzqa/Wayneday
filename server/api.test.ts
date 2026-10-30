@@ -133,6 +133,35 @@ for (const [kind, makeStore] of stores) {
   })
 }
 
+test('with a host list, only listed accounts (or domains) can create sessions; co-hosts still work', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'wayneday-'))
+  after(() => rmSync(dir, { recursive: true, force: true }))
+  const app = express()
+  app.use('/api', createApi({ store: fileStore(dir), googleClientId: 'c', verifyGoogle: fakeGoogle, secret: 'x'.repeat(32), hostAllowlist: ['Me@Gmail.com', '@docchula.com'] }))
+  const server = app.listen(0)
+  await new Promise((r) => server.once('listening', r))
+  after(() => server.close())
+  const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api`
+  const post = async (path: string, account: string, body: unknown) =>
+    fetch(base + path, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Wayneday-Account': account }, body: JSON.stringify(body) })
+  const signIn = async (email: string) =>
+    ((await (await fetch(`${base}/auth/google`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ credential: email }) })).json()) as { token: string }).token
+  const me = await signIn('me@gmail.com')
+  const chula = await signIn('friend@docchula.com')
+  const stranger = await signIn('stranger@gmail.com')
+  assert.equal((await post('/sessions', stranger, {})).status, 403)
+  assert.equal((await post('/sessions', chula, {})).status, 200)
+  const created = await post('/sessions', me, {})
+  assert.equal(created.status, 200)
+  const { code } = (await created.json()) as { code: string }
+  const meInfo = (await (await fetch(`${base}/me`, { headers: { 'X-Wayneday-Account': stranger } })).json()) as { canHost: boolean }
+  assert.equal(meInfo.canHost, false)
+  // The stranger can still be a co-host on someone's roster.
+  assert.equal((await post(`/sessions/${code}/hosts`, me, { action: 'add', email: 'stranger@gmail.com' })).status, 200)
+  const v = (await (await fetch(`${base}/sessions/${code}`, { headers: { 'X-Wayneday-Account': stranger } })).json()) as { me: { hostRole: string } }
+  assert.equal(v.me.hostRole, 'cohost')
+})
+
 test('a session made before sign-in gets its signed-in host as owner', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'wayneday-'))
   after(() => rmSync(dir, { recursive: true, force: true }))

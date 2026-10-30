@@ -5,6 +5,7 @@ import express, { type Request, type Response, type NextFunction } from 'express
 import { isDate } from '../src/shared/dates.ts'
 import { actOnSwap, createJoin, decideJoin, OpError, requestSwap, saveResponse, type SwapAction } from '../src/shared/ops.ts'
 import {
+  ANY_SHIFT,
   DEFAULT_STUDENTS,
   normalizeSession,
   type Assignment,
@@ -145,7 +146,7 @@ function cleanConfig(raw: unknown): SessionConfig {
       name: str(o.name, 60) || 'Presentation',
       days: [...new Set(arr(o.days, 7).map((d) => int(d, 0, 6, 0)))],
       count,
-      fromShiftId: shiftIds.has(str(o.fromShiftId, 40)) ? str(o.fromShiftId, 40) : (shifts[0]?.id ?? ''),
+      fromShiftId: o.fromShiftId === ANY_SHIFT || shiftIds.has(str(o.fromShiftId, 40)) ? str(o.fromShiftId, 40) : (shifts[0]?.id ?? ''),
       fromCount: int(o.fromCount, 0, count, 0),
       types: [...new Set(arr(o.types, 3).map(memberType))],
     }
@@ -244,6 +245,8 @@ export interface ApiOptions {
   verifyGoogle?: GoogleVerify
   /** Signs account tokens; defaults to SESSION_SECRET. */
   secret?: string
+  /** Who may create sessions: emails, or "@domain" for a whole domain. Empty = any signed-in account. */
+  hostAllowlist?: string[]
 }
 
 const CODE = /^[a-z]+-[a-z]+-[a-z]+$/
@@ -255,6 +258,9 @@ export function createApi(opts: ApiOptions) {
   const accounts = accountTokens(opts.secret ?? secretFromEnv())
   const clientId = opts.googleClientId ?? ''
   const verify = opts.verifyGoogle ?? (clientId ? googleVerifier(clientId) : null)
+  const allow = (opts.hostAllowlist ?? []).map(normEmail).filter(Boolean)
+  const canHost = (a: Account | null) =>
+    clientId ? Boolean(a) && (!allow.length || allow.some((x) => (x.startsWith('@') ? a!.email.endsWith(x) : a!.email === x))) : true
 
   // The last version of each session this server has seen. Every read checks the stored version first,
   // so a save by another server copy is never missed.
@@ -408,7 +414,7 @@ export function createApi(opts: ApiOptions) {
           status: !s.schedule ? 'collecting' : s.schedule.status,
         })
       }
-      return { account: acct, sessions }
+      return { account: acct, canHost: canHost(acct), sessions }
     }),
   )
 
@@ -419,6 +425,7 @@ export function createApi(opts: ApiOptions) {
     handle(async (req) => {
       const acct = account(req)
       if (clientId && !acct) throw new HttpError(401, 'Sign in with Google to host a session')
+      if (!canHost(acct)) throw new HttpError(403, 'Hosting on this site is by invitation. Ask the person who runs it to add your email.')
       if (!limits.create.hit(ip(req))) throw new HttpError(429, TOO_MANY)
       const today = new Date().toISOString().slice(0, 10)
       for (let i = 0; i < 20; i++) {

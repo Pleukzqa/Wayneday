@@ -8,7 +8,7 @@ import { presentationOn, reqCount, reqMin, shiftRuns } from './calendar.ts'
 import { t, weekdayShort } from './i18n.ts'
 import { addDays, dateRange, dayDiff, weekday } from './dates.ts'
 import { preferenceCost, responseFor, rng, variance } from './scoring.ts'
-import type { Assignment, Member, MemberResponse, PresenterAssignment, SessionConfig, StudentAssignment } from './types.ts'
+import { ANY_SHIFT, fromRuleShift, presenterTypes, type Assignment, type Member, type MemberResponse, type PresenterAssignment, type SessionConfig, type StudentAssignment } from './types.ts'
 
 /** A place students can take: one shift on one date (and, in hospital mode, one job within it). */
 export interface Occ {
@@ -459,18 +459,19 @@ export function pickPresenters(
     ids.map((id) => ({ id, k: (count.get(id) ?? 0) + rand() * 0.5 })).sort((a, b) => a.k - b.k).map((x) => x.id)
 
   for (const rule of config.presentations) {
-    const shiftName = config.shifts.find((s) => s.id === rule.fromShiftId)?.name ?? 'that shift'
+    const shiftName = rule.fromShiftId === ANY_SHIFT ? t('any shift') : (config.shifts.find((s) => s.id === rule.fromShiftId)?.name ?? 'that shift')
     const short: string[] = []
     for (const date of days) {
       const today = presentationOn(config, rule, date)
       if (!today) continue
       const yesterday = addDays(date, -1)
-      const eligible = config.members.filter((m) => rule.types.includes(m.type) && available(m.id, date)).map((m) => m.id)
+      const types = presenterTypes(config, rule)
+      const eligible = config.members.filter((m) => types.includes(m.type) && available(m.id, date)).map((m) => m.id)
       let post: string[] = []
       if (yesterday >= config.startDate) {
         post = [
-          ...assignments.filter((a) => a.date === yesterday && a.shiftId === rule.fromShiftId).map((a) => a.memberId),
-          ...students.filter((s) => s.date === yesterday && s.shiftId === rule.fromShiftId).map((s) => s.memberId),
+          ...assignments.filter((a) => a.date === yesterday && fromRuleShift(rule, a.shiftId)).map((a) => a.memberId),
+          ...students.filter((s) => s.date === yesterday && fromRuleShift(rule, s.shiftId)).map((s) => s.memberId),
         ].filter((id, i, arr) => arr.indexOf(id) === i && eligible.includes(id))
       }
       const chosen = byFewest(post).slice(0, today.fromCount)

@@ -12,7 +12,9 @@ if (googleClientId && !googleClientId.endsWith('.apps.googleusercontent.com')) c
 const app = express()
 // Behind the host's proxy (Render, Cloudflare…), so rate limits see the visitor's address.
 app.set('trust proxy', 1)
-app.use('/api', createApi({ store, googleClientId: googleClientId.endsWith('.apps.googleusercontent.com') ? googleClientId : '' }))
+// Optional private list of who may host, e.g. "me@gmail.com, friend@gmail.com, @docchula.com".
+const hostAllowlist = (process.env.HOST_EMAILS ?? '').split(/[\s,;]+/).filter(Boolean)
+app.use('/api', createApi({ store, googleClientId: googleClientId.endsWith('.apps.googleusercontent.com') ? googleClientId : '', hostAllowlist }))
 app.use(express.static(join(root, 'dist')))
 app.get(/^(?!\/api).*/, (_req, res) => res.sendFile(join(root, 'dist', 'index.html')))
 

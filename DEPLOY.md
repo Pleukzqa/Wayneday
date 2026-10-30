@@ -57,6 +57,14 @@ Open your site: the home page now shows **Sign in with Google** under *Host a se
 3. Fill in the period, shift slots, hospital roster and students, then **Copy invite** and post it in your group chat. Students pick their name and set a PIN.
 4. Your sessions are listed under **🗂️ My rosters** on the home page, on any device where you sign in.
 
+## Optional: only let certain people host
+
+By default any Google account that can sign in may create rosters. To keep hosting private, add an environment variable in Render → **Environment**:
+
+- **Key** `HOST_EMAILS`, **value** e.g. `you@gmail.com, friend@gmail.com` — or a whole domain such as `@docchula.com`.
+
+Others can still be **co-hosts** (the owner adds them in Setup → Hosts) and members never need an account. (If your Google sign-in screen is still in *Testing*, only its test users can sign in at all, which is already private.)
+
 ## Optional: your own domain with Cloudflare
 
 1. Render → your service → **Settings → Custom Domains → Add**, e.g. `roster.yourdomain.com`.
@@ -76,6 +84,7 @@ Any host that runs Node 22 works: `npm ci --include=dev && npm run build`, then 
 | `DATABASE_URL` | Postgres connection URI. Without it, sessions are JSON files in `DATA_DIR` (fine on a machine with a disk, lost on hosts that wipe the disk on restart). |
 | `GOOGLE_CLIENT_ID` | Turns on Google sign-in for hosts, and Google exports. Without it, the host is whoever created the session on that browser. |
 | `SESSION_SECRET` | Long random string that signs host sign-ins. |
+| `HOST_EMAILS` | Optional list of who may create sessions: emails and/or `@domain`, separated by commas. Empty = anyone signed in. |
 | `PORT` | Port to listen on (default 8787). |
 
 Saves are safe with several copies of the server running: each save names the version it replaces and retries if someone saved first.

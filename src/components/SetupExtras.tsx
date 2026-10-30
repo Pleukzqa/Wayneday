@@ -5,7 +5,7 @@ import { equalShareFor } from '../shared/students.ts'
 import { t, typeName, weekdayLetter, weekdayLong, weekdayShort } from '../shared/i18n.ts'
 import { overrideFor, presentationOn, reqCount, shiftRuns } from '../shared/calendar.ts'
 import { dateRange, shortDate, weekday } from '../shared/dates.ts'
-import { DUTY_ROLES, type DateOverride, type DutyRole, type MemberResponse, type MemberType, type PresentationOverride, type PresentationRule, type SessionConfig } from '../shared/types.ts'
+import { ANY_SHIFT, DUTY_ROLES, type DateOverride, type DutyRole, type MemberResponse, type MemberType, type PresentationOverride, type PresentationRule, type SessionConfig } from '../shared/types.ts'
 import { uid, type SessionProps } from './props.ts'
 
 type Edit = (fn: (c: SessionConfig) => SessionConfig) => void
@@ -181,7 +181,7 @@ export function CalendarCard({ draft, edit, ro }: { draft: SessionConfig; edit: 
           })}
           {draft.presentations.map((r) => {
             const p = presentationOn(draft, r, selected)
-            const from = draft.shifts.find((s) => s.id === r.fromShiftId)?.name ?? 'shift'
+            const from = r.fromShiftId === ANY_SHIFT ? t('any shift') : (draft.shifts.find((s) => s.id === r.fromShiftId)?.name ?? 'shift')
             return (
               <div key={r.id} className="cal-shift">
                 <label className="check">
@@ -411,6 +411,7 @@ export function PresentationsCard({ draft, edit, ro }: { draft: SessionConfig; e
                 const count = Math.max(1, Number(e.target.value) || 1)
                 set(p.id, { count, fromCount: Math.min(p.fromCount, count) })
               }} /> {t("presentation(s), at least")} <input type="number" min={0} max={p.count} disabled={ro} value={p.fromCount} onChange={(e) => set(p.id, { fromCount: Math.min(p.count, Math.max(0, Number(e.target.value) || 0)) })} /> {t("by people on")} <select value={p.fromShiftId} disabled={ro} onChange={(e) => set(p.id, { fromShiftId: e.target.value })}>
+                <option value={ANY_SHIFT}>{t('any shift')}</option>
                 {draft.shifts.map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.name}
@@ -418,20 +419,22 @@ export function PresentationsCard({ draft, edit, ro }: { draft: SessionConfig; e
                 ))}
               </select> {t("the day before")}</label>
           </div>
-          <div className="row wrap">
-            <span className="small">{t("Who can present:")}</span>
-            {TYPES.map((ty) => (
-              <label key={ty} className="check">
-                <input
-                  type="checkbox"
-                  disabled={ro}
-                  checked={p.types.includes(ty)}
-                  onChange={(e) => set(p.id, { types: e.target.checked ? [...p.types, ty] : p.types.filter((x) => x !== ty) })}
-                />
-                {typeName(ty)}
-              </label>
-            ))}
-          </div>
+          {draft.rosterMode !== 'hospital' && (
+            <div className="row wrap">
+              <span className="small">{t("Who can present:")}</span>
+              {TYPES.map((ty) => (
+                <label key={ty} className="check">
+                  <input
+                    type="checkbox"
+                    disabled={ro}
+                    checked={p.types.includes(ty)}
+                    onChange={(e) => set(p.id, { types: e.target.checked ? [...p.types, ty] : p.types.filter((x) => x !== ty) })}
+                  />
+                  {typeName(ty)}
+                </label>
+              ))}
+            </div>
+          )}
         </div>
       ))}
       {!ro && draft.shifts.length > 0 && (
@@ -442,7 +445,7 @@ export function PresentationsCard({ draft, edit, ro }: { draft: SessionConfig; e
               ...c,
               presentations: [
                 ...c.presentations,
-                { id: uid(), name: 'Morning report', days: [1, 2, 3, 4, 5], count: 2, fromShiftId: c.shifts[0].id, fromCount: 1, types: ['resident'] },
+                { id: uid(), name: 'Morning report', days: [1, 2, 3, 4, 5], count: 2, fromShiftId: c.shifts[0].id, fromCount: 1, types: [c.rosterMode === 'hospital' ? 'student' : 'resident'] },
               ],
             }))
           }

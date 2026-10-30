@@ -4,7 +4,7 @@ import { dateRange, dayDiff } from './dates.ts'
 import { countArrangements, solve, solveMany, validate } from './solver.ts'
 import { arrangeStudents, countStudentArrangements, equalShare, pickPresenters, placeKey, studentCellIssues, studentExposure, studentOptions, studentRuleReport, studentTargets } from './students.ts'
 import { buildAiPrompt, importAiResult } from './ai.ts'
-import { DEFAULT_RESPONSE, DEFAULT_STUDENTS, type MemberResponse, type SessionConfig, type StudentAssignment } from './types.ts'
+import { ANY_SHIFT, DEFAULT_RESPONSE, DEFAULT_STUDENTS, type MemberResponse, type SessionConfig, type StudentAssignment } from './types.ts'
 
 function config(residents: number, staff = 0): SessionConfig {
   return {
@@ -276,6 +276,22 @@ test('counts student arrangements exactly when small', () => {
   c.students = { ...c.students, shiftsPerStudent: 2 }
   // One student, 2 nights out of 4, at least 2 days apart: {1,3},{1,4},{2,4} = 3
   assert.deepEqual(countStudentArrangements(c, {}), { exact: true, count: 3 })
+})
+
+test('presenters can come off any shift, and with a hospital roster only students present', () => {
+  const c = equalRotation()
+  // An old rule from before: residents allowed, from one shift. Now from any shift.
+  c.presentations = [{ id: 'mr', name: 'Morning report', days: [1, 2, 3, 4, 5], count: 1, fromShiftId: ANY_SHIFT, fromCount: 1, types: ['resident'] }]
+  const s = arrangeStudents(c, {}, c.duty)
+  assert.ok(s.ok)
+  if (!s.ok) return
+  const p = pickPresenters(c, {}, c.duty, s.students)
+  const students = new Set(c.members.filter((m) => m.type === 'student').map((m) => m.id))
+  assert.ok(p.presenters.length > 15)
+  assert.ok(p.presenters.every((x) => students.has(x.memberId)), 'only students present')
+  // Every place is filled every day, so someone always comes off a shift (of either kind).
+  assert.ok(p.presenters.filter((x) => x.date > c.startDate).every((x) => x.postCall))
+  assert.ok(p.presenters.some((x) => x.postCall && s.students.some((y) => y.memberId === x.memberId && y.shiftId === 'day')))
 })
 
 test('presentation numbers can change on single dates', () => {

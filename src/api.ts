@@ -60,7 +60,7 @@ export const api = {
   create: (title: string) => call<{ code: string; hostToken: string }>(null, 'POST', '/sessions', { title }),
   config: () => call<{ googleClientId: string }>(null, 'GET', '/config'),
   signInGoogle: (credential: string) => call<{ token: string; account: Account }>(null, 'POST', '/auth/google', { credential }),
-  mySessions: () => call<{ account: Account; sessions: MySession[] }>(null, 'GET', '/me'),
+  mySessions: () => call<{ account: Account; canHost: boolean; sessions: MySession[] }>(null, 'GET', '/me'),
   /** With `since`, answers { unchanged: true } if the session is still at that version. */
   get: (code: string, since = -1) =>
     call<SessionView | { unchanged: true }>(code, 'GET', `/sessions/${code}${since >= 0 ? `?since=${since}` : ''}`),

@@ -72,16 +72,28 @@ export interface StudentSettings {
   minGap?: number
 }
 
+/** `fromShiftId` meaning "on any shift the day before". */
+export const ANY_SHIFT = '*'
+
 /** "On these days, `count` presentations; at least `fromCount` by people who were on `fromShiftId` the day before." */
 export interface PresentationRule {
   id: string
   name: string
   days: number[]
   count: number
+  /** A shift slot id, or ANY_SHIFT. */
   fromShiftId: string
   fromCount: number
+  /** Who may present (generate mode). With a hospital roster, presenters are always students. */
   types: MemberType[]
 }
+
+/** Was someone on `shiftId` the shift this rule takes presenters from? */
+export const fromRuleShift = (rule: PresentationRule, shiftId: string) => rule.fromShiftId === ANY_SHIFT || rule.fromShiftId === shiftId
+
+/** Who may present: with a hospital roster only students are arranged, so only students present. */
+export const presenterTypes = (config: SessionConfig, rule: PresentationRule): MemberType[] =>
+  config.rosterMode === 'hospital' ? ['student'] : rule.types
 
 /** A one-off change to a presentation rule on a single date. */
 export interface PresentationOverride {

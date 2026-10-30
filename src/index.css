@@ -1425,3 +1425,11 @@ h2[id] {
 .site-footer a {
   color: inherit;
 }
+
+.hero .logo {
+  display: block;
+  margin-bottom: 0.5rem;
+}
+.brand .logo {
+  flex-shrink: 0;
+}

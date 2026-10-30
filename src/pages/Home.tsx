@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { useAccount } from '../account.ts'
 import { api, setTokens, type MySession } from '../api.ts'
 import { GoogleButton } from '../components/GoogleButton.tsx'
+import Logo from '../components/Logo.tsx'
 import { googleClientId } from '../google.ts'
 import { sessionHash } from '../routes.ts'
 import { t } from '../shared/i18n.ts'
@@ -14,6 +15,15 @@ export default function Home() {
   const account = useAccount()
   // With Google set up, hosting needs a sign-in so the host can get back in from any device.
   const needSignIn = Boolean(googleClientId()) && !account
+  const [mine, setMine] = useState<{ canHost: boolean; sessions: MySession[] } | null>(null)
+  const [mineError, setMineError] = useState<string | null>(null)
+  useEffect(() => {
+    if (!account) return
+    api
+      .mySessions()
+      .then((r) => setMine(r))
+      .catch((e: Error) => setMineError(e.message))
+  }, [account])
 
   async function create(e: FormEvent) {
     e.preventDefault()
@@ -43,7 +53,8 @@ export default function Home() {
   return (
     <div className="home">
       <section className="hero">
-        <p className="hero-kicker">🩺 Wayneday · {t('Duty roster planner')}</p>
+        <Logo size={56} />
+        <p className="hero-kicker">Wayneday · {t('Duty roster planner')}</p>
         <h1>{t('Fair duty rosters, without the group-chat chaos.')}</h1>
         <p className="muted">{t('Put in the hospital roster, let students mark the days they can’t make, and get a fair arrangement in a minute — then let everyone check it before it’s final.')}</p>
       </section>
@@ -77,6 +88,13 @@ export default function Home() {
             <p className="muted small">{t('Sign in with Google to host. Your rosters then open on any device, and you can add co-hosts. Members don’t need Google — they join with the code and a PIN.')}</p>
             <GoogleButton />
           </section>
+        ) : account && mine && !mine.canHost ? (
+          <section className="card">
+            <h2>🧑‍✈️ {t('Host a session')}</h2>
+            <p className="muted small">
+              {t('Hosting on this site is by invitation, and {email} isn’t on the list yet. Ask the person who runs it to add you — or ask a host to make you a co-host of their roster.', { email: account.email })}
+            </p>
+          </section>
         ) : (
           <form className="card" onSubmit={create}>
             <h2>🧑‍✈️ {t('Host a session')}</h2>
@@ -99,7 +117,7 @@ export default function Home() {
         </form>
       </div>
       {error && <p className="error">{error}</p>}
-      {account && <MyRosters />}
+      {account && <MyRosters sessions={mine?.sessions ?? null} error={mineError} />}
     </div>
   );
 }
@@ -111,15 +129,7 @@ const STATUS: Record<MySession['status'], [string, string]> = {
 }
 
 /** Sessions this Google account hosts or co-hosts. */
-function MyRosters() {
-  const [sessions, setSessions] = useState<MySession[] | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  useEffect(() => {
-    api
-      .mySessions()
-      .then((r) => setSessions(r.sessions))
-      .catch((e: Error) => setError(e.message))
-  }, [])
+function MyRosters({ sessions, error }: { sessions: MySession[] | null; error: string | null }) {
   return (
     <section className="card my-rosters">
       <h2>🗂️ {t('My rosters')}</h2>

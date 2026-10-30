@@ -6,7 +6,7 @@ import { presentationOn, reqCount, shiftRuns } from './calendar.ts'
 import { dateRange, WEEKDAYS } from './dates.ts'
 import { responseFor } from './scoring.ts'
 import { equalShare } from './students.ts'
-import type { Assignment, MemberResponse, PresenterAssignment, Roster, SessionConfig, StudentAssignment } from './types.ts'
+import { ANY_SHIFT, fromRuleShift, presenterTypes, type Assignment, type MemberResponse, type PresenterAssignment, type Roster, type SessionConfig, type StudentAssignment } from './types.ts'
 
 export const AI_FORMAT_TAG = 'wayneday-roster'
 
@@ -128,7 +128,7 @@ export function buildAiPrompt(config: SessionConfig, responses: Record<string, M
     lines.push('## Presentations')
     for (const r of config.presentations) {
       lines.push(
-        `- "${r.name}" on ${r.days.map((d) => WEEKDAYS[d]).join('/')}: ${r.count} presenter(s), at least ${r.fromCount} of them must have worked "${shiftName(r.fromShiftId)}" the day before. Presenters can be: ${r.types.join(', ')}. Share presentations evenly.`,
+        `- "${r.name}" on ${r.days.map((d) => WEEKDAYS[d]).join('/')}: ${r.count} presenter(s), at least ${r.fromCount} of them must have worked ${r.fromShiftId === ANY_SHIFT ? 'any shift' : `"${shiftName(r.fromShiftId)}"`} the day before. Presenters can be: ${presenterTypes(config, r).join(', ')}. Share presentations evenly.`,
       )
       const changes = config.presentationOverrides.filter((o) => o.ruleId === r.id).sort((x, y) => x.date.localeCompare(y.date))
       for (const o of changes) {
@@ -303,8 +303,8 @@ export function importAiResult(text: string, config: SessionConfig): ImportResul
     }
     const yesterday = new Date(Date.parse(date + 'T00:00:00Z') - 86_400_000).toISOString().slice(0, 10)
     const postCall =
-      assignments.some((a) => a.date === yesterday && a.shiftId === rule.fromShiftId && a.memberId === member.id) ||
-      students.some((s) => s.date === yesterday && s.shiftId === rule.fromShiftId && s.memberId === member.id)
+      assignments.some((a) => a.date === yesterday && fromRuleShift(rule, a.shiftId) && a.memberId === member.id) ||
+      students.some((s) => s.date === yesterday && fromRuleShift(rule, s.shiftId) && s.memberId === member.id)
     presenters.push({ date, ruleId: rule.id, memberId: member.id, postCall })
   }
 
