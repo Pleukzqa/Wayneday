@@ -125,6 +125,7 @@ function cleanConfig(raw: unknown): SessionConfig {
     shiftIds: arr(st.shiftIds, 12).map((x) => str(x, 40)).filter((x) => shiftIds.has(x)),
     maxPerShift: int(st.maxPerShift, 1, 20, DEFAULT_STUDENTS.maxPerShift),
     shiftsPerStudent: int(st.shiftsPerStudent, 0, 100, DEFAULT_STUDENTS.shiftsPerStudent),
+    auto: Boolean(st.auto),
     avoidRepeatResident: Boolean(st.avoidRepeatResident),
     avoidRepeatStaff: Boolean(st.avoidRepeatStaff),
     avoidRepeatPartner: Boolean(st.avoidRepeatPartner),
@@ -433,7 +434,8 @@ export function createApi(opts: ApiOptions) {
           swaps: [],
           joinRequests: [],
           changes: [],
-          config: cleanConfig({ title: (req.body as { title?: string })?.title, startDate: today, endDate: today }),
+          // New sessions share student places equally unless the host sets a number.
+          config: cleanConfig({ title: (req.body as { title?: string })?.title, startDate: today, endDate: today, students: { auto: true } }),
           responses: {},
           schedule: null,
           concerns: [],

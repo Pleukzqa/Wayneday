@@ -5,6 +5,7 @@
 import { presentationOn, reqCount, shiftRuns } from './calendar.ts'
 import { dateRange, WEEKDAYS } from './dates.ts'
 import { responseFor } from './scoring.ts'
+import { equalShare } from './students.ts'
 import type { Assignment, MemberResponse, PresenterAssignment, Roster, SessionConfig, StudentAssignment } from './types.ts'
 
 export const AI_FORMAT_TAG = 'wayneday-roster'
@@ -100,7 +101,12 @@ export function buildAiPrompt(config: SessionConfig, responses: Record<string, M
     lines.push(
       hospital
         ? [
-            st.perSlot && Object.keys(st.perSlot).length
+            st.auto
+              ? (() => {
+                  const { total, base, extra } = equalShare(config)
+                  return `Fill every student place up to its maximum (${total} student-shifts) and share them as equally as possible: each student does ${base}${extra ? ` or ${base + 1}` : ''} shift(s), with a similar mix of each shift slot.`
+                })()
+              : st.perSlot && Object.keys(st.perSlot).length
               ? `Each student does exactly ${Object.entries(st.perSlot).filter(([, n]) => n > 0).map(([id, n]) => `${n} × "${shiftName(id)}"`).join(' and ')}.`
               : `Each student does ${st.shiftsPerStudent} shift(s).`,
             'Students take the student places above (give the job); every place must have at least its minimum number of students.',

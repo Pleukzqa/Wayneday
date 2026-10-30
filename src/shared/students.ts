@@ -67,12 +67,63 @@ const ALONE_PENALTY = 150
 
 /** Exact count per shift slot for each student, when the host set one; null = a single total. */
 export function slotQuota(config: SessionConfig): Map<string, number> | null {
+  if (config.students.auto) return null
   const q = Object.entries(config.students.perSlot ?? {}).filter(([id, n]) => n > 0 && config.shifts.some((s) => s.id === id))
   return q.length ? new Map(q) : null
 }
 
-/** Shifts each student does in total. */
+/**
+ * "Share equally": `total` student-shifts (by default every place filled up to its "at most"), split
+ * between the students — `base` each, and `extra` of them one more.
+ */
+export function equalShare(config: SessionConfig, total = studentOccs(config, []).reduce((n, o) => n + o.cap, 0)) {
+  const n = config.members.filter((m) => m.type === 'student').length
+  return { total, base: n ? Math.floor(total / n) : 0, extra: n ? total % n : 0 }
+}
+
+/** Most shifts each student can fit in their allowed places, keeping their gap (earliest-first is optimal). */
+function fitCounts(occs: Occ[], allowed: number[][], gaps: number[]): number[] {
+  return allowed.map((list, si) => {
+    let n = 0
+    let last = -Infinity
+    for (const oi of list) {
+      if (occs[oi].day - last >= gaps[si]) {
+        n++
+        last = occs[oi].day
+      }
+    }
+    return n
+  })
+}
+
+/** Sharing equally, the most student-shifts that fit: nobody does more than one above the least available student. */
+function equalMost(fit: number[]) {
+  const fewest = Math.min(...fit)
+  return fit.length * fewest + fit.filter((n) => n > fewest).length
+}
+
+/**
+ * Sharing equally with everyone's answers: all the places, how many can be shared out fairly (an upper
+ * bound), and who limits it when that's fewer.
+ */
+export function equalShareFor(config: SessionConfig, responses: Record<string, MemberResponse>) {
+  const students = config.members.filter((m) => m.type === 'student')
+  const occs = studentOccs(config, [])
+  const places = occs.reduce((n, o) => n + o.cap, 0)
+  const resp = students.map((m) => studentResponse(config, responses, m.id))
+  const allowed = students.map((m, si) => occs.filter((o) => !resp[si].unavailable.includes(o.date) && canDo(m, o)).map((o) => o.i))
+  const fit = fitCounts(occs, allowed, resp.map((r) => r.minInterval))
+  const total = students.length ? Math.min(places, equalMost(fit)) : places
+  const fewest = Math.min(...fit)
+  return { places, ...equalShare(config, total), limited: total < places ? { name: students[fit.indexOf(fewest)].name, k: fewest } : null }
+}
+
+/** Shifts each student does in total (the most anyone does, when sharing equally). */
 export function shiftsNeeded(config: SessionConfig): number {
+  if (config.students.auto) {
+    const { base, extra } = equalShare(config)
+    return base + (extra ? 1 : 0)
+  }
   const q = slotQuota(config)
   return q ? [...q.values()].reduce((a, b) => a + b, 0) : config.students.shiftsPerStudent
 }
@@ -117,6 +168,7 @@ export function arrangeStudents(
       score: 0,
     }
   }
+  const auto = Boolean(settings.auto)
   const need = shiftsNeeded(config)
   const resp = students.map((s) => studentResponse(config, responses, s.id))
   const allowed = students.map((m, si) =>
@@ -127,7 +179,7 @@ export function arrangeStudents(
   // Quick capacity checks.
   const places = occs.reduce((n, o) => n + o.cap, 0)
   const minimum = occs.reduce((n, o) => n + o.min, 0)
-  if (students.length * need > places) {
+  if (!auto && students.length * need > places) {
     problems.push(t('Students need {n} shifts but there are only {p} student places in the period.', { n: students.length * need, p: places }))
   }
   if (quota) {
@@ -140,7 +192,7 @@ export function arrangeStudents(
       if (students.length * n < min) problems.push(t('{shift}: every day needs its minimum ({min} in total), but students only do {n}.', { shift: name, min, n: students.length * n }))
     }
   }
-  if (students.length * need < minimum) {
+  if (!auto && students.length * need < minimum) {
     problems.push(t('Every place needs at least its minimum ({min} student-shifts in total), but students only do {n}. Add students or shifts per student, or lower the minimums.', { min: minimum, n: students.length * need }))
   }
   for (const o of occs) {
@@ -149,21 +201,25 @@ export function arrangeStudents(
       problems.push(t('{date} {shift}: needs {n} student(s) but not enough are available.', { date: o.date, shift, n: o.min }))
     }
   }
+  // Most shifts each student can fit around their unavailable dates and gap.
+  const fitMax = fitCounts(occs, allowed, resp.map((r) => r.minInterval))
   students.forEach((s, si) => {
+    const n = fitMax[si]
     const gap = resp[si].minInterval
-    let n = 0
-    let last = -Infinity
-    for (const oi of allowed[si]) {
-      if (occs[oi].day - last >= gap) {
-        n++
-        last = occs[oi].day
-      }
-    }
-    if (n < need) problems.push(t('{name}: only {n} of {need} shifts fit around their unavailable dates and {gap}-day gap.', { name: s.name, n, need, gap }))
+    if (!auto && n < need) problems.push(t('{name}: only {n} of {need} shifts fit around their unavailable dates and {gap}-day gap.', { name: s.name, n, need, gap }))
   })
   if (problems.length) return { ok: false, problems }
 
   const rand = rng(seed * 7919 + 13)
+  // Shifts each student does. Sharing equally, the students with the most open places take the extra
+  // ones (with a random tie-break, so each option shares them differently).
+  let needs = students.map(() => need)
+  const shareOut = (total: number) => {
+    const { base, extra } = equalShare(config, total)
+    const order = students.map((_, si) => si).sort((a, b) => allowed[b].length - allowed[a].length + (rand() - 0.5) * 6)
+    needs = students.map(() => base)
+    for (const si of order.slice(0, extra)) needs[si]++
+  }
   // mine[si] = occurrence indexes; load[oi] = students on that occurrence
   let mine: number[][] = []
   let load: number[] = []
@@ -183,57 +239,71 @@ export function arrangeStudents(
     load[oi]--
   }
 
-  // Greedy placement with a few randomized restarts.
+  // Greedy placement with a few randomized restarts. Sharing equally, if every place can't be filled,
+  // try again with one student-shift fewer at a time (places above their minimum may stay empty).
   let placed = false
   const lockIssues: string[] = []
-  for (let attempt = 0; attempt < 40 && !placed; attempt++) {
-    mine = students.map(() => [])
-    load = occs.map(() => 0)
-    fixed = new Set()
-    lockIssues.length = 0
-    students.forEach((s, si) => {
-      for (const l of resp[si].locks) {
-        const here = occs.filter((x) => x.date === l.date && x.shiftId === l.shiftId && canDo(s, x))
-        const o = here.find((x) => fits(si, x.i)) ?? here[0]
-        if (!o) lockIssues.push(t('{name}: locked to a shift with no student place on {date}.', { name: s.name, date: l.date }))
-        else if (resp[si].unavailable.includes(l.date)) lockIssues.push(t('{name}: both locked and unavailable on {date}.', { name: s.name, date: l.date }))
-        else if (!fits(si, o.i)) lockIssues.push(t('{name}: lock on {date} clashes with another lock or a full shift.', { name: s.name, date: l.date }))
-        else {
-          add(si, o.i)
-          fixed.add(`${si}:${o.i}`)
+  // Sharing equally, nobody can do more than one shift above the least available student.
+  const fewest = Math.min(...fitMax)
+  const limited = students[fitMax.indexOf(fewest)]
+  const most = equalMost(fitMax)
+  let total = auto ? Math.min(places, most) : places
+  for (let tries = 0; ; tries++) {
+    if (auto) shareOut(total)
+    for (let attempt = 0; attempt < 40 && !placed; attempt++) {
+      mine = students.map(() => [])
+      load = occs.map(() => 0)
+      fixed = new Set()
+      lockIssues.length = 0
+      students.forEach((s, si) => {
+        for (const l of resp[si].locks) {
+          const here = occs.filter((x) => x.date === l.date && x.shiftId === l.shiftId && canDo(s, x))
+          const o = here.find((x) => fits(si, x.i)) ?? here[0]
+          if (!o) lockIssues.push(t('{name}: locked to a shift with no student place on {date}.', { name: s.name, date: l.date }))
+          else if (resp[si].unavailable.includes(l.date)) lockIssues.push(t('{name}: both locked and unavailable on {date}.', { name: s.name, date: l.date }))
+          else if (!fits(si, o.i)) lockIssues.push(t('{name}: lock on {date} clashes with another lock or a full shift.', { name: s.name, date: l.date }))
+          else {
+            add(si, o.i)
+            fixed.add(`${si}:${o.i}`)
+          }
+        }
+      })
+      if (lockIssues.length) return { ok: false, problems: lockIssues }
+      placed = true
+      // First give every place its minimum (sharing equally: fill it), hardest-to-fill places first.
+      const target = (o: Occ) => (auto ? o.cap : o.min)
+      // Filling every place is a tight packing: go day by day, like a rotation, rather than hardest first.
+      const short = occs
+        .filter((o) => target(o) > 0)
+        .map((o) => ({ o, k: auto ? o.day + rand() * 0.5 : students.filter((_, si) => allowed[si].includes(o.i)).length + rand() }))
+        .sort((a, b) => a.k - b.k)
+      for (const { o } of short) {
+        while (placed && load[o.i] < target(o)) {
+          const cands = students.map((_, si) => si).filter((si) => mine[si].length < needs[si] && allowed[si].includes(o.i) && fits(si, o.i))
+          if (cands.length) add(cands.sort((a, b) => needs[b] - mine[b].length - (needs[a] - mine[a].length) + (rand() - 0.5) * 0.9)[0], o.i)
+          else if (load[o.i] < o.min) placed = false
+          else break
         }
       }
-    })
-    if (lockIssues.length) return { ok: false, problems: lockIssues }
-    placed = true
-    // First give every place its minimum, hardest-to-fill places first.
-    const short = occs
-      .filter((o) => o.min > 0)
-      .map((o) => ({ o, k: students.filter((_, si) => allowed[si].includes(o.i)).length + rand() }))
-      .sort((a, b) => a.k - b.k)
-    for (const { o } of short) {
-      while (placed && load[o.i] < o.min) {
-        const cands = students.map((_, si) => si).filter((si) => mine[si].length < need && allowed[si].includes(o.i) && fits(si, o.i))
-        if (cands.length === 0) placed = false
-        else add(cands.sort((a, b) => mine[a].length - mine[b].length + (rand() - 0.5) * 0.9)[0], o.i)
-      }
-    }
-    for (let round = 0; round < need && placed; round++) {
-      const order = students.map((_, si) => si).sort(() => rand() - 0.5)
-      for (const si of order) {
-        if (mine[si].length > round) continue
-        const cands = allowed[si].filter((oi) => fits(si, oi))
-        if (cands.length === 0) {
-          placed = false
-          break
+      for (let round = 0; round < Math.max(...needs) && placed; round++) {
+        const order = students.map((_, si) => si).sort(() => rand() - 0.5)
+        for (const si of order) {
+          if (mine[si].length > round || mine[si].length >= needs[si]) continue
+          const cands = allowed[si].filter((oi) => fits(si, oi))
+          if (cands.length === 0) {
+            placed = false
+            break
+          }
+          // Prefer places still under their minimum, then emptier ones, then random.
+          const key = (oi: number) => (load[oi] < occs[oi].min ? -10 : 0) + load[oi] + (rand() - 0.5) * 0.9
+          cands.sort((a, b) => key(a) - key(b))
+          add(si, cands[0])
         }
-        // Prefer places still under their minimum, then emptier ones, then random.
-        const key = (oi: number) => (load[oi] < occs[oi].min ? -10 : 0) + load[oi] + (rand() - 0.5) * 0.9
-        cands.sort((a, b) => key(a) - key(b))
-        add(si, cands[0])
       }
+      if (placed && occs.some((o) => load[o.i] < o.min)) placed = false
     }
-    if (placed && occs.some((o) => load[o.i] < o.min)) placed = false
+    if (placed || !auto || total <= minimum || tries >= 3 * students.length) break
+    total--
   }
   if (!placed) {
     return {
@@ -251,6 +321,7 @@ export function arrangeStudents(
   const noRepeatPartner = settings.avoidRepeatPartner ?? false
   const wantPartner = settings.wantPartner ?? false
   const room = (oi: number) => `${occs[oi].date}|${occs[oi].shiftId}`
+  const slotIds = [...new Set(occs.map((o) => o.shiftId))]
   const score = () => {
     // Who shares each room (date + shift slot), for partner rules.
     const together = new Map<string, number[]>()
@@ -267,6 +338,7 @@ export function arrangeStudents(
       sc += 100 * variance(ids.map((id) => exposure.get(id) ?? 0))
     }
     sc += 30 * variance(mine.map((m) => m.filter((oi) => occs[oi].weekend).length))
+    if (auto) for (const id of slotIds) sc += 40 * variance(mine.map((m) => m.filter((oi) => occs[oi].shiftId === id).length))
     mine.forEach((m, si) => {
       sc += preferenceCost(m.map((oi) => occs[oi].day).sort((a, b) => a - b), days.length, resp[si])
       for (const oi of m) sc += AVOID_PENALTY[avoidLevel(resp[si], occs[oi].date)]
@@ -348,7 +420,15 @@ export function arrangeStudents(
     ),
   )
   out.sort((a, b) => a.date.localeCompare(b.date))
-  return { ok: true, students: out, warnings: [], score: cur }
+  const warnings =
+    auto && total < places
+      ? [
+          most < places
+            ? t('{n} student place(s) stay empty: {name} can only fit {k} shifts, and everyone does about the same.', { n: places - total, name: limited.name, k: fewest })
+            : t('{n} student place(s) stay empty — with everyone’s unavailable dates and minimum gaps, they can’t all be filled.', { n: places - total }),
+        ]
+      : []
+  return { ok: true, students: out, warnings, score: cur }
 }
 
 /** Student-shifts each resident/staff member shares. */
@@ -480,14 +560,28 @@ export function studentOptions(
 export function countStudentArrangements(
   config: SessionConfig,
   responses: Record<string, MemberResponse>,
-  opts: { nodeLimit?: number; probes?: number; seed?: number } = {},
+  opts: { nodeLimit?: number; probes?: number; seed?: number; ms?: number } = {},
 ): { exact: true; count: number } | { exact: false; log10: number } {
   const students = config.members.filter((m) => m.type === 'student')
   const occs = studentOccs(config, config.duty)
   if (!students.length || !occs.length || shiftsNeeded(config) <= 0) return { exact: true, count: students.length ? 0 : 1 }
   const resp = students.map((m) => studentResponse(config, responses, m.id))
-  const need = shiftsNeeded(config)
   const quota = slotQuota(config)
+  // Sharing equally, count one way of giving out the extra shifts (to the students with the most open
+  // places) and scale by the number of ways to choose them — an estimate, so it's reported as one.
+  const allowed = students.map((m, si) => occs.filter((o) => !resp[si].unavailable.includes(o.date) && canDo(m, o)).map((o) => o.i))
+  const places = occs.reduce((n, o) => n + o.cap, 0)
+  const share = config.students.auto
+    ? equalShare(config, Math.min(places, equalMost(fitCounts(occs, allowed, resp.map((r) => r.minInterval)))))
+    : null
+  const needs = students.map(() => shiftsNeeded(config))
+  if (share) {
+    const open = allowed.map((a) => a.length)
+    const order = students.map((_, si) => si).sort((a, b) => open[b] - open[a])
+    needs.fill(share.base)
+    for (const si of order.slice(0, share.extra)) needs[si]++
+  }
+  const ways = share ? Math.log10(binomial(students.length, share.extra)) : 0
   const load = occs.map(() => 0)
   const locks = students.map((_, si) =>
     resp[si].locks
@@ -516,7 +610,7 @@ export function countStudentArrangements(
     const last = picked.length ? picked[picked.length - 1] : -1
     const lockNext = locks[si].find((l) => !picked.includes(l))
     const locksLeft = locks[si].filter((l) => !picked.includes(l)).length
-    const left = need - picked.length
+    const left = needs[si] - picked.length
     return occs
       .map((_, i) => i)
       .filter((i) => {
@@ -528,18 +622,20 @@ export function countStudentArrangements(
         return room(si, i) >= left - 1
       })
   }
-  const complete = (si: number, picked: number[]) => picked.length === need && locks[si].every((l) => picked.includes(l))
+  const complete = (si: number, picked: number[]) => picked.length === needs[si] && locks[si].every((l) => picked.includes(l))
 
   let nodes = 0
   const limit = opts.nodeLimit ?? 80_000
+  // Big rotations: stop exploring after a few seconds and estimate from what was sampled.
+  const deadline = Date.now() + (opts.ms ?? 3000)
   let total = 0
   const walk = (si: number, picked: number[]): boolean => {
-    if (++nodes > limit) return false
+    if (++nodes > limit || (nodes % 1024 === 0 && Date.now() > deadline)) return false
     if (si === students.length) {
       if (occs.every((o, i) => load[i] >= o.min)) total++
       return true
     }
-    if (picked.length === need) return complete(si, picked) ? walk(si + 1, []) : true
+    if (picked.length === needs[si]) return complete(si, picked) ? walk(si + 1, []) : true
     for (const i of options(si, picked)) {
       load[i]++
       const ok = walk(si, [...picked, i])
@@ -548,18 +644,18 @@ export function countStudentArrangements(
     }
     return true
   }
-  if (walk(0, [])) return { exact: true, count: total }
+  if (walk(0, [])) return share?.extra ? { exact: false, log10: total ? Math.log10(total) + ways : Number.NaN } : { exact: true, count: total }
 
   load.fill(0)
   const rand = rng(opts.seed ?? 5)
   const logs: number[] = []
-  for (let k = 0; k < (opts.probes ?? 4000); k++) {
+  for (let k = 0; k < (opts.probes ?? 4000) && (k < 100 || Date.now() < deadline); k++) {
     load.fill(0)
     let log = 0
     let dead = false
     for (let si = 0; si < students.length && !dead; si++) {
       const picked: number[] = []
-      while (picked.length < need) {
+      while (picked.length < needs[si]) {
         const o = options(si, picked)
         if (!o.length) {
           dead = true
@@ -579,7 +675,13 @@ export function countStudentArrangements(
   if (!finite.length) return { exact: false, log10: Number.NaN }
   const max = Math.max(...finite)
   const mean = finite.reduce((a, l) => a + 10 ** (l - max), 0) / logs.length
-  return { exact: false, log10: max + Math.log10(mean) }
+  return { exact: false, log10: max + Math.log10(mean) + ways }
+}
+
+function binomial(n: number, k: number) {
+  let r = 1
+  for (let i = 1; i <= k; i++) r = (r * (n - k + i)) / i
+  return r
 }
 
 // ---------- hand-arranging students in a preview ----------
@@ -636,7 +738,17 @@ export function studentCellIssues(
       }
     }
   }
-  if (students.length) {
+  if (students.length && config.students.auto) {
+    // Whatever was placed, nobody should have more than one shift more than anyone else.
+    const { base, extra } = equalShare(config, students.length)
+    for (const m of config.members.filter((x) => x.type === 'student')) {
+      const n = students.filter((s) => s.memberId === m.id).length
+      const first = students.find((s) => s.memberId === m.id)
+      if ((n < base || n > base + (extra ? 1 : 0)) && first) {
+        add(placeKey(first), t('{name} has {n} shifts; an equal share is {share}.', { name: m.name, n, share: extra ? `${base}–${base + 1}` : base }))
+      }
+    }
+  } else if (students.length) {
     const need = shiftsNeeded(config)
     for (const m of config.members.filter((x) => x.type === 'student')) {
       const n = students.filter((s) => s.memberId === m.id).length
@@ -737,6 +849,13 @@ export function studentRuleReport(config: SessionConfig, responses: Record<strin
     }
   }
   const summary: string[] = []
+  if (st.auto) {
+    const counts = config.members.filter((m) => m.type === 'student').map((m) => roster.students.filter((s) => s.memberId === m.id).length)
+    if (counts.length) {
+      const [a, b] = [Math.min(...counts), Math.max(...counts)]
+      summary.push(`⚖️ ${a === b ? t('{a} shifts each', { a }) : t('{a}–{b} shifts each', { a, b })}`)
+    }
+  }
   const asked = avoidAsked[1] + avoidAsked[2] + avoidAsked[3]
   if (asked) {
     const hits = avoidHits[1] + avoidHits[2] + avoidHits[3]

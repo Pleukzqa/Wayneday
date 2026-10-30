@@ -54,8 +54,10 @@ export interface StudentSettings {
   shiftIds: string[]
   /** Most students on one shift at once. */
   maxPerShift: number
-  /** Shifts each student must do. */
+  /** Shifts each student must do (unless `auto`). */
   shiftsPerStudent: number
+  /** Share equally: fill every student place (up to its "at most") and split them evenly, ±1 shift. */
+  auto?: boolean
   /** Keep a student from working with the same resident twice. */
   avoidRepeatResident?: boolean
   /** Keep a student from working with the same staff member (อาจารย์) twice. */

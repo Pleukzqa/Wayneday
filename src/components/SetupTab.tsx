@@ -477,7 +477,7 @@ export default function SetupTab({ code, session, me, mutate }: SessionProps) {
         </section>
 
         {draft.rosterMode === 'hospital' && <DutyRosterCard draft={draft} edit={edit} ro={ro} />}
-        <StudentsCard draft={draft} edit={edit} ro={ro} />
+        <StudentsCard draft={draft} edit={edit} ro={ro} responses={session.responses} />
         <PresentationsCard draft={draft} edit={edit} ro={ro} />
 
         <section className="card">

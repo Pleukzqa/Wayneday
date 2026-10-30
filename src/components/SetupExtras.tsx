@@ -1,10 +1,11 @@
 // Setup sections: date exceptions calendar, students, presentation rules, join requests.
 import { useState } from 'react'
 import { api } from '../api.ts'
+import { equalShareFor } from '../shared/students.ts'
 import { t, typeName, weekdayLetter, weekdayLong, weekdayShort } from '../shared/i18n.ts'
 import { overrideFor, presentationOn, reqCount, shiftRuns } from '../shared/calendar.ts'
 import { dateRange, shortDate, weekday } from '../shared/dates.ts'
-import { DUTY_ROLES, type DateOverride, type DutyRole, type MemberType, type PresentationOverride, type PresentationRule, type SessionConfig } from '../shared/types.ts'
+import { DUTY_ROLES, type DateOverride, type DutyRole, type MemberResponse, type MemberType, type PresentationOverride, type PresentationRule, type SessionConfig } from '../shared/types.ts'
 import { uid, type SessionProps } from './props.ts'
 
 type Edit = (fn: (c: SessionConfig) => SessionConfig) => void
@@ -238,13 +239,15 @@ export function CalendarCard({ draft, edit, ro }: { draft: SessionConfig; edit: 
 
 // ---------- students ----------
 
-export function StudentsCard({ draft, edit, ro }: { draft: SessionConfig; edit: Edit; ro: boolean }) {
+export function StudentsCard({ draft, edit, ro, responses }: { draft: SessionConfig; edit: Edit; ro: boolean; responses: Record<string, MemberResponse> }) {
   const st = draft.students
   const count = draft.members.filter((m) => m.type === 'student').length
   const set = (patch: Partial<SessionConfig['students']>) => edit((c) => ({ ...c, students: { ...c.students, ...patch } }))
   if (draft.rosterMode === 'hospital') {
     const slots = draft.shifts.filter((x) => x.requirements.length > 0)
-    const perSlot = Object.keys(st.perSlot ?? {}).length > 0
+    const auto = Boolean(st.auto)
+    const perSlot = !auto && Object.keys(st.perSlot ?? {}).length > 0
+    const share = equalShareFor(draft, responses)
     const check = (key: 'avoidRepeatResident' | 'avoidRepeatStaff' | 'avoidRepeatPartner' | 'wantPartner', label: string) => (
       <label className="check">
         <input type="checkbox" disabled={ro} checked={Boolean(st[key])} onChange={(e) => set({ [key]: e.target.checked })} />
@@ -259,17 +262,50 @@ export function StudentsCard({ draft, edit, ro }: { draft: SessionConfig; edit: 
           )} {count ? t('{n} student(s).', { n: count }) : t("Add students above.")}
         </p>
         <div className="segmented wrap-seg" role="radiogroup" aria-label={t("How many shifts each student does")}>
-          <button type="button" role="radio" aria-checked={!perSlot} className={!perSlot ? 'on' : ''} disabled={ro} onClick={() => set({ perSlot: {} })}>{t("A total")}</button>
+          <button type="button" role="radio" aria-checked={auto} className={auto ? 'on' : ''} disabled={ro} onClick={() => set({ auto: true, perSlot: {} })}>
+            ⚖️ {t('Share equally')}
+          </button>
+          <button
+            type="button"
+            role="radio"
+            aria-checked={!auto && !perSlot}
+            className={!auto && !perSlot ? 'on' : ''}
+            disabled={ro}
+            onClick={() => set({ auto: false, perSlot: {} })}
+          >
+            {t('A total')}
+          </button>
           <button
             type="button"
             role="radio"
             aria-checked={perSlot}
             className={perSlot ? 'on' : ''}
             disabled={ro}
-            onClick={() => set({ perSlot: Object.fromEntries(slots.map((x) => [x.id, 1])) })}
-          >{t("A number of each shift")}</button>
+            onClick={() => set({ auto: false, perSlot: Object.fromEntries(slots.map((x) => [x.id, 1])) })}
+          >
+            {t('A number of each shift')}
+          </button>
         </div>
-        {perSlot ? (
+        {auto ? (
+          <p className="small share">
+            {!count || !share.places
+              ? t('Add students and student places, and Wayneday splits the places between them equally.')
+              : share.extra
+                ? t('{p} student places ÷ {s} students → {k} students do {b} shifts, the rest do {a}.', { p: share.total, s: count, k: share.extra, a: share.base, b: share.base + 1 })
+                : t('{p} student places ÷ {s} students → every student does {a} shifts.', { p: share.total, s: count, a: share.base })}{' '}
+            {share.limited && (
+              <strong className="warn-text">
+                {t('Only about {n} of the {p} places can be shared fairly: {name} can fit just {k} shifts around their unavailable dates and gap.', {
+                  n: share.total,
+                  p: share.places,
+                  name: share.limited.name,
+                  k: share.limited.k,
+                })}{' '}
+              </strong>
+            )}
+            <span className="muted">{t('Every place is filled up to its “at most” number, and everyone gets a similar mix of shift slots. Wayneday picks who takes the extra shifts.')}</span>
+          </p>
+        ) : perSlot ? (
           <div className="row wrap">
             <span className="small">{t("Each student does exactly")}</span>
             {slots.map((x) => (

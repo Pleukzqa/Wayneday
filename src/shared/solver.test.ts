@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { dayDiff } from './dates.ts'
+import { dateRange, dayDiff } from './dates.ts'
 import { countArrangements, solve, solveMany, validate } from './solver.ts'
-import { arrangeStudents, countStudentArrangements, pickPresenters, placeKey, studentCellIssues, studentExposure, studentOptions, studentRuleReport, studentTargets } from './students.ts'
+import { arrangeStudents, countStudentArrangements, equalShare, pickPresenters, placeKey, studentCellIssues, studentExposure, studentOptions, studentRuleReport, studentTargets } from './students.ts'
 import { buildAiPrompt, importAiResult } from './ai.ts'
 import { DEFAULT_RESPONSE, DEFAULT_STUDENTS, type MemberResponse, type SessionConfig, type StudentAssignment } from './types.ts'
 
@@ -222,6 +222,51 @@ test('student places need no job (place) in hospital mode', () => {
   assert.equal(r.alternatives[0].roster.students.length, 15)
   assert.deepEqual(validate(c, {}, r.alternatives[0].roster), [])
   assert.match(buildAiPrompt(c, {}), /up to \d+ student\(s\)[,\n]/, 'the AI prompt doesn’t mention a job')
+})
+
+/** Like a real rotation: a night shift taking 2 students and a 24-hour shift taking 1, shared equally by 7. */
+function equalRotation(): SessionConfig {
+  const c = hospital()
+  c.jobs = []
+  c.shifts = [
+    { ...c.shifts[0], requirements: [{ id: 'n', jobId: '', memberType: 'any', count: 2 }] },
+    { id: 'day', name: '24h', start: '08:00', end: '08:00', days: [0, 1, 2, 3, 4, 5, 6], requirements: [{ id: 'd', jobId: '', memberType: 'any', count: 1 }] },
+  ]
+  c.members.push(...['D', 'E', 'F', 'G'].map((n) => ({ id: `st${n}`, name: `Student ${n}`, type: 'student' as const, jobs: [] })))
+  c.students = { ...c.students, auto: true }
+  return c
+}
+
+test('sharing equally fills every place and splits them within one shift', () => {
+  const c = equalRotation()
+  // 30 nights × 2 + 30 days × 1 = 90 places for 7 students: 6 do 13, 1 does 12.
+  assert.deepEqual(equalShare(c), { total: 90, base: 12, extra: 6 })
+  const responses = { stA: { ...DEFAULT_RESPONSE, unavailable: ['2026-11-03', '2026-11-04', '2026-11-05'] } }
+  const r = studentOptions(c, responses, c.duty, { count: 3 })
+  assert.ok(r.ok, r.ok ? '' : r.problems.join('; '))
+  if (!r.ok) return
+  for (const o of r.alternatives) {
+    const per = (id: string, shiftId?: string) => o.roster.students.filter((x) => x.memberId === id && (!shiftId || x.shiftId === shiftId)).length
+    const ids = c.members.filter((m) => m.type === 'student').map((m) => m.id)
+    assert.equal(o.roster.students.length, 90)
+    assert.deepEqual(ids.map((id) => per(id)).sort(), [12, 13, 13, 13, 13, 13, 13])
+    const nights = ids.map((id) => per(id, 'night'))
+    assert.ok(Math.max(...nights) - Math.min(...nights) <= 2, `similar mix of shift slots: ${nights}`)
+    assert.ok(!o.roster.students.some((x) => x.memberId === 'stA' && responses.stA.unavailable.includes(x.date)))
+    assert.equal(studentCellIssues(c, responses, o.roster.students).size, 0)
+  }
+})
+
+test('sharing equally stays equal when someone can only do a few shifts', () => {
+  const c = equalRotation()
+  // Student A is away for most of the month: 3 shifts at most, so everyone else does 3 or 4.
+  const away = dateRange('2026-11-06', '2026-11-30')
+  const r = arrangeStudents(c, { stA: { ...DEFAULT_RESPONSE, unavailable: away } }, c.duty)
+  assert.ok(r.ok, r.ok ? '' : r.problems.join('; '))
+  if (!r.ok) return
+  const counts = c.members.filter((m) => m.type === 'student').map((m) => r.students.filter((x) => x.memberId === m.id).length)
+  assert.ok(Math.max(...counts) - Math.min(...counts) <= 1, `${counts}`)
+  assert.match(r.warnings.join(' '), /Student A can only fit 3 shifts/)
 })
 
 test('counts student arrangements exactly when small', () => {
