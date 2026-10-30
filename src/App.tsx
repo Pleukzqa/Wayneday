@@ -74,6 +74,8 @@ export default function App() {
           {!IS_DEMO && (
             <>
               {' · '}
+              <a href="/guide.html">{t('How to use')}</a>
+              {' · '}
               <a href="/privacy.html">{t('Privacy')}</a>
             </>
           )}

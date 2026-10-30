@@ -4,7 +4,7 @@ import { api, setTokens, type MySession } from '../api.ts'
 import { GoogleButton } from '../components/GoogleButton.tsx'
 import Logo from '../components/Logo.tsx'
 import { googleClientId } from '../google.ts'
-import { sessionHash } from '../routes.ts'
+import { IS_DEMO, sessionHash } from '../routes.ts'
 import { t } from '../shared/i18n.ts'
 
 export default function Home() {
@@ -57,6 +57,11 @@ export default function Home() {
         <p className="hero-kicker">Wayneday · {t('Duty roster planner')}</p>
         <h1>{t('Fair duty rosters, without the group-chat chaos.')}</h1>
         <p className="muted">{t('Put in the hospital roster, let students mark the days they can’t make, and get a fair arrangement in a minute — then let everyone check it before it’s final.')}</p>
+        {!IS_DEMO && (
+          <p>
+            <a href="/guide.html">📖 {t('New here? Read how Wayneday works')}</a>
+          </p>
+        )}
       </section>
       <ol className="how">
         <li>

@@ -1,0 +1,526 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>Wayneday Guide</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500&family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap" />
+<style>
+  /* Layout: one reading column, a role picker up top, then numbered steps per role, features, FAQ. Same palette and type as the app. */
+  :root {
+    --bg: #f6f5f1;
+    --surface: #ffffff;
+    --surface-2: #f0eee8;
+    --text: #1d1c1a;
+    --muted: #6b6860;
+    --border: #e2dfd6;
+    --accent: #1f6f5c;
+    --accent-text: #ffffff;
+    --accent-soft: #dcefe8;
+    --danger: #b4372f;
+    --danger-soft: #fbe5e2;
+    --warn: #9a6200;
+    --warn-soft: #fdf1dc;
+    --lock: #2f5fb4;
+    --lock-soft: #e1eafb;
+    --font: 'IBM Plex Sans Thai', 'Noto Sans Thai', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+    --radius: 10px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme='light']) {
+      --bg: #161614; --surface: #1f1f1c; --surface-2: #2a2a26; --text: #ecebe6; --muted: #a19e94; --border: #36352f;
+      --accent: #4fb89b; --accent-text: #0d1f1a; --accent-soft: #1d3a32; --danger: #ef7a70; --danger-soft: #3d1f1c;
+      --warn: #e5b45c; --warn-soft: #3a2c12; --lock: #8db0f0; --lock-soft: #1d2a44; color-scheme: dark;
+    }
+  }
+  :root[data-theme='dark'] {
+    --bg: #161614; --surface: #1f1f1c; --surface-2: #2a2a26; --text: #ecebe6; --muted: #a19e94; --border: #36352f;
+    --accent: #4fb89b; --accent-text: #0d1f1a; --accent-soft: #1d3a32; --danger: #ef7a70; --danger-soft: #3d1f1c;
+    --warn: #e5b45c; --warn-soft: #3a2c12; --lock: #8db0f0; --lock-soft: #1d2a44; color-scheme: dark;
+  }
+
+  /* Only the chosen language shows. */
+  :root[data-lang='th'] [lang='en'],
+  :root[data-lang='en'] [lang='th'],
+  :root:not([data-lang]) [lang='en'] { display: none !important; }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 16px/1.65 var(--font);
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap {
+    max-width: 46rem;
+    margin: 0 auto;
+    padding-block: 1.25rem 4rem;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    display: grid;
+    gap: 2.75rem;
+  }
+  a { color: var(--accent); }
+  a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+  h1, h2, h3 { line-height: 1.25; text-wrap: balance; margin: 0; }
+  h1 { font-size: clamp(1.9rem, 6vw, 2.6rem); font-weight: 700; letter-spacing: -0.01em; }
+  h2 { font-size: 1.45rem; font-weight: 700; }
+  h3 { font-size: 1.05rem; font-weight: 600; }
+  p { margin: 0; }
+  .muted { color: var(--muted); }
+  .small { font-size: 0.9rem; }
+  section { display: grid; gap: 1rem; scroll-margin-top: 1rem; }
+  .eyebrow { font-size: 0.8rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent); }
+
+  /* Top bar */
+  .bar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+  .brand { display: flex; align-items: center; gap: 0.5rem; font-weight: 700; text-decoration: none; color: var(--text); }
+  .brand span { font-weight: 400; color: var(--muted); font-size: 0.9rem; }
+  .lang { display: inline-flex; border: 1px solid var(--border); border-radius: 999px; overflow: hidden; flex-shrink: 0; }
+  .lang button {
+    font: inherit; font-size: 0.9rem; border: 0; background: var(--surface); color: var(--text);
+    padding: 0.3rem 0.85rem; cursor: pointer;
+  }
+  .lang button[aria-pressed='true'] { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+
+  /* Hero */
+  .hero { display: grid; gap: 0.9rem; }
+  .hero .lede { font-size: 1.1rem; color: var(--muted); max-width: 38rem; }
+
+  /* Role picker */
+  .roles { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: 0.75rem; }
+  .role {
+    display: grid; gap: 0.3rem; padding: 1rem 1.1rem; border-radius: var(--radius);
+    background: var(--surface); border: 1px solid var(--border); text-decoration: none; color: var(--text);
+  }
+  .role:hover { border-color: var(--accent); }
+  .role strong { font-size: 1.05rem; }
+  .role .go { color: var(--accent); font-weight: 600; font-size: 0.9rem; }
+
+  /* Steps */
+  ol.steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 1.25rem; counter-reset: step; }
+  ol.steps > li { display: grid; grid-template-columns: 2rem 1fr; gap: 0.25rem 0.85rem; counter-increment: step; }
+  ol.steps > li::before {
+    content: counter(step); grid-row: 1 / span 2; width: 2rem; height: 2rem; border-radius: 50%;
+    display: grid; place-items: center; font-weight: 700; font-size: 0.95rem;
+    background: var(--accent); color: var(--accent-text);
+  }
+  ol.steps > li > * { min-width: 0; }
+  .step-body { display: grid; gap: 0.5rem; }
+  .step-body ul { margin: 0; padding-left: 1.2rem; display: grid; gap: 0.3rem; }
+
+  /* Things you see in the app */
+  .ui {
+    display: inline-block; font-size: 0.88em; font-weight: 600; padding: 0.02rem 0.45rem; border-radius: 6px;
+    background: var(--surface-2); border: 1px solid var(--border); white-space: nowrap;
+  }
+  .code { font-family: var(--mono); font-size: 0.9em; background: var(--accent-soft); padding: 0.05rem 0.5rem; border-radius: 999px; white-space: nowrap; }
+
+  /* The availability marks, as they look in the grid */
+  .marks { display: grid; grid-template-columns: repeat(auto-fit, minmax(10.5rem, 1fr)); gap: 0.5rem; }
+  .mark { display: flex; align-items: center; gap: 0.6rem; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 0.45rem 0.6rem; }
+  .cell {
+    flex-shrink: 0; width: 2.4rem; height: 1.9rem; border-radius: 5px; display: grid; place-items: center;
+    font-weight: 700; font-size: 0.9rem; border: 1px solid var(--border);
+  }
+  .cell.no { background: var(--danger-soft); color: var(--danger); }
+  .cell.a3 { background: var(--danger-soft); color: var(--danger); }
+  .cell.a2 { background: var(--warn-soft); color: var(--warn); }
+  .cell.a1 { background: var(--surface-2); color: var(--warn); }
+  .cell.lock { background: var(--lock-soft); color: var(--lock); }
+  .mark span:last-child { font-size: 0.9rem; line-height: 1.35; }
+
+  /* A roster option, as it appears in the app */
+  .option {
+    background: var(--surface); border: 1px solid var(--accent); border-radius: var(--radius); padding: 0.8rem 1rem;
+    display: grid; gap: 0.25rem; font-size: 0.92rem;
+  }
+  .option b { font-size: 1rem; }
+
+  .note { background: var(--accent-soft); border-radius: var(--radius); padding: 0.8rem 1rem; font-size: 0.95rem; }
+
+  /* Features */
+  .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 1rem 1.5rem; }
+  .features div { display: grid; gap: 0.2rem; align-content: start; }
+  .features h3 { font-size: 1rem; }
+  .features p { color: var(--muted); font-size: 0.93rem; }
+
+  /* FAQ */
+  details { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.7rem 1rem; }
+  details + details { margin-top: 0.5rem; }
+  summary { cursor: pointer; font-weight: 600; }
+  details p { margin-top: 0.5rem; color: var(--muted); }
+
+  hr { border: 0; border-top: 1px solid var(--border); margin: 0; }
+  footer { text-align: center; color: var(--muted); font-size: 0.85rem; display: grid; gap: 0.3rem; }
+
+  @media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
+</style>
+</head>
+<body>
+<script>
+  // Same language setting as the app (it shares this site's storage), else the browser's language.
+  ;(function () {
+    var lang = null
+    try { lang = localStorage.getItem('wayneday:lang') } catch (e) {}
+    if (lang !== 'th' && lang !== 'en') lang = (navigator.language || '').toLowerCase().indexOf('th') === 0 ? 'th' : 'en'
+    document.documentElement.setAttribute('data-lang', lang)
+    document.documentElement.lang = lang
+  })()
+</script>
+<div class="wrap">
+  <div class="bar">
+    <a class="brand" href="/">
+      <svg width="28" height="28" viewBox="0 0 64 64" aria-hidden="true">
+        <rect x="4" y="9" width="56" height="51" rx="13" fill="#1f6f5c" />
+        <rect x="17" y="3" width="7" height="14" rx="3.5" fill="#15503f" />
+        <rect x="40" y="3" width="7" height="14" rx="3.5" fill="#15503f" />
+        <path d="M7 36h5l5-15 7 26 8-18 8 18 7-26 5 15h5" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" />
+      </svg>
+      Wayneday <span lang="th">ระบบจัดเวร</span><span lang="en">Duty roster planner</span>
+    </a>
+    <div class="lang" role="group" aria-label="Language / ภาษา">
+      <button type="button" data-set="th" aria-pressed="false">ไทย</button>
+      <button type="button" data-set="en" aria-pressed="false">EN</button>
+    </div>
+  </div>
+
+  <header class="hero">
+    <p class="eyebrow"><span lang="th">คู่มือการใช้งาน</span><span lang="en">Guide</span></p>
+    <h1><span lang="th">จัดเวรนิสิตให้ยุติธรรม ในไม่กี่นาที</span><span lang="en">Fair student duty rosters, in a few minutes</span></h1>
+    <p class="lede" lang="th">Wayneday รับตารางเวรแพทย์ประจำบ้านและอาจารย์ที่โรงพยาบาลจัดไว้ ให้นิสิตบอกวันที่อยู่ไม่ได้หรืออยากหลบ แล้วจัดนิสิตลงเวรให้ทุกคนได้เท่า ๆ กัน ตามกฎที่กลุ่มตั้งไว้ ทุกคนตรวจได้ก่อนใช้จริง และแลกเวรกันได้ภายหลัง</p>
+    <p class="lede" lang="en">Wayneday takes the residents’ and staff roster the hospital already made, lets students say which days they can’t do or would rather avoid, and places the students so everyone gets a fair share under your group’s rules. Everyone checks it before it’s final, and swaps go through the host.</p>
+  </header>
+
+  <section aria-labelledby="who">
+    <h2 id="who"><span lang="th">คุณเป็นใครในกลุ่ม?</span><span lang="en">Who are you in the group?</span></h2>
+    <div class="roles">
+      <a class="role" href="#student">
+        <strong><span lang="th">นิสิต (สมาชิก)</span><span lang="en">Student (member)</span></strong>
+        <span class="muted small" lang="th">ได้ลิงก์หรือรหัสห้องมาจากผู้จัด ใช้เวลาประมาณ 2 นาที ไม่ต้องมีบัญชี</span>
+        <span class="muted small" lang="en">You got a link or a code from the host. About 2 minutes, no account needed.</span>
+        <span class="go"><span lang="th">ดูขั้นตอน →</span><span lang="en">See the steps →</span></span>
+      </a>
+      <a class="role" href="#host">
+        <strong><span lang="th">ผู้จัด / ผู้จัดร่วม</span><span lang="en">Host / co-host</span></strong>
+        <span class="muted small" lang="th">คนที่ตั้งค่าเวร กดจัด และเผยแพร่ตาราง เข้าสู่ระบบด้วย Google</span>
+        <span class="muted small" lang="en">You set up the shifts, arrange and publish the roster. Signs in with Google.</span>
+        <span class="go"><span lang="th">ดูขั้นตอน →</span><span lang="en">See the steps →</span></span>
+      </a>
+    </div>
+  </section>
+
+  <hr />
+
+  <!-- ============ STUDENTS ============ -->
+  <section id="student" aria-labelledby="student-h">
+    <p class="eyebrow"><span lang="th">สำหรับนิสิต</span><span lang="en">For students</span></p>
+    <h2 id="student-h"><span lang="th">บอกวันว่างของคุณ</span><span lang="en">Give your availability</span></h2>
+    <ol class="steps">
+      <li>
+        <h3><span lang="th">เปิดลิงก์ที่ผู้จัดส่งมา</span><span lang="en">Open the link from your host</span></h3>
+        <div class="step-body">
+          <p lang="th">กดลิงก์ในแชตกลุ่ม หรือเปิดหน้าแรกของเว็บแล้วกรอก <span class="ui">รหัสห้อง</span> เป็นคำภาษาอังกฤษสามคำ เช่น <span class="code">amber-otter-river</span> แล้วกด <span class="ui">เข้าร่วม</span></p>
+          <p lang="en">Tap the link in your group chat, or open the website and type the <span class="ui">Session code</span>: three words like <span class="code">amber-otter-river</span>. Then tap <span class="ui">Join</span>.</p>
+          <p class="muted small" lang="th">ถ้าเว็บเปิดช้าในครั้งแรก รอสักครู่ (ไม่เกินประมาณ 1 นาที) เซิร์ฟเวอร์กำลังตื่น</p>
+          <p class="muted small" lang="en">If the site is slow the first time, give it up to a minute: the server is waking up.</p>
+        </div>
+      </li>
+      <li>
+        <h3><span lang="th">เลือกชื่อ แล้วตั้ง PIN</span><span lang="en">Pick your name and set a PIN</span></h3>
+        <div class="step-body">
+          <p lang="th">ที่ <span class="ui">คุณคือใคร?</span> เลือกชื่อตัวเอง ตั้ง PIN 4–8 หลัก แล้วกด <span class="ui">เข้าสู่ระบบ</span> ครั้งต่อไปใช้ PIN เดิมเข้าจากเครื่องไหนก็ได้</p>
+          <p lang="en">Under <span class="ui">Who are you?</span> choose your name, set a 4–8 digit PIN and tap <span class="ui">Log in</span>. Use the same PIN next time, on any device.</p>
+          <p class="muted small" lang="th">ไม่มีชื่อในรายการ? กด <span class="ui">ฉันไม่มีในรายชื่อ</span> → <span class="ui">ขอเข้าร่วม</span> แล้วรอผู้จัดอนุมัติ เครื่องของคุณจะเข้าสู่ระบบให้อัตโนมัติ</p>
+          <p class="muted small" lang="en">Not on the list? Tap <span class="ui">I’m not on the list</span> → <span class="ui">Ask to join</span> and wait for the host to approve. Your device logs in by itself.</p>
+        </div>
+      </li>
+      <li>
+        <h3><span lang="th">ตั้งค่าความต้องการของคุณ</span><span lang="en">Set your preferences</span></h3>
+        <div class="step-body">
+          <p lang="th">ในแท็บ <span class="ui">🗓️ วันว่าง</span> ส่วน <span class="ui">ความต้องการของฉัน</span>:</p>
+          <p lang="en">In the <span class="ui">🗓️ Availability</span> tab, under <span class="ui">My preferences</span>:</p>
+          <ul lang="th">
+            <li><b>กระจาย</b> — เวรห่าง ๆ กันทั้งเดือน หรือ <b>อยู่ใกล้กัน</b> — อยู่ให้จบเร็ว ๆ ใกล้ระยะห่างขั้นต่ำ</li>
+            <li><b>ห่างกันอย่างน้อยกี่วัน</b> ระหว่างเวรสองเวร</li>
+            <li><b>ข้อความถึงผู้จัด</b> เช่น “สอบวันที่ 14”</li>
+          </ul>
+          <ul lang="en">
+            <li><b>Spread out</b> (shifts evenly across the month) or <b>Grouped</b> (done close together, near your minimum gap)</li>
+            <li><b>How many days</b> at least between two of your shifts</li>
+            <li><b>Note for the host</b>, e.g. “exam on the 14th”</li>
+          </ul>
+        </div>
+      </li>
+      <li>
+        <h3><span lang="th">ทำเครื่องหมายบนตารางวัน</span><span lang="en">Mark days on the grid</span></h3>
+        <div class="step-body">
+          <p lang="th">เลือกเครื่องมือ <span class="ui">🚫 ไม่ว่าง / หลบเวร</span> เลือกว่า <span class="ui">สำคัญแค่ไหน</span> แล้วแตะหรือลากบนช่องในคอลัมน์ของคุณ บันทึกให้อัตโนมัติ</p>
+          <p lang="en">Pick the <span class="ui">🚫 Can’t / avoid</span> tool, choose <span class="ui">How much it matters</span>, then tap or drag over days in your column. It saves by itself.</p>
+          <div class="marks">
+            <div class="mark"><span class="cell no">✕</span><span lang="th"><b>ไม่ได้</b> — อยู่เวรวันนั้นไม่ได้เลย</span><span lang="en"><b>Can’t</b> — you can’t work that day at all</span></div>
+            <div class="mark"><span class="cell a3">!!!</span><span lang="th"><b>ต้องหลบจริง ๆ</b> — พยายามที่สุด</span><span lang="en"><b>Really need it off</b> — tried hardest</span></div>
+            <div class="mark"><span class="cell a2">!!</span><span lang="th"><b>สำคัญ</b></span><span lang="en"><b>Important</b></span></div>
+            <div class="mark"><span class="cell a1">!</span><span lang="th"><b>อยากหลบ</b> — ถ้าเป็นไปได้</span><span lang="en"><b>Rather not</b> — if possible</span></div>
+            <div class="mark"><span class="cell lock">🔒</span><span lang="th"><b>ล็อกเวร</b> — ต้องอยู่เวรนี้</span><span lang="en"><b>Lock in</b> — put me on this shift</span></div>
+          </div>
+          <p class="muted small" lang="th">กด <span class="ui">🧽 ล้าง</span> เพื่อลบเครื่องหมาย หรือ <span class="ui">↶ ย้อนกลับ</span> ทุกคนเห็นคำตอบของกันและกัน ผู้จัดแก้คอลัมน์ของคุณได้เฉพาะเมื่อเปิดสิทธิ์ และคุณจะได้รับแจ้งพร้อมปุ่มคืนคำตอบเดิม</p>
+          <p class="muted small" lang="en">Use <span class="ui">🧽 Clear</span> to remove a mark, or <span class="ui">↶ Undo</span>. Everyone sees everyone’s answers. The host can only change your column after switching that on, and you’re told, with a button to restore your answers.</p>
+        </div>
+      </li>
+      <li>
+        <h3><span lang="th">ตรวจตาราง ทักท้วง หรือขอแลกเวร</span><span lang="en">Check the roster, raise concerns, swap</span></h3>
+        <div class="step-body">
+          <p lang="th">เมื่อผู้จัดเผยแพร่ ตารางจะอยู่ในสถานะ <span class="ui">กำลังตรวจทาน</span> ในแท็บ <span class="ui">📋 ตารางเวร</span></p>
+          <p lang="en">When the host publishes, the roster is <span class="ui">In review</span> in the <span class="ui">📋 Roster</span> tab.</p>
+          <ul lang="th">
+            <li>แตะช่องไหนก็ได้เพื่อเขียน <b>ข้อทักท้วง</b> เรื่องวันนั้น</li>
+            <li>แตะเวร <b>ของคุณเอง</b> เพื่อขอแลก แล้วกด <span class="ui">📣 ประกาศ</span> เพื่อนกด <span class="ui">ฉันรับเอง</span> หรือเสนอ <span class="ui">แลกกับเวรของฉัน</span> คุณกด <span class="ui">ตกลง</span> แล้วผู้จัดอนุมัติ</li>
+          </ul>
+          <ul lang="en">
+            <li>Tap any cell to post a <b>concern</b> about that date.</li>
+            <li>Tap <b>your own</b> shift to ask for a swap, then <span class="ui">📣 Announce</span>. Others tap <span class="ui">I’ll take it</span> or offer to <span class="ui">Trade for my</span> shift; you <span class="ui">Accept</span>, and the host approves.</li>
+          </ul>
+        </div>
+      </li>
+      <li>
+        <h3><span lang="th">ใส่เวรลงปฏิทินของคุณ</span><span lang="en">Put your shifts in your calendar</span></h3>
+        <div class="step-body">
+          <p lang="th">ใต้ตาราง เปิด <span class="ui">เพิ่มลงปฏิทิน</span> เลือก “ของฉัน” ตั้งชื่อและสี แล้วเพิ่มลง Google Calendar หรือดาวน์โหลดไฟล์สำหรับ Apple / Outlook</p>
+          <p lang="en">Below the roster, open <span class="ui">Add to calendar</span>, choose “Mine”, pick a name and colour, and add it to Google Calendar or download a file for Apple / Outlook.</p>
+        </div>
+      </li>
+    </ol>
+  </section>
+
+  <hr />
+
+  <!-- ============ HOSTS ============ -->
+  <section id="host" aria-labelledby="host-h">
+    <p class="eyebrow"><span lang="th">สำหรับผู้จัด</span><span lang="en">For hosts</span></p>
+    <h2 id="host-h"><span lang="th">จัดเวรตั้งแต่ต้นจนจบ</span><span lang="en">Run a roster from start to finish</span></h2>
+    <p class="muted" lang="th">หน้าห้องของผู้จัดมี <span class="ui">🧭 ขั้นตอนถัดไป</span> บอกว่าตอนนี้ต้องทำอะไร และพาไปยังจุดนั้น</p>
+    <p class="muted" lang="en">Inside a session, hosts see a <span class="ui">🧭 Next steps</span> checklist that tells you what’s next and takes you there.</p>
+    <ol class="steps">
+      <li>
+        <h3><span lang="th">เข้าสู่ระบบ แล้วสร้างห้อง</span><span lang="en">Sign in and create a session</span></h3>
+        <div class="step-body">
+          <p lang="th">หน้าแรก → <span class="ui">เปิดห้องจัดเวร</span> → เข้าสู่ระบบด้วย Google → ตั้งชื่อ เช่น “AF7 — พฤศจิกายน” → <span class="ui">สร้างห้อง</span> ห้องทั้งหมดของคุณจะอยู่ใน <span class="ui">🗂️ ตารางเวรของฉัน</span> เปิดได้จากทุกเครื่อง</p>
+          <p lang="en">Home → <span class="ui">Host a session</span> → sign in with Google → name it, e.g. “AF7 — November” → <span class="ui">Create session</span>. All your sessions are listed under <span class="ui">🗂️ My rosters</span> on any device.</p>
+        </div>
+      </li>
+      <li>
+        <h3><span lang="th">ตั้งช่วงเวลาและช่วงเวร</span><span lang="en">Set the period and shift slots</span></h3>
+        <div class="step-body">
+          <ul lang="th">
+            <li><b>ช่วงเวลา</b>: วันแรก–วันสุดท้ายของ rotation และวันหยุด (นับเหมือนเสาร์-อาทิตย์เพื่อความยุติธรรม)</li>
+            <li><b>ช่วงเวรและที่ของนิสิต</b>: แต่ละเวรมีชื่อ เวลา วันที่มีเวร และจำนวนนิสิต <i>อย่างน้อย – มากสุด</i> เช่น “ลงเที่ยงคืน 16:00–08:00, 2 คน” และ “ข้ามคืน 08:00–08:00, 1 คน”</li>
+            <li><b>จุดปฏิบัติงาน (ไม่บังคับ)</b>: ใช้เฉพาะเมื่อนิสิตในเวรเดียวกันแยกกันอยู่คนละที่ เช่น Ward × 1 กับ ER × 1</li>
+            <li><b>ปฏิทิน</b>: แตะวันที่เพื่อเปลี่ยนเฉพาะวันนั้น เช่น ปิดเวร หรือเปลี่ยนจำนวนคน แล้วคัดลอกไปทั้งสัปดาห์ได้</li>
+          </ul>
+          <ul lang="en">
+            <li><b>Period</b>: first and last day of the rotation, plus holidays (counted like weekends for fairness).</li>
+            <li><b>Shift slots &amp; student places</b>: each shift has a name, times, the weekdays it runs and how many students <i>at least – at most</i>, e.g. “Night 16:00–08:00, 2 students” and “24h 08:00–08:00, 1 student”.</li>
+            <li><b>Places (optional)</b>: only when students on one shift split up, e.g. Ward × 1 and ER × 1.</li>
+            <li><b>Calendar</b>: tap a date to change just that day (switch a shift off, change the numbers), then copy it to the rest of the week.</li>
+          </ul>
+        </div>
+      </li>
+      <li>
+        <h3><span lang="th">ใส่ตารางเวรโรงพยาบาล</span><span lang="en">Enter the hospital roster</span></h3>
+        <div class="step-body">
+          <p lang="th">ใน <span class="ui">🩺 ตารางเวรโรงพยาบาล</span> พิมพ์ชื่อแพทย์ประจำบ้านและอาจารย์ที่อยู่เวรแต่ละวัน (ระบบแนะนำชื่อที่เคยพิมพ์) หรือกด <span class="ui">วางจากสเปรดชีต</span> แล้ววางตารางจาก Excel / Google Sheets ทั้งตาราง (คอลัมน์แรกเป็นวันที่)</p>
+          <p lang="en">In <span class="ui">🩺 Hospital roster</span>, type who’s on duty each day (Wayneday suggests names you’ve used), or use <span class="ui">Paste from a spreadsheet</span> to paste the hospital’s table from Excel / Google Sheets (first column = date).</p>
+          <p class="muted small" lang="th">แพทย์ประจำบ้านและอาจารย์ไม่ต้องเข้าระบบ Wayneday ใช้ชื่อเพื่อกระจายนิสิตให้ทุกคนได้สอนพอ ๆ กัน และไม่ให้นิสิตเจอคนเดิมซ้ำ</p>
+          <p class="muted small" lang="en">Residents and staff never log in. Wayneday uses the names to spread students evenly across them and avoid repeats.</p>
+        </div>
+      </li>
+      <li>
+        <h3><span lang="th">เพิ่มนิสิตและตั้งกฎ</span><span lang="en">Add students and set the rules</span></h3>
+        <div class="step-body">
+          <ul lang="th">
+            <li><b>รายชื่อ</b>: วางชื่อนิสิตบรรทัดละหนึ่งชื่อ</li>
+            <li><b>เวรนิสิต</b>: <span class="ui">⚖️ แบ่งเท่า ๆ กัน</span> (แนะนำ) เติมทุกที่ให้ครบแล้วแบ่งให้ทุกคนต่างกันไม่เกิน 1 เวร หรือกำหนดจำนวนรวม / จำนวนของแต่ละเวรเอง</li>
+            <li><b>ระยะห่างขั้นต่ำ</b> ระหว่างเวรของนิสิตคนเดียวกัน</li>
+            <li><b>พยายามหลีกเลี่ยง</b>: เจอแพทย์ประจำบ้านคนเดิมซ้ำ เจออาจารย์คนเดิมซ้ำ นิสิตคู่เดิมซ้ำ อยู่เวรคนเดียวทุกเวร</li>
+            <li><b>การนำเสนอ</b>: เช่น morning report วันละ 1–2 เคส อย่างน้อย 1 คนต้องมาจากเวรเมื่อวาน (เลือกเวรหรือ “เวรใดก็ได้”) Wayneday เลือกผู้นำเสนอให้เท่า ๆ กัน</li>
+            <li><b>เงื่อนไขอื่น</b>: กฎที่ระบบตรวจไม่ได้ จะถูกแปลงเป็นพรอมต์ให้ใช้กับ AI</li>
+          </ul>
+          <ul lang="en">
+            <li><b>People</b>: paste the students, one name per line.</li>
+            <li><b>Student shifts</b>: <span class="ui">⚖️ Share equally</span> (recommended) fills every place and splits them so nobody has more than one shift more than anyone else, or set a total / a number of each shift yourself.</li>
+            <li><b>Minimum gap</b> between one student’s shifts.</li>
+            <li><b>Try to avoid</b>: meeting the same resident twice, the same อาจารย์ twice, the same two students together twice, and anyone being alone on every shift.</li>
+            <li><b>Presentations</b>: e.g. morning report, 1–2 cases a day, at least 1 presenter from last night’s shift (a shift or “any shift”). Wayneday picks presenters and shares the load.</li>
+            <li><b>Other conditions</b>: rules the built-in solver can’t check become a prompt for an AI.</li>
+          </ul>
+          <p lang="th">กด <span class="ui">บันทึกการตั้งค่า</span></p>
+          <p lang="en">Then tap <span class="ui">Save setup</span>.</p>
+        </div>
+      </li>
+      <li>
+        <h3><span lang="th">ชวนกลุ่มเข้ามา</span><span lang="en">Invite the group</span></h3>
+        <div class="step-body">
+          <p lang="th">กด <span class="ui">คัดลอกคำเชิญ</span> แล้ววางในแชตกลุ่ม หรือส่งลิงก์ส่วนตัวของแต่ละคน (คอลัมน์ “เข้าสู่ระบบ” ในรายชื่อ) ที่เลือกชื่อไว้ให้แล้ว คนที่ขอเข้าร่วมจะขึ้นให้คุณกด <span class="ui">✅ อนุมัติ</span></p>
+          <p lang="en">Tap <span class="ui">Copy invite</span> and post it in the group chat, or send each student their personal link (Login column in People), which opens with their name picked. Join requests appear for you to <span class="ui">✅ Approve</span>.</p>
+        </div>
+      </li>
+      <li>
+        <h3><span lang="th">หาวิธีจัด แล้วเลือกแบบที่ดีที่สุด</span><span lang="en">Find arrangements and pick the best</span></h3>
+        <div class="step-body">
+          <p lang="th">เมื่อทุกคนตอบแล้ว (ดูได้ใน 🧭 ขั้นตอนถัดไป) ไปที่ <span class="ui">📋 ตารางเวร</span> → <span class="ui">✨ หาวิธีจัด</span> ระบบบอกว่ามีวิธีจัดได้กี่แบบ และแสดงแบบที่ดีที่สุดให้เทียบกัน:</p>
+          <p lang="en">When everyone has answered (see 🧭 Next steps), go to <span class="ui">📋 Roster</span> → <span class="ui">✨ Find arrangements</span>. Wayneday says how many arrangements exist and shows the best ones side by side:</p>
+          <div class="option" lang="th">
+            <b>แบบที่ 1 · ยุติธรรมที่สุด</b>
+            <span class="muted">⚖️ คนละ 12–13 เวร · ✅ หลบเวรได้ครบทั้ง 32 ครั้ง · ✅ ไม่ซ้ำ (แพทย์ประจำบ้าน, อาจารย์, คู่นิสิต) · นิสิตอยู่กับแพทย์ประจำบ้าน 6–7</span>
+          </div>
+          <div class="option" lang="en">
+            <b>Option 1 · fairest</b>
+            <span class="muted">⚖️ 12–13 shifts each · ✅ all 32 avoid requests met · ✅ no repeats (residents, staff, student pairs) · students with residents 6–7</span>
+          </div>
+          <p lang="th">ดู <span class="ui">ตรวจกฎ</span> และ <span class="ui">รายนิสิต</span> ได้ ถ้าอยากปรับเอง กด <span class="ui">แก้ตำแหน่งนิสิต</span> แล้วแตะนิสิต ช่องสีเขียวคือย้ายไปได้โดยไม่ผิดกฎ ช่องสีแดงคือผิดกฎ</p>
+          <p lang="en">Check the <span class="ui">Rules check</span> and <span class="ui">Per student</span> tables. To adjust by hand, tap <span class="ui">Edit students</span>, then a student: green places keep every rule, red ones break a rule.</p>
+        </div>
+      </li>
+      <li>
+        <h3><span lang="th">เผยแพร่ให้ตรวจ แล้วยืนยัน</span><span lang="en">Publish for review, then finalize</span></h3>
+        <div class="step-body">
+          <p lang="th">กด <span class="ui">📢 เผยแพร่ให้ตรวจ</span> พร้อมกำหนดช่วงทักท้วง (ชั่วโมง) ตอบข้อทักท้วง อนุมัติการแลกเวร แล้วกด <span class="ui">✅ ยืนยันฉบับสุดท้าย</span> หลังจากนั้นยังแลกเวรได้ผ่านผู้จัด</p>
+          <p lang="en">Tap <span class="ui">📢 Publish for review</span> with a concern period (in hours). Answer concerns, approve swaps, then <span class="ui">✅ Finalize</span>. Swaps still work afterwards, through you.</p>
+        </div>
+      </li>
+      <li>
+        <h3><span lang="th">ส่งออก และเพิ่มผู้จัดร่วม</span><span lang="en">Export, and add co-hosts</span></h3>
+        <div class="step-body">
+          <p lang="th"><span class="ui">ส่งออก</span> เป็น Excel, CSV, รูปภาพ, Google Sheets หรือปฏิทิน เพิ่มเพื่อนที่ช่วยจัดได้ที่ <span class="ui">ตั้งค่า → 👑 ผู้จัด</span> ด้วยอีเมล Google ของเขา ผู้จัดร่วมทำได้ทุกอย่าง ยกเว้นเพิ่มหรือลบผู้จัด</p>
+          <p lang="en"><span class="ui">Export</span> to Excel, CSV, an image, Google Sheets or calendars. Add a friend who helps under <span class="ui">Setup → 👑 Hosts</span> with their Google email; co-hosts can do everything except manage hosts.</p>
+        </div>
+      </li>
+    </ol>
+  </section>
+
+  <hr />
+
+  <!-- ============ FEATURES ============ -->
+  <section aria-labelledby="features-h">
+    <h2 id="features-h"><span lang="th">Wayneday ทำอะไรได้บ้าง</span><span lang="en">What Wayneday does</span></h2>
+    <div class="features">
+      <div>
+        <h3><span lang="th">⚖️ แบ่งเวรเท่ากัน</span><span lang="en">⚖️ Equal shares</span></h3>
+        <p lang="th">ทุกคนต่างกันไม่เกิน 1 เวร และได้เวรแต่ละแบบ รวมถึงเสาร์-อาทิตย์ ใกล้เคียงกัน</p>
+        <p lang="en">Nobody has more than one shift more than anyone else, with a similar mix of shift types and weekends.</p>
+      </div>
+      <div>
+        <h3><span lang="th">🩺 รอบตารางโรงพยาบาล</span><span lang="en">🩺 Around the hospital’s roster</span></h3>
+        <p lang="th">จัดเฉพาะนิสิต ให้แพทย์ประจำบ้านและอาจารย์ทุกคนได้อยู่เวรกับนิสิตพอ ๆ กัน</p>
+        <p lang="en">Only students are arranged, so every resident and อาจารย์ has students about equally often.</p>
+      </div>
+      <div>
+        <h3><span lang="th">🚫 หลบเวรได้ 4 ระดับ</span><span lang="en">🚫 Four levels of “no”</span></h3>
+        <p lang="th">ไม่ว่าง (กฎเหล็ก) และหลบเวร !!! / !! / ! ที่ระบบพยายามตามลำดับความสำคัญ</p>
+        <p lang="en">Can’t (never broken) and avoid at !!! / !! / !, tried in that order.</p>
+      </div>
+      <div>
+        <h3><span lang="th">🔢 ดูได้ว่ามีกี่แบบ</span><span lang="en">🔢 How many arrangements exist</span></h3>
+        <p lang="th">บอกจำนวนวิธีจัดที่เป็นไปได้ แสดงแบบที่ดีที่สุดให้เลือก หรืออธิบายว่าทำไมจัดไม่ได้</p>
+        <p lang="en">Counts the possible rosters, shows the best to choose from, or explains why none works.</p>
+      </div>
+      <div>
+        <h3><span lang="th">🎤 เลือกผู้นำเสนอ</span><span lang="en">🎤 Picks presenters</span></h3>
+        <p lang="th">เช่น morning report ใช้คนที่ลงเวรเมื่อคืนก่อน และกระจายภาระให้เท่ากัน</p>
+        <p lang="en">E.g. morning report: people coming off last night’s shift first, load shared evenly.</p>
+      </div>
+      <div>
+        <h3><span lang="th">🔄 ทักท้วงและแลกเวร</span><span lang="en">🔄 Concerns and swaps</span></h3>
+        <p lang="th">มีช่วงตรวจก่อนใช้จริง ขอแลกเวรผ่านระบบ และผู้จัดอนุมัติ</p>
+        <p lang="en">A review period before it’s final; swaps are requested in the app and approved by the host.</p>
+      </div>
+      <div>
+        <h3><span lang="th">📤 ส่งออกได้หลายแบบ</span><span lang="en">📤 Exports</span></h3>
+        <p lang="th">Excel, CSV, รูปภาพ, Google Sheets และ Google / Apple Calendar</p>
+        <p lang="en">Excel, CSV, image, Google Sheets, and Google / Apple calendars.</p>
+      </div>
+      <div>
+        <h3><span lang="th">🤖 ส่งต่อให้ AI</span><span lang="en">🤖 AI hand-off</span></h3>
+        <p lang="th">กฎพิเศษที่ระบบตรวจไม่ได้ คัดลอกพรอมต์ไปใช้กับ AI แล้วนำคำตอบกลับมาตรวจได้</p>
+        <p lang="en">Special rules become a prompt for an AI; its answer comes back in and is checked.</p>
+      </div>
+      <div>
+        <h3><span lang="th">📱 ไทย / อังกฤษ บนมือถือ</span><span lang="en">📱 Thai / English, on phones</span></h3>
+        <p lang="th">ใช้ได้ทั้งมือถือและคอมพิวเตอร์ นิสิตไม่ต้องสมัครบัญชี</p>
+        <p lang="en">Works on phones and computers; students need no account.</p>
+      </div>
+    </div>
+  </section>
+
+  <hr />
+
+  <!-- ============ FAQ ============ -->
+  <section aria-labelledby="faq-h">
+    <h2 id="faq-h"><span lang="th">คำถามที่พบบ่อย</span><span lang="en">Questions</span></h2>
+    <div>
+      <details>
+        <summary><span lang="th">ลืม PIN ทำอย่างไร?</span><span lang="en">I forgot my PIN.</span></summary>
+        <p lang="th">บอกผู้จัด ผู้จัดกด “รีเซ็ต PIN” ข้างชื่อคุณในรายชื่อ แล้วคุณเลือกชื่อและตั้ง PIN ใหม่ได้ คำตอบเดิมยังอยู่</p>
+        <p lang="en">Ask your host to tap “reset PIN” next to your name in People. Then pick your name and set a new PIN; your answers stay.</p>
+      </details>
+      <details>
+        <summary><span lang="th">ทำไมผมได้เวรวันที่ทำเครื่องหมาย ! ไว้?</span><span lang="en">Why did I get a day I marked with “!”?</span></summary>
+        <p lang="th">!!! / !! / ! คือ “อยากหลบ” ไม่ใช่ “ไม่ได้” ระบบจะหลบให้มากที่สุดตามลำดับ แต่ถ้าหลบทุกคำขอแล้วจัดไม่ได้ ก็อาจต้องได้บางวัน ถ้าอยู่ไม่ได้จริง ๆ ให้ใช้ ✕ ไม่ได้</p>
+        <p lang="en">!!! / !! / ! mean “rather not”, not “can’t”. Wayneday avoids them as much as it can, in that order, but may need a few when there’s no other way. If you truly can’t, use ✕ Can’t.</p>
+      </details>
+      <details>
+        <summary><span lang="th">ทำไมบางคนได้มากกว่าคนอื่น 1 เวร?</span><span lang="en">Why does someone have one more shift?</span></summary>
+        <p lang="th">เมื่อจำนวนเวรหารนิสิตไม่ลงตัว บางคนต้องได้เพิ่ม 1 เวร ระบบเลือกให้คนที่มีวันว่างมากที่สุด และไม่มีใครต่างกันเกิน 1 เวร</p>
+        <p lang="en">When the places don’t divide evenly, a few people do one more. Wayneday gives the extra ones to those with the most open days, and nobody differs by more than one.</p>
+      </details>
+      <details>
+        <summary><span lang="th">ผู้จัดแก้คำตอบของผมได้ไหม?</span><span lang="en">Can the host change my answers?</span></summary>
+        <p lang="th">ได้เฉพาะเมื่อผู้จัดเปิดสิทธิ์แก้คอลัมน์ของคนอื่น ทุกการแก้มีบันทึก คุณจะได้รับแจ้ง และกดคืนคำตอบเดิมได้</p>
+        <p lang="en">Only after switching on “edit other people’s columns”. Every change is logged, you’re told, and you can restore your answers.</p>
+      </details>
+      <details>
+        <summary><span lang="th">ใครเห็นข้อมูลของผมบ้าง?</span><span lang="en">Who can see my information?</span></summary>
+        <p lang="th">คนที่มีรหัสห้องเห็นตารางและคำตอบในห้องนั้น ไม่มีโฆษณาหรือการขายข้อมูล อีเมลของผู้จัดไม่แสดงให้สมาชิกเห็น ดูรายละเอียดที่หน้า <a href="/privacy.html">ความเป็นส่วนตัว</a></p>
+        <p lang="en">People with the session code see that session’s roster and answers. No ads, no selling data, and host emails aren’t shown to members. See the <a href="/privacy.html">privacy page</a>.</p>
+      </details>
+      <details>
+        <summary><span lang="th">เปิดเว็บแล้วช้ามาก</span><span lang="en">The site takes a while to open.</span></summary>
+        <p lang="th">เซิร์ฟเวอร์ฟรีจะหลับเมื่อไม่มีคนใช้สักพัก การเปิดครั้งแรกอาจใช้เวลาไม่เกินประมาณ 1 นาที หลังจากนั้นจะเร็วตามปกติ</p>
+        <p lang="en">The free server sleeps when nobody is using it. The first visit can take up to about a minute; after that it’s quick.</p>
+      </details>
+    </div>
+  </section>
+
+  <footer>
+    <p><a href="/"><span lang="th">← กลับไปที่ Wayneday</span><span lang="en">← Back to Wayneday</span></a></p>
+    <p><span lang="th">สร้างโดย Pleuk MDCU78</span><span lang="en">Made by Pleuk MDCU78</span></p>
+  </footer>
+</div>
+<script>
+  ;(function () {
+    var root = document.documentElement
+    var buttons = document.querySelectorAll('.lang button')
+    function show(lang) {
+      root.setAttribute('data-lang', lang)
+      root.lang = lang
+      buttons.forEach(function (b) { b.setAttribute('aria-pressed', String(b.getAttribute('data-set') === lang)) })
+    }
+    buttons.forEach(function (b) {
+      b.addEventListener('click', function () {
+        var lang = b.getAttribute('data-set')
+        show(lang)
+        try { localStorage.setItem('wayneday:lang', lang) } catch (e) {}
+      })
+    })
+    show(root.getAttribute('data-lang') || 'th')
+  })()
+</script>
+</body>
+</html>

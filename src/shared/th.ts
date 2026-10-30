@@ -543,6 +543,8 @@ export const TH: Record<string, string> = {
   "Only about {n} of the {p} places can be shared fairly: {name} can fit just {k} shifts around their unavailable dates and gap.": "แบ่งให้เท่ากันได้ประมาณ {n} จาก {p} ที่เท่านั้น: {name} อยู่ได้แค่ {k} เวร เมื่อเลี่ยงวันที่ไม่ว่างและเว้นระยะ",
   "any shift": "เวรใดก็ได้",
   "Hosting on this site is by invitation, and {email} isn’t on the list yet. Ask the person who runs it to add you — or ask a host to make you a co-host of their roster.": "เว็บไซต์นี้เปิดห้องจัดเวรได้เฉพาะคนที่ได้รับเชิญ และ {email} ยังไม่อยู่ในรายชื่อ ติดต่อผู้ดูแลเว็บไซต์เพื่อขอเพิ่มชื่อ หรือขอให้ผู้จัดเพิ่มคุณเป็นผู้จัดร่วมในตารางเวรของเขา",
+  "How to use": "วิธีใช้",
+  "New here? Read how Wayneday works": "ใช้ครั้งแรก? อ่านวิธีใช้ Wayneday",
   // Same in both languages.
   "Google Calendar, Apple, Outlook": "Google Calendar, Apple, Outlook",
   "{\"assignments\": [...]}": "{\"assignments\": [...]}",
