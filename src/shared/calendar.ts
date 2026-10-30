@@ -1,6 +1,6 @@
 // Which shifts run on a date and how many people each position needs, after per-date overrides.
 import { weekday } from './dates.ts'
-import type { PresentationRule, Requirement, SessionConfig, ShiftSlot } from './types.ts'
+import { DEFAULT_POINTS, type PresentationRule, type Requirement, type SessionConfig, type ShiftSlot } from './types.ts'
 
 export function overrideFor(config: SessionConfig, date: string, shiftId: string) {
   return config.overrides.find((o) => o.date === date && o.shiftId === shiftId)
@@ -42,3 +42,22 @@ export function presentationOn(config: SessionConfig, rule: PresentationRule, da
   const count = o?.count ?? rule.count
   return { count, fromCount: Math.min(count, o?.fromCount ?? rule.fromCount) }
 }
+
+/** Points a date's shifts are worth, before the slot multiplier: that date's own, else weekday or weekend/holiday. */
+export function dayPoints(config: SessionConfig, date: string): number {
+  const own = config.datePoints?.[date]
+  if (own !== undefined) return own
+  const p = config.students.points ?? DEFAULT_POINTS
+  const wd = weekday(date)
+  return wd === 0 || wd === 6 || config.holidays.includes(date) ? p.weekend : p.weekday
+}
+
+/** Points one student earns for a shift slot on a date (1 each when points are off). */
+export function shiftPoints(config: SessionConfig, shiftId: string, date: string): number {
+  const p = config.students.points
+  if (!p?.on) return 1
+  return dayPoints(config, date) * (p.shifts?.[shiftId] ?? 1)
+}
+
+/** Points for display: whole numbers as is, others to one decimal. */
+export const fmtPoints = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(1))

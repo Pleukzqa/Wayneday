@@ -69,6 +69,11 @@ const int = (v: unknown, min: number, max: number, fallback: number) => {
   const n = Math.floor(Number(v))
   return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback
 }
+/** A number like 2.5, rounded to hundredths. */
+const num = (v: unknown, min: number, max: number, fallback: number) => {
+  const n = Number(v)
+  return Number.isFinite(n) ? Math.min(max, Math.max(min, Math.round(n * 100) / 100)) : fallback
+}
 const arr = (v: unknown, max: number): unknown[] => (Array.isArray(v) ? v.slice(0, max) : [])
 const memberType = (v: unknown): MemberType => (v === 'staff' || v === 'student' ? v : 'resident')
 const time = (v: unknown) => (typeof v === 'string' && /^\d{2}:\d{2}$/.test(v) ? v : '08:00')
@@ -127,6 +132,19 @@ function cleanConfig(raw: unknown): SessionConfig {
     maxPerShift: int(st.maxPerShift, 1, 20, DEFAULT_STUDENTS.maxPerShift),
     shiftsPerStudent: int(st.shiftsPerStudent, 0, 100, DEFAULT_STUDENTS.shiftsPerStudent),
     auto: Boolean(st.auto),
+    points: (() => {
+      const p = (st.points ?? {}) as Record<string, unknown>
+      return {
+        on: Boolean(p.on),
+        weekday: num(p.weekday, 0, 100, 1),
+        weekend: num(p.weekend, 0, 100, 2),
+        shifts: Object.fromEntries(
+          Object.entries((p.shifts ?? {}) as Record<string, unknown>)
+            .filter(([k]) => shiftIds.has(k))
+            .map(([k, v]) => [k, num(v, 0, 100, 1)]),
+        ),
+      }
+    })(),
     avoidRepeatResident: Boolean(st.avoidRepeatResident),
     avoidRepeatStaff: Boolean(st.avoidRepeatStaff),
     avoidRepeatPartner: Boolean(st.avoidRepeatPartner),
@@ -185,6 +203,12 @@ function cleanConfig(raw: unknown): SessionConfig {
     students,
     presentations,
     extraConditions: str(c.extraConditions, 5000),
+    datePoints: Object.fromEntries(
+      Object.entries((c.datePoints ?? {}) as Record<string, unknown>)
+        .slice(0, 2000)
+        .filter(([d]) => isDate(d))
+        .map(([d, v]) => [d, num(v, 0, 100, 1)]),
+    ),
   }
 }
 

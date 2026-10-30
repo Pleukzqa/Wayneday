@@ -1,11 +1,11 @@
 // Setup sections: date exceptions calendar, students, presentation rules, join requests.
 import { useState } from 'react'
 import { api } from '../api.ts'
-import { equalShareFor } from '../shared/students.ts'
+import { equalShareFor, studentOccs } from '../shared/students.ts'
 import { t, typeName, weekdayLetter, weekdayLong, weekdayShort } from '../shared/i18n.ts'
-import { overrideFor, presentationOn, reqCount, shiftRuns } from '../shared/calendar.ts'
+import { dayPoints, fmtPoints, overrideFor, presentationOn, reqCount, shiftRuns } from '../shared/calendar.ts'
 import { dateRange, shortDate, weekday } from '../shared/dates.ts'
-import { ANY_SHIFT, DUTY_ROLES, type DateOverride, type DutyRole, type MemberResponse, type MemberType, type PresentationOverride, type PresentationRule, type SessionConfig } from '../shared/types.ts'
+import { ANY_SHIFT, DEFAULT_POINTS, DUTY_ROLES, type DateOverride, type DutyRole, type MemberResponse, type MemberType, type PresentationOverride, type PresentationRule, type SessionConfig } from '../shared/types.ts'
 import { uid, type SessionProps } from './props.ts'
 
 type Edit = (fn: (c: SessionConfig) => SessionConfig) => void
@@ -70,7 +70,17 @@ export function CalendarCard({ draft, edit, ro }: { draft: SessionConfig; edit: 
   if (days.length === 0 || draft.shifts.length === 0) return null
   const lead = weekday(days[0])
   const job = (id: string) => draft.jobs.find((j) => j.id === id)?.name ?? ''
-  const changed = (date: string) => draft.overrides.some((o) => o.date === date) || draft.presentationOverrides.some((o) => o.date === date)
+  const pointsOn = Boolean(draft.students.points?.on)
+  const ownPoints = (date: string) => (pointsOn ? draft.datePoints?.[date] : undefined)
+  const changed = (date: string) =>
+    draft.overrides.some((o) => o.date === date) || draft.presentationOverrides.some((o) => o.date === date) || ownPoints(date) !== undefined
+  const setDatePoints = (date: string, value: number | null) =>
+    edit((c) => {
+      const next = { ...(c.datePoints ?? {}) }
+      if (value === null) delete next[date]
+      else next[date] = value
+      return { ...c, datePoints: next }
+    })
   const weekOf = (date: string) => days.filter((d) => Math.floor((dayIndex(d) + lead) / 7) === Math.floor((dayIndex(date) + lead) / 7))
   const dayIndex = (d: string) => days.indexOf(d)
   const sameWeekday = (date: string) => days.filter((d) => weekday(d) === weekday(date))
@@ -79,6 +89,7 @@ export function CalendarCard({ draft, edit, ro }: { draft: SessionConfig; edit: 
       ...c,
       overrides: c.overrides.filter((o) => !dates.includes(o.date)),
       presentationOverrides: c.presentationOverrides.filter((o) => !dates.includes(o.date)),
+      datePoints: Object.fromEntries(Object.entries(c.datePoints ?? {}).filter(([d]) => !dates.includes(d))),
     }))
 
   return (
@@ -111,6 +122,7 @@ export function CalendarCard({ draft, edit, ro }: { draft: SessionConfig; edit: 
               <span className="cal-num">{Number(date.slice(8))}</span>
               <span className="cal-shifts">{running.length ? running.map((s) => s.name.slice(0, 1)).join('') : '—'}</span>
               {draft.presentations.length > 0 && <span className="cal-talks">{talks ? `P${talks}` : ' '}</span>}
+              {ownPoints(date) !== undefined && <span className="cal-pts">{fmtPoints(ownPoints(date)!)}pt</span>}
             </button>
           )
         })}
@@ -125,6 +137,10 @@ export function CalendarCard({ draft, edit, ro }: { draft: SessionConfig; edit: 
         {draft.presentations.length > 0 && (
           <span>
             <b className="accent">P2</b> {t("= 2 presentations that morning")}</span>
+        )}
+        {pointsOn && (
+          <span>
+            <b className="accent">3pt</b> {t('= this date has its own points')}</span>
         )}
         <span>
           <i className="legend-box changed" aria-hidden /> {t("changed from the usual week")}</span>
@@ -222,6 +238,31 @@ export function CalendarCard({ draft, edit, ro }: { draft: SessionConfig; edit: 
               </div>
             );
           })}
+          {pointsOn && (
+            <div className="row wrap cal-points">
+              <label className="inline">
+                🎯 {t('Points for this day')}{' '}
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  step={0.5}
+                  disabled={ro}
+                  value={dayPoints(draft, selected)}
+                  onChange={(e) => setDatePoints(selected, Math.max(0, Number(e.target.value) || 0))}
+                />
+              </label>
+              {ownPoints(selected) !== undefined ? (
+                !ro && (
+                  <button type="button" className="link" onClick={() => setDatePoints(selected, null)}>
+                    {t('Use the usual points')}
+                  </button>
+                )
+              ) : (
+                <span className="muted small">{t('(usual for this day)')}</span>
+              )}
+            </div>
+          )}
           {!ro && (
             <div className="row wrap cal-copy">
               <span className="small muted">{t("Copy this day to:")}</span>
@@ -238,6 +279,53 @@ export function CalendarCard({ draft, edit, ro }: { draft: SessionConfig; edit: 
 }
 
 // ---------- students ----------
+
+/** Points per shift: weekday / weekend-holiday values, and an optional multiplier per shift slot. */
+function PointsBox({ draft, ro, set, count }: { draft: SessionConfig; ro: boolean; set: (patch: Partial<SessionConfig['students']>) => void; count: number }) {
+  const p = { ...DEFAULT_POINTS, ...draft.students.points }
+  const setP = (patch: Partial<typeof p>) => set({ points: { ...p, ...patch } })
+  const slots = draft.shifts.filter((x) => x.requirements.length > 0)
+  const occs = studentOccs(draft, [])
+  const total = occs.reduce((n, o) => n + o.cap * o.pts, 0)
+  const value = (v: number, on: (n: number) => void, label: string) => (
+    <input type="number" min={0} max={100} step={0.5} disabled={ro} aria-label={label} value={v} onChange={(e) => on(Math.max(0, Number(e.target.value) || 0))} />
+  )
+  return (
+    <div className="points-box">
+      <label className="check">
+        <input type="checkbox" disabled={ro} checked={p.on} onChange={(e) => setP({ on: e.target.checked })} />
+        🎯 {t('Count points, so everyone’s points come out about equal')}
+      </label>
+      {p.on && (
+        <>
+          <div className="row wrap">
+            <label className="inline">
+              {t('Weekday shift')} {value(p.weekday, (n) => setP({ weekday: n }), t('Weekday shift'))} {t('pt')}
+            </label>
+            <label className="inline">
+              {t('Weekend / holiday shift')} {value(p.weekend, (n) => setP({ weekend: n }), t('Weekend / holiday shift'))} {t('pt')}
+            </label>
+          </div>
+          {slots.length > 1 && (
+            <div className="row wrap">
+              <span className="small">{t('Worth more on some shift slots? Multiply by:')}</span>
+              {slots.map((x) => (
+                <label key={x.id} className="inline">
+                  {x.name} × {value(p.shifts?.[x.id] ?? 1, (n) => setP({ shifts: { ...p.shifts, [x.id]: n } }), x.name)}
+                </label>
+              ))}
+            </div>
+          )}
+          <p className="muted small">
+            {t('Special days, e.g. 3 points the day before an exam: tap the date in the calendar above.')}{' '}
+            {count > 0 && total > 0 && t('{p} points in all, about {a} per student.', { p: fmtPoints(total), a: fmtPoints(Math.round((total / count) * 10) / 10) })}{' '}
+            {t('Shift counts stay equal first; points are then made as equal as possible.')}
+          </p>
+        </>
+      )}
+    </div>
+  )
+}
 
 export function StudentsCard({ draft, edit, ro, responses }: { draft: SessionConfig; edit: Edit; ro: boolean; responses: Record<string, MemberResponse> }) {
   const st = draft.students
@@ -325,6 +413,7 @@ export function StudentsCard({ draft, edit, ro, responses }: { draft: SessionCon
         ) : (
           <label className="inline">{t("Each student does")} <input type="number" min={0} max={100} disabled={ro} value={st.shiftsPerStudent} onChange={(e) => set({ shiftsPerStudent: Math.max(0, Number(e.target.value) || 0) })} /> {t("shifts")}</label>
         )}
+        <PointsBox draft={draft} ro={ro} set={set} count={count} />
         <label className="inline">{t("A student’s shifts at least")} <input type="number" min={0} max={60} disabled={ro} value={st.minGap ?? 0} onChange={(e) => set({ minGap: Math.max(0, Number(e.target.value) || 0) })} /> {t("days apart")} <span className="muted small">{t("(0 = each student’s own answer)")}</span>
         </label>
         <div className="rules">

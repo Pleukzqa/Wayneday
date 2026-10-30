@@ -111,6 +111,17 @@ export function buildAiPrompt(config: SessionConfig, responses: Record<string, M
               : `Each student does ${st.shiftsPerStudent} shift(s).`,
             'Students take the student places above (give the job); every place must have at least its minimum number of students.',
             st.minGap ? `A student's shifts must be at least ${st.minGap} days apart.` : '',
+            st.points?.on
+              ? `Points: a weekday shift is worth ${st.points.weekday}, a weekend or holiday shift ${st.points.weekend}${
+                  Object.entries(st.points.shifts ?? {}).filter(([, m]) => m !== 1).length
+                    ? `, multiplied by ${Object.entries(st.points.shifts ?? {}).filter(([, m]) => m !== 1).map(([id, m]) => `${m} for "${shiftName(id)}"`).join(', ')}`
+                    : ''
+                }${
+                  Object.keys(config.datePoints ?? {}).length
+                    ? `; these dates have their own points: ${Object.entries(config.datePoints ?? {}).sort().map(([d, v]) => `${d} = ${v}`).join(', ')}`
+                    : ''
+                }. Keep every student's total points as equal as possible (after keeping their number of shifts equal).`
+              : '',
             st.avoidRepeatResident ? 'A student should not meet the same resident twice.' : '',
             st.avoidRepeatStaff ? 'A student should not meet the same staff member twice.' : '',
             st.avoidRepeatPartner ? 'The same two students should never be together twice.' : '',

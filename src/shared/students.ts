@@ -4,7 +4,7 @@
 //   locks, minimum interval and spread/grouped preference;
 // - pick presenters for presentation rules, taking the required number from yesterday's shift first.
 
-import { presentationOn, reqCount, reqMin, shiftRuns } from './calendar.ts'
+import { fmtPoints, presentationOn, reqCount, reqMin, shiftPoints, shiftRuns } from './calendar.ts'
 import { t, weekdayShort } from './i18n.ts'
 import { addDays, dateRange, dayDiff, weekday } from './dates.ts'
 import { preferenceCost, responseFor, rng, variance } from './scoring.ts'
@@ -24,6 +24,8 @@ export interface Occ {
   /** Fewest students it must have. */
   min: number
   weekend: boolean
+  /** Points a student earns here (1 when points are off). */
+  pts: number
   /** Resident/staff member ids on duty in this shift that day. */
   workers: string[]
 }
@@ -41,14 +43,15 @@ export function studentOccs(config: SessionConfig, assignments: Assignment[]): O
     for (const shift of config.shifts) {
       if (!shiftRuns(config, shift, date)) continue
       const workers = assignments.filter((a) => a.date === date && a.shiftId === shift.id).map((a) => a.memberId)
+      const pts = shiftPoints(config, shift.id, date)
       if (config.rosterMode === 'hospital') {
         for (const req of shift.requirements) {
           const cap = reqCount(config, shift, req, date)
           const min = reqMin(config, shift, req, date)
-          if (cap > 0) occs.push({ i: occs.length, day, date, shiftId: shift.id, requirementId: req.id, jobId: req.jobId, cap, min, weekend, workers })
+          if (cap > 0) occs.push({ i: occs.length, day, date, shiftId: shift.id, requirementId: req.id, jobId: req.jobId, cap, min, weekend, pts, workers })
         }
       } else if (config.students.shiftIds.includes(shift.id)) {
-        occs.push({ i: occs.length, day, date, shiftId: shift.id, cap: Math.max(1, config.students.maxPerShift), min: 0, weekend, workers })
+        occs.push({ i: occs.length, day, date, shiftId: shift.id, cap: Math.max(1, config.students.maxPerShift), min: 0, weekend, pts, workers })
       }
     }
   })
@@ -322,6 +325,7 @@ export function arrangeStudents(
   const wantPartner = settings.wantPartner ?? false
   const room = (oi: number) => `${occs[oi].date}|${occs[oi].shiftId}`
   const slotIds = [...new Set(occs.map((o) => o.shiftId))]
+  const pointsOn = Boolean(settings.points?.on)
   const score = () => {
     // Who shares each room (date + shift slot), for partner rules.
     const together = new Map<string, number[]>()
@@ -337,7 +341,8 @@ export function arrangeStudents(
       const ids = config.members.filter((m) => m.type === type).map((m) => m.id)
       sc += 100 * variance(ids.map((id) => exposure.get(id) ?? 0))
     }
-    sc += 30 * variance(mine.map((m) => m.filter((oi) => occs[oi].weekend).length))
+    if (pointsOn) sc += 80 * variance(mine.map((m) => m.reduce((n, oi) => n + occs[oi].pts, 0)))
+    else sc += 30 * variance(mine.map((m) => m.filter((oi) => occs[oi].weekend).length))
     if (auto) for (const id of slotIds) sc += 40 * variance(mine.map((m) => m.filter((oi) => occs[oi].shiftId === id).length))
     mine.forEach((m, si) => {
       sc += preferenceCost(m.map((oi) => occs[oi].day).sort((a, b) => a - b), days.length, resp[si])
@@ -857,6 +862,15 @@ export function studentRuleReport(config: SessionConfig, responses: Record<strin
       summary.push(`⚖️ ${a === b ? t('{a} shifts each', { a }) : t('{a}–{b} shifts each', { a, b })}`)
     }
   }
+  if (st.points?.on) {
+    const pts = config.members
+      .filter((m) => m.type === 'student')
+      .map((m) => roster.students.filter((s) => s.memberId === m.id).reduce((n, s) => n + shiftPoints(config, s.shiftId, s.date), 0))
+    if (pts.length) {
+      const [a, b] = [Math.min(...pts), Math.max(...pts)]
+      summary.push(`🎯 ${a === b ? t('{a} points each', { a: fmtPoints(a) }) : t('{a}–{b} points each', { a: fmtPoints(a), b: fmtPoints(b) })}`)
+    }
+  }
   const asked = avoidAsked[1] + avoidAsked[2] + avoidAsked[3]
   if (asked) {
     const hits = avoidHits[1] + avoidHits[2] + avoidHits[3]
@@ -878,11 +892,12 @@ export function studentSummaryTable(config: SessionConfig, roster: { assignments
   const type = (id: string) => config.members.find((m) => m.id === id)?.type
   const students = config.members.filter((m) => m.type === 'student')
   const most = Math.max(0, ...students.map((m) => roster.students.filter((s) => s.memberId === m.id).length))
-  const header = [t('Student'), t('Shifts')]
+  const pointsOn = Boolean(config.students.points?.on)
+  const header = [t('Student'), t('Shifts'), ...(pointsOn ? [t('Points')] : [])]
   for (let i = 1; i <= most; i++) header.push(t('Shift {i} date', { i }), t('Day'), t('Shift'), t('With'), t('Resident'), t('Staff'))
   const rows = students.map((m) => {
     const mine = roster.students.filter((s) => s.memberId === m.id).sort((a, b) => a.date.localeCompare(b.date))
-    const row = [m.name, String(mine.length)]
+    const row = [m.name, String(mine.length), ...(pointsOn ? [fmtPoints(mine.reduce((n, s) => n + shiftPoints(config, s.shiftId, s.date), 0))] : [])]
     for (let i = 0; i < most; i++) {
       const s = mine[i]
       if (!s) {

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { dateRange, dayDiff } from './dates.ts'
+import { shiftPoints } from './calendar.ts'
 import { countArrangements, solve, solveMany, validate } from './solver.ts'
 import { arrangeStudents, countStudentArrangements, equalShare, pickPresenters, placeKey, studentCellIssues, studentExposure, studentOptions, studentRuleReport, studentTargets } from './students.ts'
 import { buildAiPrompt, importAiResult } from './ai.ts'
@@ -267,6 +268,59 @@ test('sharing equally stays equal when someone can only do a few shifts', () => 
   const counts = c.members.filter((m) => m.type === 'student').map((m) => r.students.filter((x) => x.memberId === m.id).length)
   assert.ok(Math.max(...counts) - Math.min(...counts) <= 1, `${counts}`)
   assert.match(r.warnings.join(' '), /Student A can only fit 3 shifts/)
+})
+
+/** Like a medicine rotation sheet: 2 students on call every night, weekday 1 point, weekend 2, special exam days. */
+function pointsRotation(on: boolean): SessionConfig {
+  const days = dateRange('2025-10-27', '2025-12-04')
+  return {
+    ...hospital(),
+    startDate: days[0],
+    endDate: days[days.length - 1],
+    holidays: [],
+    jobs: [],
+    duty: [],
+    shifts: [{ id: 'oc', name: 'On call', start: '16:00', end: '08:00', days: [0, 1, 2, 3, 4, 5, 6], requirements: [{ id: 'p', jobId: '', memberType: 'any', count: 2 }] }],
+    // Exam on Thursday 4 Dec: 2 days before = 1.5, the night before = everyone off, exam day = 1.
+    overrides: [{ date: '2025-12-03', shiftId: 'oc', active: false }],
+    datePoints: { '2025-12-02': 1.5, '2025-12-03': 3, '2025-12-04': 1 },
+    members: Array.from({ length: 10 }, (_, i) => ({ id: `s${i}`, name: `S${i}`, type: 'student' as const, jobs: [] })),
+    students: { shiftIds: [], maxPerShift: 1, shiftsPerStudent: 0, auto: true, minGap: 2, points: { on, weekday: 1, weekend: 2 } },
+  }
+}
+
+test('points: weekday, weekend/holiday, a date’s own points and a slot multiplier', () => {
+  const c = pointsRotation(true)
+  assert.equal(shiftPoints(c, 'oc', '2025-10-28'), 1) // Tuesday
+  assert.equal(shiftPoints(c, 'oc', '2025-11-01'), 2) // Saturday
+  assert.equal(shiftPoints(c, 'oc', '2025-12-02'), 1.5)
+  c.holidays = ['2025-10-29']
+  assert.equal(shiftPoints(c, 'oc', '2025-10-29'), 2)
+  c.students.points = { on: true, weekday: 1, weekend: 2, shifts: { oc: 1.5 } }
+  assert.equal(shiftPoints(c, 'oc', '2025-11-01'), 3)
+  assert.equal(shiftPoints(pointsRotation(false), 'oc', '2025-11-01'), 1, 'points off: every shift counts 1')
+})
+
+test('points: shift counts stay equal and points come out about equal', () => {
+  const spread = (on: boolean, seed: number) => {
+    const c = pointsRotation(on)
+    const r = arrangeStudents(c, {}, [], seed)
+    assert.ok(r.ok)
+    if (!r.ok) return { shifts: 99, points: 99 }
+    const scored = pointsRotation(true)
+    const per = c.members.map((m) => r.students.filter((s) => s.memberId === m.id))
+    const pts = per.map((m) => m.reduce((n, s) => n + shiftPoints(scored, s.shiftId, s.date), 0))
+    assert.ok(!r.students.some((s) => s.date === '2025-12-03'), 'everyone is off the night before the exam')
+    if (on) assert.match(studentRuleReport(c, {}, { assignments: [], students: r.students }).summary.join(' '), /points each/)
+    return { shifts: Math.max(...per.map((m) => m.length)) - Math.min(...per.map((m) => m.length)), points: Math.max(...pts) - Math.min(...pts) }
+  }
+  for (const seed of [1, 2, 3]) {
+    const off = spread(false, seed)
+    const on = spread(true, seed)
+    assert.ok(on.shifts <= 1 && off.shifts <= 1)
+    assert.ok(on.points <= 1, `points spread with points on: ${on.points}`)
+    assert.ok(on.points <= off.points, `on ${on.points} vs off ${off.points}`)
+  }
 })
 
 test('counts student arrangements exactly when small', () => {

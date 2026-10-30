@@ -58,6 +58,8 @@ export interface StudentSettings {
   shiftsPerStudent: number
   /** Share equally: fill every student place (up to its "at most") and split them evenly, ±1 shift. */
   auto?: boolean
+  /** Points per shift (e.g. weekday 1, weekend 2), kept about equal between students. */
+  points?: PointSettings
   /** Keep a student from working with the same resident twice. */
   avoidRepeatResident?: boolean
   /** Keep a student from working with the same staff member (อาจารย์) twice. */
@@ -114,6 +116,17 @@ export type RosterMode = 'hospital' | 'generate'
 /** Requirement id used when a swap or edit refers to a student's place on a shift. */
 export const STUDENT_SLOT = 'student'
 
+/** A shift's points = its day's points (weekday, weekend/holiday, or that date's own) × its slot's multiplier. */
+export interface PointSettings {
+  on: boolean
+  weekday: number
+  weekend: number
+  /** Shift slot id -> multiplier; missing = 1. */
+  shifts?: Record<string, number>
+}
+
+export const DEFAULT_POINTS: PointSettings = { on: false, weekday: 1, weekend: 2 }
+
 export interface SessionConfig {
   title: string
   rosterMode: RosterMode
@@ -132,6 +145,8 @@ export interface SessionConfig {
   presentationOverrides: PresentationOverride[]
   /** Free-text rules the built-in solver can't express. */
   extraConditions: string
+  /** Points for a single date (e.g. 3 the day before an exam), replacing its weekday/weekend points. */
+  datePoints?: Record<string, number>
 }
 
 export type Preference = 'distributed' | 'dense'

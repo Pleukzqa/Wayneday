@@ -120,6 +120,20 @@ for (const [kind, makeStore] of stores) {
       assert.ok((await call('GET', `/sessions/${code}?since=${v.session.version - 1}`)).body.session)
     })
 
+    test('point settings and per-date points are kept (and cleaned)', async () => {
+      const alice = await signIn('alice@example.com')
+      const { code } = (await call('POST', '/sessions', { body: {}, account: alice })).body
+      const shifts = [{ id: 'oc', name: 'On call', start: '16:00', end: '08:00', days: [0, 1, 2, 3, 4, 5, 6], requirements: [] }]
+      const v = (
+        await call('PUT', `/sessions/${code}/config`, {
+          account: alice,
+          body: { shifts, students: { points: { on: true, weekday: 1, weekend: '2.5', shifts: { oc: 1.5, gone: 3 } } }, datePoints: { '2025-12-03': 3, nope: 9 } },
+        })
+      ).body
+      assert.deepEqual(v.session.config.students.points, { on: true, weekday: 1, weekend: 2.5, shifts: { oc: 1.5 } })
+      assert.deepEqual(v.session.config.datePoints, { '2025-12-03': 3 })
+    })
+
     test('PIN guessing is slowed down per name', async () => {
       const alice = await signIn('alice@example.com')
       const { code } = (await call('POST', '/sessions', { body: {}, account: alice })).body
