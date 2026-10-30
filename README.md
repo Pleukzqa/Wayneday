@@ -41,6 +41,10 @@ npm start        # serves dist/ and /api on PORT (default 8787)
 
 Session data is stored as JSON files in `data/` (override with `DATA_DIR`).
 
+### Phone demo
+
+`npm run build:demo` builds a server-free version into `dist-demo/`: the API runs in the browser (`src/demo/`), data stays on the device, and a bar at the bottom switches between the host and each member. `dist-demo/artifact.html` is the page published as a claude.ai artifact, with exports going through the viewer's Downloads capability.
+
 ### Google Drive export
 
 Create an OAuth 2.0 **Web client** in Google Cloud Console, enable the Drive API, add your site's origin to the authorised JavaScript origins, then build with:

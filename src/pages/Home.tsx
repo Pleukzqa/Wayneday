@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { api, setTokens } from '../api.ts'
+import { sessionHash } from '../routes.ts'
 
 export default function Home() {
   const [title, setTitle] = useState('')
@@ -14,7 +15,7 @@ export default function Home() {
     try {
       const r = await api.create(title.trim() || 'Duty roster')
       setTokens(r.code, { hostToken: r.hostToken })
-      location.hash = `#/s/${r.code}`
+      location.hash = sessionHash(r.code)
     } catch (err) {
       setError((err as Error).message)
     } finally {
@@ -29,7 +30,7 @@ export default function Home() {
       setError('Codes look like three words, e.g. amber-otter-river.')
       return
     }
-    location.hash = `#/s/${c}`
+    location.hash = sessionHash(c)
   }
 
   return (

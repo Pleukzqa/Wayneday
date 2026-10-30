@@ -25,7 +25,7 @@
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme='light']) {
     --bg: #161614;
     --surface: #1f1f1c;
     --surface-2: #2a2a26;
@@ -43,7 +43,28 @@
     --lock-soft: #1f2b44;
     --weekend: #22211d;
     --mine: #3d3718;
+    color-scheme: dark;
   }
+}
+:root[data-theme='dark'] {
+    --bg: #161614;
+    --surface: #1f1f1c;
+    --surface-2: #2a2a26;
+    --text: #ecebe6;
+    --muted: #a19e94;
+    --border: #36352f;
+    --accent: #4fb89b;
+    --accent-text: #0d1f1a;
+    --accent-soft: #1d3a32;
+    --danger: #ef7a70;
+    --danger-soft: #3d1f1c;
+    --warn: #e5b45c;
+    --warn-soft: #3a2e16;
+    --lock: #7ea6f2;
+    --lock-soft: #1f2b44;
+    --weekend: #22211d;
+    --mine: #3d3718;
+  color-scheme: dark;
 }
 
 * {
@@ -52,6 +73,15 @@
 body {
   margin: 0;
   background: var(--bg);
+  color: var(--text);
+}
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0 0 auto;
+  height: env(safe-area-inset-top, 0px);
+  z-index: 10;
+  background: var(--surface);
 }
 h1,
 h2 {
@@ -184,11 +214,13 @@ fieldset {
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  padding: 0.75rem 1rem;
+  padding-block: 0.75rem;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
   border-bottom: 1px solid var(--border);
   background: var(--surface);
   position: sticky;
-  top: 0;
+  top: env(safe-area-inset-top, 0px);
   z-index: 5;
 }
 .brand {
@@ -218,7 +250,9 @@ fieldset {
 .page {
   max-width: 1200px;
   margin: 0 auto;
-  padding: 1.25rem 1rem 5rem;
+  padding-block: 1.25rem 6rem;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
 }
 .stack {
   display: flex;
@@ -665,7 +699,7 @@ details.ai > * + * {
 
 @media (max-width: 600px) {
   .page {
-    padding: 1rem 0.75rem 4rem;
+    padding-block: 1rem 6rem;
   }
   .hero h1 {
     font-size: 1.5rem;
@@ -673,4 +707,56 @@ details.ai > * + * {
   .brand-sub {
     display: none;
   }
+}
+
+/* ---------- confirm, invite, demo ---------- */
+button.armed,
+button.link.armed {
+  color: var(--danger);
+  font-weight: 600;
+}
+.warn-text {
+  color: var(--warn);
+}
+.invite-url {
+  width: min(22rem, 100%);
+  font-size: 0.8rem;
+}
+.demobar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 20;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+  align-items: center;
+  justify-content: center;
+  padding-top: 0.6rem;
+  padding-bottom: calc(0.6rem + env(safe-area-inset-bottom, 0px));
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  background: var(--surface);
+  border-top: 2px solid var(--accent);
+  box-shadow: 0 -4px 16px rgb(0 0 0 / 0.08);
+}
+.demobar-tag {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  background: var(--accent);
+  color: var(--accent-text);
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+}
+.demobar select {
+  max-width: 13rem;
+}
+.demobar a {
+  color: var(--accent);
+}
+body:has(.demobar) .savebar {
+  bottom: 4.5rem;
 }

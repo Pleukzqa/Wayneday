@@ -15,8 +15,18 @@ const api = (): Plugin => ({
 })
 
 // https://vite.dev/config/
-export default defineConfig({
-  plugins: [react(), api()],
-  // exceljs is lazy-loaded on export only.
-  build: { chunkSizeWarningLimit: 1000 },
-})
+export default defineConfig(({ mode }) =>
+  mode === 'demo'
+    ? {
+        // Phone demo: no server, the API runs in the browser (see src/demo/).
+        plugins: [react()],
+        base: './',
+        resolve: { alias: [{ find: /^\.{1,2}\/api\.ts$/, replacement: join(import.meta.dirname, 'src/demo/demoApi.ts') }] },
+        build: { outDir: 'dist-demo', chunkSizeWarningLimit: 1000 },
+      }
+    : {
+        plugins: [react(), api()],
+        // exceljs is lazy-loaded on export only.
+        build: { chunkSizeWarningLimit: 1000 },
+      },
+)

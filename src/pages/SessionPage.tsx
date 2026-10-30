@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { forgetMember, setTokens, api } from '../api.ts'
+import { IS_DEMO, sessionHash } from '../routes.ts'
 import { useSession } from '../useSession.ts'
 import SetupTab from '../components/SetupTab.tsx'
 import AvailabilityTab from '../components/AvailabilityTab.tsx'
@@ -34,7 +35,7 @@ export default function SessionPage({ code }: { code: string }) {
         </div>
         <div className="who">
           {me.isHost && <span className="badge host">Host</span>}
-          {myName ? (
+          {IS_DEMO ? null : myName ? (
             <>
               <span className="badge">Logged in as {myName}</span>
               <button
@@ -48,11 +49,11 @@ export default function SessionPage({ code }: { code: string }) {
               </button>
             </>
           ) : null}
-          <ShareButton code={code} />
+          {!IS_DEMO && <ShareButton code={code} />}
         </div>
       </div>
 
-      {!me.memberId && session.config.members.length > 0 && (
+      {!IS_DEMO && !me.memberId && session.config.members.length > 0 && (
         <LoginCard {...props} onDone={() => void refresh()} />
       )}
       {error && <p className="error small">Connection problem: {error}</p>}
@@ -90,21 +91,25 @@ function statusText(s: SessionProps['session']) {
 
 function ShareButton({ code }: { code: string }) {
   const [copied, setCopied] = useState(false)
-  const url = `${location.origin}${location.pathname}#/s/${code}`
+  const url = `${location.origin}${location.pathname}${sessionHash(code)}`
+  const [show, setShow] = useState(false)
   return (
-    <button
-      onClick={async () => {
-        try {
-          await navigator.clipboard.writeText(`Join "${code}" on Wayneday: ${url}`)
-          setCopied(true)
-          setTimeout(() => setCopied(false), 1500)
-        } catch {
-          prompt('Copy this link', url)
-        }
-      }}
-    >
-      {copied ? 'Copied!' : 'Copy invite'}
-    </button>
+    <>
+      <button
+        onClick={async () => {
+          try {
+            await navigator.clipboard.writeText(`Join "${code}" on Wayneday: ${url}`)
+            setCopied(true)
+            setTimeout(() => setCopied(false), 1500)
+          } catch {
+            setShow(true)
+          }
+        }}
+      >
+        {copied ? 'Copied!' : 'Copy invite'}
+      </button>
+      {show && <input readOnly className="invite-url" value={url} onFocus={(e) => e.target.select()} autoFocus />}
+    </>
   )
 }
 

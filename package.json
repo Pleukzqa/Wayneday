@@ -9,7 +9,8 @@
     "start": "node server/index.ts",
     "test": "node --test 'src/**/*.test.ts'",
     "lint": "oxlint",
-    "preview": "npm run build && npm start"
+    "preview": "npm run build && npm start",
+    "build:demo": "tsc -b && vite build --mode demo && node scripts/make-artifact.mjs"
   },
   "dependencies": {
     "exceljs": "^4.4.0",

@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { api } from '../api.ts'
 import { addDays, dateRange, WEEKDAYS } from '../shared/dates.ts'
 import type { Member, MemberType, Requirement, SessionConfig, ShiftSlot } from '../shared/types.ts'
+import ConfirmButton from './ConfirmButton.tsx'
 import { uid, type SessionProps } from './props.ts'
 
 const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6]
@@ -47,7 +48,6 @@ export default function SetupTab({ code, session, me, mutate }: SessionProps) {
   const ro = !me.isHost
 
   async function save() {
-    if (session.schedule && !confirm('A roster already exists. Changing the setup may make it invalid — save anyway?')) return
     setSaving(true)
     setError(null)
     try {
@@ -384,14 +384,14 @@ export default function SetupTab({ code, session, me, mutate }: SessionProps) {
                           <>
                             ✓ logged in{' '}
                             {!ro && (
-                              <button
-                                type="button"
+                              <ConfirmButton
                                 className="link"
                                 title="Clear their PIN so they can claim their name again"
-                                onClick={() => confirm(`Reset ${m.name}'s PIN?`) && void mutate(() => api.resetClaim(code, m.id))}
+                                confirmText="tap to reset"
+                                onConfirm={() => void mutate(() => api.resetClaim(code, m.id))}
                               >
                                 reset PIN
-                              </button>
+                              </ConfirmButton>
                             )}
                           </>
                         ) : (
@@ -431,6 +431,7 @@ export default function SetupTab({ code, session, me, mutate }: SessionProps) {
       {me.isHost && (
         <div className="savebar">
           {error && <span className="error small">{error}</span>}
+          {dirty && session.schedule && <span className="small warn-text">A roster exists — check it after saving.</span>}
           <span className="muted small">{dirty ? 'Unsaved changes' : 'All changes saved'}</span>
           {dirty && (
             <button

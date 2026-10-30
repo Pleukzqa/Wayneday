@@ -6,6 +6,7 @@ import { buildAiPrompt, importAiResult } from '../shared/ai.ts'
 import { shortDate } from '../shared/dates.ts'
 import { validate } from '../shared/solver.ts'
 import type { Assignment, Schedule } from '../shared/types.ts'
+import ConfirmButton from './ConfirmButton.tsx'
 import RosterTable from './RosterTable.tsx'
 import type { SessionProps } from './props.ts'
 
@@ -189,12 +190,13 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
                   <button onClick={() => setEdit(null)}>Cancel edits</button>
                 </>
               )}
-              <button
+              <ConfirmButton
                 className="link danger"
-                onClick={() => confirm('Delete the published roster? Answers stay.') && void mutate(() => api.saveSchedule(code, null))}
+                confirmText="Tap again to delete (answers stay)"
+                onConfirm={() => void mutate(() => api.saveSchedule(code, null))}
               >
                 Delete roster
-              </button>
+              </ConfirmButton>
             </div>
           )}
         </section>

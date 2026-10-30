@@ -1,13 +1,7 @@
-import type { MemberResponse, PublicSession, Schedule, SessionConfig } from './shared/types.ts'
+import type { SessionView } from './apiTypes.ts'
+import type { MemberResponse, Schedule, SessionConfig } from './shared/types.ts'
 
-export interface Me {
-  isHost: boolean
-  memberId: string | null
-}
-export interface SessionView {
-  session: PublicSession
-  me: Me
-}
+export type { Me, SessionView } from './apiTypes.ts'
 
 interface Tokens {
   hostToken?: string

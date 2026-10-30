@@ -78,7 +78,23 @@ const csvCell = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` 
 export const toCsv = (t: { header: string[]; rows: string[][] }) =>
   [t.header, ...t.rows].map((r) => r.map(csvCell).join(',')).join('\r\n')
 
-function download(blob: Blob, filename: string) {
+interface DownloadsCapability {
+  save(r: { filename: string; data: Blob }): Promise<unknown>
+}
+
+/** Inside a claude.ai artifact, files go through the viewer's Downloads capability; elsewhere a normal download. */
+async function download(blob: Blob, filename: string) {
+  const downloads = window.claude ? ((await window.claude.use('downloads').catch(() => null)) as DownloadsCapability | null) : null
+  if (downloads) {
+    try {
+      await downloads.save({ filename, data: blob })
+    } catch (e) {
+      const code = (e as { code?: string }).code
+      if (code === 'declined') throw new Error('Download cancelled.')
+      throw new Error('Downloads aren’t available in this view.')
+    }
+    return
+  }
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
@@ -90,9 +106,9 @@ function download(blob: Blob, filename: string) {
 const fileBase = (config: SessionConfig) =>
   `${config.title.replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '') || 'roster'}-${config.startDate}`
 
-export function exportCsv(config: SessionConfig, assignments: Assignment[]) {
+export async function exportCsv(config: SessionConfig, assignments: Assignment[]) {
   // BOM so Excel reads Thai names correctly.
-  download(new Blob(['﻿' + toCsv(rosterTable(config, assignments))], { type: 'text/csv;charset=utf-8' }), `${fileBase(config)}.csv`)
+  await download(new Blob(['﻿' + toCsv(rosterTable(config, assignments))], { type: 'text/csv;charset=utf-8' }), `${fileBase(config)}.csv`)
 }
 
 export async function exportXlsx(config: SessionConfig, responses: Record<string, MemberResponse>, assignments: Assignment[]) {
@@ -118,17 +134,14 @@ export async function exportXlsx(config: SessionConfig, responses: Record<string
   add('Roster', rosterTable(config, assignments), 0)
   add('By person', personTable(config, responses, assignments))
   const buf = await wb.xlsx.writeBuffer()
-  download(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), `${fileBase(config)}.xlsx`)
+  await download(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), `${fileBase(config)}.xlsx`)
 }
 
 export async function exportPng(el: HTMLElement, config: SessionConfig) {
   const { toPng } = await import('html-to-image')
   const bg = getComputedStyle(document.body).backgroundColor
   const url = await toPng(el, { pixelRatio: 2, backgroundColor: bg, width: el.scrollWidth, height: el.scrollHeight })
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `${fileBase(config)}.png`
-  a.click()
+  await download(await (await fetch(url)).blob(), `${fileBase(config)}.png`)
 }
 
 // ---------- Google Drive ----------
@@ -140,6 +153,7 @@ interface TokenClient {
 }
 declare global {
   interface Window {
+    claude?: { use(name: string): Promise<unknown> }
     google?: {
       accounts: {
         oauth2: {

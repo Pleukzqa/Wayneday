@@ -108,7 +108,7 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
   const members = [...config.members].sort((a, b) => Number(b.id === me.memberId) - Number(a.id === me.memberId))
   const mine = me.memberId ? respOf(me.memberId) : null
   const holidays = new Set(config.holidays)
-  const shiftShort = (id: string) => config.shifts.find((s) => s.id === id)?.name.slice(0, 3) ?? '?'
+  const shiftShort = (id: string) => config.shifts.find((s) => s.id === id)?.name.slice(0, 5) ?? '?'
 
   if (config.members.length === 0) {
     return <p className="muted">The host hasn't added anyone yet.</p>
