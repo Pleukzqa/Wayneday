@@ -1,32 +1,61 @@
-# React + TypeScript + Vite
+# Wayneday — แอปจัดเวร
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+A group duty-roster app. A host opens a session, everyone joins with a three-word code, fills in their availability and preferences, and the host simulates and publishes a fair roster with a review period before it's final.
 
-Currently, two official plugins are available:
+## How it works
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+1. **Host creates a session** → gets a code like `amber-otter-river` and an invite link.
+2. **Setup (host):** period and holidays, jobs (ER, Ward…), shift slots (times, weekdays, and positions like "1 resident + 1 staff"), people (resident/staff, jobs they can cover, optional max shifts), and free-text **other conditions** (e.g. morning round rules).
+3. **Members log in** by picking their name and setting a PIN, then:
+   - choose **Spread out** (distributed) or **Grouped** (dense) shifts and their **minimum days between shifts**;
+   - tap/drag cells in the **dates × people grid** to mark days **unavailable** or **lock** themselves into a shift.
+   Everyone's answers are visible to the whole group.
+4. **Simulate (host):** the solver previews a roster privately, or explains why none is possible (e.g. "Nov 3 → 5: 7 resident positions but people can cover at most 5").
+5. **Other conditions → AI:** the Roster tab builds a full prompt to paste into any AI; paste the JSON reply back and it's checked against the hard rules before publishing.
+6. **Publish for review** with a concern period (hours). Members raise concerns (tap a roster cell to tag the date); the host can edit cells, resolve concerns, extend, then **Finalize**.
+7. **Export:** Excel (.xlsx, with a per-person sheet), CSV, PNG image, or Google Sheets in Drive.
 
-## React Compiler
+### Solver
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- **Hard rules:** every position filled by someone of the right type/job; one shift per person per day; each person's minimum interval; unavailable dates; locks; max-shift caps.
+- **Soft goals:** equal totals per type, then equal weekend/holiday shifts, then equal counts per shift type, then preferences. People who want spread-out shifts are prioritised; grouped people are packed toward their minimum interval.
+- Backtracking search (most-constrained position first) finds a valid roster, then simulated annealing improves it. Runs in a Web Worker in the host's browser.
 
-## Expanding the Oxlint configuration
+## Development
 
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
+Requires Node ≥ 22.18 (runs the TypeScript server directly).
 
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```sh
+npm install
+npm run dev      # app + API on http://localhost:5173
+npm test         # solver tests
+npm run lint
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+Production:
+
+```sh
+npm run build
+npm start        # serves dist/ and /api on PORT (default 8787)
+```
+
+Session data is stored as JSON files in `data/` (override with `DATA_DIR`).
+
+### Google Drive export
+
+Create an OAuth 2.0 **Web client** in Google Cloud Console, enable the Drive API, add your site's origin to the authorised JavaScript origins, then build with:
+
+```sh
+VITE_GOOGLE_CLIENT_ID=xxxx.apps.googleusercontent.com npm run build
+```
+
+It uses the `drive.file` scope, so it can only access files it creates. Without a client ID, the button is disabled and users can upload the .xlsx to Drive themselves.
+
+## Layout
+
+```
+server/        Express API (sessions, PIN login, answers, roster, concerns)
+src/shared/    Types, date helpers, solver, AI prompt/import — used by browser, server and tests
+src/components Setup, Availability grid, Roster tabs
+src/export.ts  CSV / XLSX / PNG / Drive export
+```
