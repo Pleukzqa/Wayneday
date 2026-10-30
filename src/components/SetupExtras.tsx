@@ -159,7 +159,7 @@ export function CalendarCard({ draft, edit, ro }: { draft: SessionConfig; edit: 
                 {runs &&
                   s.requirements.map((r) => (
                     <label key={r.id} className="inline small">
-                      {job(r.jobId)} ({draft.rosterMode === 'hospital' ? t("students") : r.memberType === 'any' ? t("anyone") : r.memberType})
+                      {r.jobId ? `${job(r.jobId)} ` : ''}({draft.rosterMode === 'hospital' ? t("students") : r.memberType === 'any' ? t("anyone") : r.memberType})
                       <input
                         type="number"
                         min={0}

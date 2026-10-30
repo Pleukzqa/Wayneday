@@ -23,7 +23,7 @@ export function columnsFor(config: SessionConfig): Column[] {
       ...config.shifts.flatMap((s): Column[] => [
         ...DUTY_ROLES.map((role): Column => ({ kind: 'duty', key: `d-${s.id}-${role}`, shiftId: s.id, role, title: `${s.name} · ${t(role === 'resident' ? 'residents' : 'staff')}` })),
         ...s.requirements.map(
-          (r): Column => ({ kind: 'place', key: r.id, shiftId: s.id, requirementId: r.id, title: `${s.name} · ${t(r.count > 1 ? '{job} students' : '{job} student', { job: job(r.jobId) })}` }),
+          (r): Column => ({ kind: 'place', key: r.id, shiftId: s.id, requirementId: r.id, title: r.jobId ? `${s.name} · ${t(r.count > 1 ? '{job} students' : '{job} student', { job: job(r.jobId) })}` : `${s.name} · ${t('students')}` }),
         ),
       ]),
       ...presenters,
@@ -41,7 +41,7 @@ export function columnsFor(config: SessionConfig): Column[] {
           title:
             s.requirements.length === 1 && config.jobs.length <= 1
               ? `${s.name} (${s.start}–${s.end})`
-              : `${s.name} · ${job(r.jobId)}${r.memberType === 'any' ? '' : ` (${r.memberType})`}`,
+              : `${s.name}${r.jobId ? ` · ${job(r.jobId)}` : ''}${r.memberType === 'any' ? '' : ` (${r.memberType})`}`,
         }),
       ),
       ...(hasStudents && config.students.shiftIds.includes(s.id)

@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import { dayDiff } from './dates.ts'
 import { countArrangements, solve, solveMany, validate } from './solver.ts'
 import { arrangeStudents, countStudentArrangements, pickPresenters, placeKey, studentCellIssues, studentExposure, studentOptions, studentRuleReport, studentTargets } from './students.ts'
-import { importAiResult } from './ai.ts'
+import { buildAiPrompt, importAiResult } from './ai.ts'
 import { DEFAULT_RESPONSE, DEFAULT_STUDENTS, type MemberResponse, type SessionConfig, type StudentAssignment } from './types.ts'
 
 function config(residents: number, staff = 0): SessionConfig {
@@ -210,6 +210,18 @@ test('hospital mode keeps residents/staff as given and only places students', ()
   const exp = studentExposure(c, r.alternatives[0].roster.assignments, r.alternatives[0].roster.students)
   const res = ['r0', 'r1', 'r2', 'r3'].map((id) => exp[id])
   assert.ok(Math.max(...res) - Math.min(...res) <= 1, `resident exposure ${res}`)
+})
+
+test('student places need no job (place) in hospital mode', () => {
+  const c = hospital()
+  c.jobs = []
+  c.shifts = c.shifts.map((s) => ({ ...s, requirements: s.requirements.map((r) => ({ ...r, jobId: '' })) }))
+  const r = studentOptions(c, {}, c.duty, { count: 2 })
+  assert.ok(r.ok)
+  if (!r.ok) return
+  assert.equal(r.alternatives[0].roster.students.length, 15)
+  assert.deepEqual(validate(c, {}, r.alternatives[0].roster), [])
+  assert.match(buildAiPrompt(c, {}), /up to \d+ student\(s\)[,\n]/, 'the AI prompt doesn’t mention a job')
 })
 
 test('counts student arrangements exactly when small', () => {

@@ -96,7 +96,7 @@ function cleanConfig(raw: unknown): SessionConfig {
           const min = q.min === undefined || q.min === null ? undefined : int(q.min, 0, count, 0)
           return { id: str(q.id, 40) || id(), jobId: str(q.jobId, 40), memberType, count, ...(min === undefined ? {} : { min }) }
         })
-        .filter((r) => jobIds.has(r.jobId)),
+        .filter((r) => !r.jobId || jobIds.has(r.jobId)),
     }
   })
   const members: Member[] = arr(c.members, 100).map((m) => {

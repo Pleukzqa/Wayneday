@@ -170,7 +170,7 @@ export default function RosterTable({ config, roster, myId, onEdit, onEditStuden
                     (m) =>
                       m.type !== 'student' &&
                       (req.memberType === 'any' || m.type === req.memberType) &&
-                      (m.jobs.length === 0 || m.jobs.includes(req.jobId)),
+                      (!req.jobId || m.jobs.length === 0 || m.jobs.includes(req.jobId)),
                   )
                   return (
                     <td

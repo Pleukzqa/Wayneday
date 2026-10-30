@@ -62,8 +62,8 @@ export function buildAiPrompt(config: SessionConfig, responses: Record<string, M
     const reqs = s.requirements
       .map((r) =>
         hospital
-          ? `${r.min ? `${r.min}–${r.count}` : `up to ${r.count}`} student(s) in ${job(r.jobId)}`
-          : `${r.count} × ${job(r.jobId)} (${r.memberType === 'any' ? 'resident or staff' : r.memberType})`,
+          ? `${r.min ? `${r.min}–${r.count}` : `up to ${r.count}`} student(s)${r.jobId ? ` in ${job(r.jobId)}` : ''}`
+          : `${r.count} × ${r.jobId ? job(r.jobId) : 'any job'} (${r.memberType === 'any' ? 'resident or staff' : r.memberType})`,
       )
       .join(', ')
     lines.push(`- "${s.name}" ${s.start}–${s.end}, runs on ${s.days.map((d) => WEEKDAYS[d]).join('/') || 'no regular days'}: ${reqs}`)
@@ -76,7 +76,7 @@ export function buildAiPrompt(config: SessionConfig, responses: Record<string, M
       if (!shift) continue
       if (!shiftRuns(config, shift, o.date)) lines.push(`- ${o.date}: "${shift.name}" does not run.`)
       else {
-        const counts = shift.requirements.map((r) => `${reqCount(config, shift, r, o.date)} × ${job(r.jobId)}`).join(', ')
+        const counts = shift.requirements.map((r) => `${reqCount(config, shift, r, o.date)} × ${r.jobId ? job(r.jobId) : hospital ? 'students' : 'any job'}`).join(', ')
         lines.push(`- ${o.date}: "${shift.name}" runs with ${counts}.`)
       }
     }

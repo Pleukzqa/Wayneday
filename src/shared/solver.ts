@@ -107,7 +107,7 @@ export function buildProblem(config: SessionConfig, responses: Record<string, Me
     members.flatMap((m, mi) =>
       m.type !== 'student' &&
       (s.type === 'any' || s.type === m.type) &&
-      (m.jobs.length === 0 || m.jobs.includes(s.jobId)) &&
+      (!s.jobId || m.jobs.length === 0 || m.jobs.includes(s.jobId)) &&
       !unavailable[mi].has(s.day)
         ? [mi]
         : [],

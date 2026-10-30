@@ -17,12 +17,11 @@ function starter(c: SessionConfig): SessionConfig {
   const now = new Date()
   const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)).toISOString().slice(0, 10)
   const end = addDays(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 2, 1)).toISOString().slice(0, 10), -1)
-  const ward = { id: uid(), name: 'Ward' }
   return {
     ...c,
     startDate: start,
     endDate: end,
-    jobs: [ward],
+    jobs: [],
     shifts: [
       {
         id: uid(),
@@ -30,7 +29,7 @@ function starter(c: SessionConfig): SessionConfig {
         start: '16:00',
         end: '08:00',
         days: ALL_DAYS,
-        requirements: [{ id: uid(), jobId: ward.id, memberType: 'resident', count: 1 }],
+        requirements: [{ id: uid(), jobId: '', memberType: 'resident', count: 1 }],
       },
     ],
   }
@@ -79,6 +78,8 @@ export default function SetupTab({ code, session, me, mutate }: SessionProps) {
   const workers = draft.members.filter((m) => m.type !== 'student').length
   // Hospital mode: residents/staff exist only through the hospital roster, so People lists students.
   const hospital = draft.rosterMode === 'hospital'
+  // The place/job column only matters when there are places to pick from.
+  const showJobs = !hospital || draft.jobs.length > 0 || draft.shifts.some((s) => s.requirements.some((r) => r.jobId))
   const shownPeople = hospital ? draft.members.filter((m) => m.type === 'student') : draft.members
   const doctorCount = draft.members.length - shownPeople.length
 
@@ -146,8 +147,12 @@ export default function SetupTab({ code, session, me, mutate }: SessionProps) {
         </section>
 
         <section className="card">
-          <h2 id="sec-jobs">🏷️ {t('Jobs')}</h2>
-          <p className="muted small">{t("Where people work during a shift, e.g. ER, Ward, OPD, ICU.")}</p>
+          <h2 id="sec-jobs">🏷️ {hospital ? t('Places (optional)') : t('Jobs')}</h2>
+          <p className="muted small">
+            {hospital
+              ? t('Only if students on the same shift work in different places, e.g. Ward and ER. Otherwise leave this empty.')
+              : t('Where people work during a shift, e.g. ER, Ward, OPD, ICU.')}
+          </p>
           <div className="chips">
             {draft.jobs.map((j) => (
               <span key={j.id} className="chip edit">
@@ -156,7 +161,7 @@ export default function SetupTab({ code, session, me, mutate }: SessionProps) {
                   size={Math.max(4, j.name.length)}
                   onChange={(e) => edit((c) => ({ ...c, jobs: c.jobs.map((x) => (x.id === j.id ? { ...x, name: e.target.value } : x)) }))}
                 />
-                {!ro && draft.jobs.length > 1 && (
+                {!ro && (hospital || draft.jobs.length > 1) && (
                   <button
                     type="button"
                     className="x"
@@ -164,7 +169,7 @@ export default function SetupTab({ code, session, me, mutate }: SessionProps) {
                       edit((c) => ({
                         ...c,
                         jobs: c.jobs.filter((x) => x.id !== j.id),
-                        shifts: c.shifts.map((s) => ({ ...s, requirements: s.requirements.filter((r) => r.jobId !== j.id) })),
+                        shifts: c.shifts.map((s) => ({ ...s, requirements: s.requirements.map((r) => (r.jobId === j.id ? { ...r, jobId: '' } : r)) })),
                         members: c.members.map((m) => ({ ...m, jobs: m.jobs.filter((x) => x !== j.id) })),
                       }))
                     }
@@ -175,7 +180,12 @@ export default function SetupTab({ code, session, me, mutate }: SessionProps) {
               </span>
             ))}
             {!ro && (
-              <button type="button" onClick={() => edit((c) => ({ ...c, jobs: [...c.jobs, { id: uid(), name: `Job ${c.jobs.length + 1}` }] }))}>{t("➕ Job")}</button>
+              <button
+                type="button"
+                onClick={() => edit((c) => ({ ...c, jobs: [...c.jobs, { id: uid(), name: `${hospital ? t('Place') : t('Job')} ${c.jobs.length + 1}` }] }))}
+              >
+                {hospital ? t('➕ Place') : t('➕ Job')}
+              </button>
             )}
           </div>
         </section>
@@ -185,9 +195,7 @@ export default function SetupTab({ code, session, me, mutate }: SessionProps) {
         <section className="card">
           <h2 id="sec-shifts">🏥 {hospital ? t('Shift slots & student places') : t('Shift slots')}</h2>
           {hospital && (
-            <p className="muted small">{t(
-              "Each position is a place for students on that shift, e.g. “Ward × 1” and “ER × 1” means up to two students a night, one in each."
-            )}</p>
+            <p className="muted small">{t('Name each shift and set how many students it takes. If students on one shift are split between places (e.g. Ward × 1 and ER × 1), add the places above, then a row per place.')}</p>
           )}
           <div className="stack">
             {draft.shifts.map((s) => (
@@ -224,7 +232,7 @@ export default function SetupTab({ code, session, me, mutate }: SessionProps) {
                 <table className="mini">
                   <thead>
                     <tr>
-                      <th>{t("Job")}</th>
+                      {showJobs && <th>{hospital ? t('Place') : t('Job')}</th>}
                       {!hospital && <th>{t("Who")}</th>}
                       <th>{hospital ? t("Students (at least – at most)") : t("How many")}</th>
                       <th />
@@ -233,15 +241,18 @@ export default function SetupTab({ code, session, me, mutate }: SessionProps) {
                   <tbody>
                     {s.requirements.map((r) => (
                       <tr key={r.id}>
-                        <td>
-                          <select value={r.jobId} onChange={(e) => setReq(s.id, r.id, { jobId: e.target.value })}>
-                            {draft.jobs.map((j) => (
-                              <option key={j.id} value={j.id}>
-                                {j.name}
-                              </option>
-                            ))}
-                          </select>
-                        </td>
+                        {showJobs && (
+                          <td>
+                            <select value={r.jobId} onChange={(e) => setReq(s.id, r.id, { jobId: e.target.value })}>
+                              <option value="">{hospital ? t('Any place') : t('Any job')}</option>
+                              {draft.jobs.map((j) => (
+                                <option key={j.id} value={j.id}>
+                                  {j.name}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
+                        )}
                         {!hospital && (
                           <td>
                             <select value={r.memberType} onChange={(e) => setReq(s.id, r.id, { memberType: e.target.value as Requirement['memberType'] })}>
@@ -298,7 +309,7 @@ export default function SetupTab({ code, session, me, mutate }: SessionProps) {
                     onClick={() =>
                       setShift(s.id, (x) => ({
                         ...x,
-                        requirements: [...x.requirements, { id: uid(), jobId: draft.jobs[0].id, memberType: 'staff', count: 1 }],
+                        requirements: [...x.requirements, { id: uid(), jobId: draft.jobs[0]?.id ?? '', memberType: 'staff', count: 1 }],
                       }))
                     }
                   >{t("➕ Position")}</button>
@@ -308,7 +319,6 @@ export default function SetupTab({ code, session, me, mutate }: SessionProps) {
             {!ro && (
               <button
                 type="button"
-                disabled={draft.jobs.length === 0}
                 onClick={() =>
                   edit((c) => ({
                     ...c,
@@ -320,7 +330,7 @@ export default function SetupTab({ code, session, me, mutate }: SessionProps) {
                         start: '08:00',
                         end: '16:00',
                         days: [1, 2, 3, 4, 5],
-                        requirements: [{ id: uid(), jobId: c.jobs[0].id, memberType: 'resident', count: 1 }],
+                        requirements: [{ id: uid(), jobId: hospital ? '' : (c.jobs[0]?.id ?? ''), memberType: 'resident', count: 1 }],
                       },
                     ],
                   }))

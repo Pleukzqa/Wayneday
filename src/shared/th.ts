@@ -523,6 +523,13 @@ export const TH: Record<string, string> = {
   "Nothing yet — rosters you host or co-host show up here.": "ยังไม่มี — ตารางเวรที่คุณเป็นผู้จัดหรือผู้จัดร่วมจะแสดงที่นี่",
   "Made by Pleuk MDCU78": "สร้างโดย Pleuk MDCU78",
   "Privacy": "ความเป็นส่วนตัว",
+  "Places (optional)": "จุดปฏิบัติงาน (ไม่บังคับ)",
+  "Only if students on the same shift work in different places, e.g. Ward and ER. Otherwise leave this empty.": "ใช้เฉพาะเมื่อนิสิตในเวรเดียวกันแยกกันอยู่คนละที่ เช่น Ward กับ ER ถ้าไม่มีก็เว้นว่างไว้",
+  "Place": "จุดงาน",
+  "➕ Place": "➕ จุดงาน",
+  "Name each shift and set how many students it takes. If students on one shift are split between places (e.g. Ward × 1 and ER × 1), add the places above, then a row per place.": "ตั้งชื่อเวรแต่ละช่วง แล้วกำหนดว่าเวรนั้นรับนิสิตกี่คน ถ้านิสิตในเวรเดียวกันแยกกันอยู่คนละที่ (เช่น Ward × 1 และ ER × 1) ให้เพิ่มจุดงานด้านบนก่อน แล้วเพิ่มแถวละหนึ่งจุด",
+  "Any place": "ไม่ระบุจุด",
+  "Any job": "ไม่ระบุงาน",
   // Same in both languages.
   "Google Calendar, Apple, Outlook": "Google Calendar, Apple, Outlook",
   "{\"assignments\": [...]}": "{\"assignments\": [...]}",
