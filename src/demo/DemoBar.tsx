@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { sessionHash } from '../routes.ts'
-import { getActing, resetDemo, SAMPLE_CODE, sessionOf, setActing } from './demoApi.ts'
+import { getActing, onDemoChange, resetDemo, SAMPLE_CODE, sessionOf, setActing } from './demoApi.ts'
 import ConfirmButton from '../components/ConfirmButton.tsx'
 
 /** Fixed bar for the phone demo: pick who you are acting as. */
@@ -10,6 +10,10 @@ export default function DemoBar({ code, onSwitch }: { code: string | undefined; 
     if (!code && !location.hash) location.hash = sessionHash(SAMPLE_CODE)
   }, [code])
   const [, force] = useState(0)
+  useEffect(() => {
+    const off = onDemoChange(() => force((n) => n + 1))
+    return () => void off()
+  }, [])
 
   const session = code ? sessionOf(code) : undefined
   return (

@@ -1,11 +1,13 @@
 import type { SessionView } from './apiTypes.ts'
-import type { MemberResponse, Schedule, SessionConfig } from './shared/types.ts'
+import type { SwapAction } from './shared/ops.ts'
+import type { MemberResponse, MemberType, Schedule, SessionConfig } from './shared/types.ts'
 
 export type { Me, SessionView } from './apiTypes.ts'
 
 interface Tokens {
   hostToken?: string
   memberToken?: string
+  requestToken?: string
 }
 
 const key = (code: string) => `wayneday:${code}`
@@ -27,7 +29,7 @@ export function setTokens(code: string, t: Tokens) {
 }
 
 export function forgetMember(code: string) {
-  const { hostToken } = getTokens(code)
+  const { hostToken } = getTokens(code) // also drops a pending join request
   try {
     localStorage.setItem(key(code), JSON.stringify({ hostToken }))
   } catch {
@@ -37,7 +39,7 @@ export function forgetMember(code: string) {
 
 async function call<T>(code: string | null, method: string, path: string, body?: unknown): Promise<T> {
   const t = code ? getTokens(code) : {}
-  const auth = [t.hostToken, t.memberToken].filter(Boolean).join(',')
+  const auth = [t.hostToken, t.memberToken, t.requestToken].filter(Boolean).join(',')
   const res = await fetch(`/api${path}`, {
     method,
     headers: {
@@ -65,4 +67,11 @@ export const api = {
     call<SessionView>(code, 'POST', `/sessions/${code}/concerns`, { text, date, shiftId }),
   resolveConcern: (code: string, id: string, resolved: boolean) =>
     call<SessionView>(code, 'PATCH', `/sessions/${code}/concerns/${id}`, { resolved }),
+  requestSwap: (code: string, body: { date: string; shiftId: string; requirementId: string; note: string }) =>
+    call<SessionView>(code, 'POST', `/sessions/${code}/swaps`, body),
+  actOnSwap: (code: string, id: string, action: SwapAction) => call<SessionView>(code, 'POST', `/sessions/${code}/swaps/${id}`, action),
+  requestJoin: (code: string, name: string, type: MemberType, pin: string) =>
+    call<{ requestToken: string }>(code, 'POST', `/sessions/${code}/join`, { name, type, pin }),
+  decideJoin: (code: string, id: string, approve: boolean, memberId?: string) =>
+    call<SessionView>(code, 'POST', `/sessions/${code}/join/${id}`, { approve, memberId }),
 }

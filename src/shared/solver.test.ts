@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { dayDiff } from './dates.ts'
-import { solve, validate } from './solver.ts'
+import { countArrangements, solve, solveMany, validate } from './solver.ts'
+import { studentExposure } from './students.ts'
 import { importAiResult } from './ai.ts'
-import { DEFAULT_RESPONSE, type MemberResponse, type SessionConfig } from './types.ts'
+import { DEFAULT_RESPONSE, DEFAULT_STUDENTS, type MemberResponse, type SessionConfig } from './types.ts'
 
 function config(residents: number, staff = 0): SessionConfig {
   return {
@@ -29,6 +30,9 @@ function config(residents: number, staff = 0): SessionConfig {
       ...Array.from({ length: residents }, (_, i) => ({ id: `r${i}`, name: `Res ${i}`, type: 'resident' as const, jobs: [] })),
       ...Array.from({ length: staff }, (_, i) => ({ id: `s${i}`, name: `Staff ${i}`, type: 'staff' as const, jobs: [] })),
     ],
+    overrides: [],
+    students: DEFAULT_STUDENTS,
+    presentations: [],
     extraConditions: '',
   }
 }
@@ -40,7 +44,7 @@ test('fills every seat fairly and passes validation', () => {
   const r = solve(c, {})
   assert.ok(r.ok)
   assert.equal(r.assignments.length, 60)
-  assert.deepEqual(validate(c, {}, r.assignments), [])
+  assert.deepEqual(validate(c, {}, r), [])
   const res = r.stats.filter((s) => s.memberId.startsWith('r')).map((s) => s.total)
   assert.ok(Math.max(...res) - Math.min(...res) <= 1, `resident totals ${res}`)
 })
@@ -105,5 +109,68 @@ test('imports AI JSON by names', () => {
   })
   const imported = importAiResult('Here you go:\n```json\n' + json + '\n```', c)
   assert.ok(imported.ok)
-  if (imported.ok) assert.deepEqual(validate(c, {}, imported.assignments), [])
+  if (imported.ok) assert.deepEqual(validate(c, {}, imported.roster), [])
+})
+
+test('date overrides switch shifts off and change counts', () => {
+  const c = config(5)
+  c.overrides = [
+    { date: '2026-11-03', shiftId: 'night', active: false },
+    { date: '2026-11-04', shiftId: 'night', active: true, counts: { r1: 2 } },
+  ]
+  const r = solve(c, {})
+  assert.ok(r.ok)
+  assert.equal(r.assignments.filter((a) => a.date === '2026-11-03').length, 0)
+  assert.equal(r.assignments.filter((a) => a.date === '2026-11-04').length, 2)
+  assert.equal(r.assignments.length, 30)
+})
+
+test('students are spread evenly across residents and staff', () => {
+  const c = config(4, 2)
+  c.members.push(...['A', 'B', 'C'].map((n) => ({ id: `st${n}`, name: `Student ${n}`, type: 'student' as const, jobs: [] })))
+  c.students = { shiftIds: ['night'], maxPerShift: 1, shiftsPerStudent: 6 }
+  const r = solve(c, {})
+  assert.ok(r.ok, JSON.stringify(!r.ok && r.problems))
+  assert.equal(r.students.length, 18)
+  assert.ok(!r.assignments.some((a) => a.memberId.startsWith('st')), 'students never fill positions')
+  const exp = studentExposure(c, r.assignments, r.students)
+  const res = ['r0', 'r1', 'r2', 'r3'].map((id) => exp[id])
+  const staff = ['s0', 's1'].map((id) => exp[id])
+  assert.ok(Math.max(...res) - Math.min(...res) <= 1, `resident exposure ${res}`)
+  assert.ok(Math.max(...staff) - Math.min(...staff) <= 1, `staff exposure ${staff}`)
+  assert.deepEqual(validate(c, {}, r), [])
+})
+
+test('presenters come from yesterday’s shift first', () => {
+  const c = config(6)
+  c.presentations = [{ id: 'mr', name: 'Morning report', days: [1, 2, 3, 4, 5], count: 2, fromShiftId: 'night', fromCount: 1, types: ['resident'] }]
+  const r = solve(c, {})
+  assert.ok(r.ok)
+  const weekdays = r.presenters.filter((p) => p.date > '2026-11-01')
+  assert.ok(weekdays.length > 0)
+  const byDate = new Map<string, typeof weekdays>()
+  for (const p of weekdays) byDate.set(p.date, [...(byDate.get(p.date) ?? []), p])
+  for (const [, ps] of byDate) {
+    assert.equal(ps.length, 2)
+    assert.equal(ps.filter((p) => p.postCall).length, 1)
+  }
+})
+
+test('counts small rosters exactly and estimates large ones', () => {
+  const c = config(3)
+  c.endDate = '2026-11-03'
+  // 3 nights, 3 residents, interval 1 -> 3^3 = 27; interval 2 -> no back-to-back -> 3*2*2 = 12
+  const exact = countArrangements(c, Object.fromEntries(['r0', 'r1', 'r2'].map((id) => [id, resp({ minInterval: 2 })])))
+  assert.deepEqual(exact, { exact: true, count: 12 })
+  const big = countArrangements(config(8), {})
+  assert.equal(big.exact, false)
+  if (!big.exact) assert.ok(big.log10 > 10, `log10 ${big.log10}`)
+})
+
+test('offers several distinct arrangements, best first', () => {
+  const r = solveMany(config(5), {}, { count: 4, iterations: 20_000 })
+  assert.ok(r.ok)
+  if (!r.ok) return
+  assert.equal(r.alternatives.length, 4)
+  for (let i = 1; i < r.alternatives.length; i++) assert.ok(r.alternatives[i - 1].score <= r.alternatives[i].score)
 })

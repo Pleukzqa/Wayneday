@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, type SessionView } from './api.ts'
+import { normalizeSession } from './shared/types.ts'
 
 const POLL_MS = 4000
 
@@ -12,7 +13,7 @@ export function useSession(code: string) {
   const accept = useCallback((v: SessionView) => {
     if (v.session.version >= version.current) {
       version.current = v.session.version
-      setView(v)
+      setView({ ...v, session: normalizeSession(v.session) })
     }
     setError(null)
   }, [])

@@ -1,13 +1,11 @@
-import { solve, type SolveOptions, type SolveResult } from './shared/solver.ts'
-import type { MemberResponse, SessionConfig } from './shared/types.ts'
+import type { Alternative, CountResult } from './shared/solver.ts'
+import type { Assignment, MemberResponse, PresenterAssignment, SessionConfig, StudentAssignment } from './shared/types.ts'
+import type { WorkerRequest } from './solver.worker.ts'
 
-/** Run the solver off the main thread so the page stays responsive; falls back to inline if workers are unavailable. */
-export function runSolver(
-  config: SessionConfig,
-  responses: Record<string, MemberResponse>,
-  opts: SolveOptions,
-): Promise<SolveResult> {
-  const inline = () => new Promise<SolveResult>((resolve) => setTimeout(() => resolve(solve(config, responses, opts)), 30))
+/** Run solver work off the main thread; falls back to running inline where workers are unavailable. */
+function run<T>(req: WorkerRequest): Promise<T> {
+  const inline = () =>
+    new Promise<T>((resolve) => setTimeout(() => void import('./solver.worker.ts').then((m) => resolve(m.handle(req) as T)), 30))
   let worker: Worker
   try {
     worker = new Worker(new URL('./solver.worker.ts', import.meta.url), { type: 'module' })
@@ -15,7 +13,7 @@ export function runSolver(
     return inline()
   }
   return new Promise((resolve) => {
-    worker.onmessage = (e: MessageEvent<SolveResult>) => {
+    worker.onmessage = (e: MessageEvent<T>) => {
       resolve(e.data)
       worker.terminate()
     }
@@ -23,6 +21,21 @@ export function runSolver(
       worker.terminate()
       resolve(inline())
     }
-    worker.postMessage({ config, responses, opts })
+    worker.postMessage(req)
   })
 }
+
+export type ManyResult = {
+  result: { ok: true; alternatives: Alternative[] } | { ok: false; problems: string[] }
+  count: CountResult | null
+}
+
+export const findArrangements = (config: SessionConfig, responses: Record<string, MemberResponse>, seed: number, count = 6) =>
+  run<ManyResult>({ kind: 'many', config, responses, opts: { seed, count } })
+
+export type StudentsResult =
+  | { ok: true; students: StudentAssignment[]; presenters: PresenterAssignment[]; warnings: string[] }
+  | { ok: false; problems: string[] }
+
+export const rearrangeStudents = (config: SessionConfig, responses: Record<string, MemberResponse>, assignments: Assignment[], seed: number) =>
+  run<StudentsResult>({ kind: 'students', config, responses, assignments, seed })

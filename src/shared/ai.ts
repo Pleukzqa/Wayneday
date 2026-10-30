@@ -1,19 +1,45 @@
 // Hand-off to an external AI for conditions the built-in solver can't express (e.g. morning rounds).
-// The prompt carries the full roster problem; the AI answers with JSON that importAiResult turns back into assignments.
+// The prompt carries the whole roster problem plus the current roster in the exact JSON the AI must answer with,
+// and importAiResult turns the reply back into a roster.
 
+import { reqCount, shiftRuns } from './calendar.ts'
 import { dateRange, WEEKDAYS } from './dates.ts'
-import { responseFor } from './solver.ts'
-import type { Assignment, MemberResponse, Schedule, SessionConfig } from './types.ts'
+import { responseFor } from './scoring.ts'
+import type { Assignment, MemberResponse, PresenterAssignment, Roster, SessionConfig, StudentAssignment } from './types.ts'
 
-export function buildAiPrompt(
-  config: SessionConfig,
-  responses: Record<string, MemberResponse>,
-  current?: Schedule | null,
-): string {
+export const AI_FORMAT_TAG = 'wayneday-roster'
+
+/** The roster in the JSON shape the AI is asked to return. */
+export function rosterToJson(config: SessionConfig, roster: Roster) {
+  const job = (id: string) => config.jobs.find((j) => j.id === id)?.name ?? id
+  const shift = (id: string) => config.shifts.find((s) => s.id === id)?.name ?? id
+  const member = (id: string) => config.members.find((m) => m.id === id)?.name ?? id
+  const reqJob = (shiftId: string, reqId: string) =>
+    job(config.shifts.find((s) => s.id === shiftId)?.requirements.find((r) => r.id === reqId)?.jobId ?? '')
+  const byDate = <T extends { date: string }>(xs: T[]) => [...xs].sort((a, b) => a.date.localeCompare(b.date))
+  return {
+    format: AI_FORMAT_TAG,
+    assignments: byDate(roster.assignments).map((a) => ({
+      date: a.date,
+      shift: shift(a.shiftId),
+      job: reqJob(a.shiftId, a.requirementId),
+      member: member(a.memberId),
+    })),
+    students: byDate(roster.students).map((s) => ({ date: s.date, shift: shift(s.shiftId), member: member(s.memberId) })),
+    presenters: byDate(roster.presenters).map((p) => ({
+      date: p.date,
+      presentation: config.presentations.find((r) => r.id === p.ruleId)?.name ?? p.ruleId,
+      member: member(p.memberId),
+    })),
+  }
+}
+
+export function buildAiPrompt(config: SessionConfig, responses: Record<string, MemberResponse>, roster?: Roster | null): string {
   const job = (id: string) => config.jobs.find((j) => j.id === id)?.name ?? id
   const shiftName = (id: string) => config.shifts.find((s) => s.id === id)?.name ?? id
-  const member = (id: string) => config.members.find((m) => m.id === id)?.name ?? id
   const days = dateRange(config.startDate, config.endDate)
+  const workers = config.members.filter((m) => m.type !== 'student')
+  const students = config.members.filter((m) => m.type === 'student')
 
   const lines: string[] = []
   lines.push(`You are scheduling hospital duty shifts ("${config.title}"). Produce a complete roster that satisfies every rule below.`)
@@ -21,32 +47,50 @@ export function buildAiPrompt(
   lines.push(`## Period\n${config.startDate} to ${config.endDate} (${days.length} days).`)
   if (config.holidays.length) lines.push(`Holidays (count as weekend days for fairness): ${config.holidays.join(', ')}.`)
   lines.push('')
-  lines.push('## Shifts and positions')
+  lines.push('## Shifts and positions (weekly pattern)')
   for (const s of config.shifts) {
     const reqs = s.requirements
       .map((r) => `${r.count} × ${job(r.jobId)} (${r.memberType === 'any' ? 'resident or staff' : r.memberType})`)
       .join(', ')
-    lines.push(`- "${s.name}" ${s.start}–${s.end}, runs on ${s.days.map((d) => WEEKDAYS[d]).join('/')}: ${reqs}`)
+    lines.push(`- "${s.name}" ${s.start}–${s.end}, runs on ${s.days.map((d) => WEEKDAYS[d]).join('/') || 'no regular days'}: ${reqs}`)
+  }
+  if (config.overrides.length) {
+    lines.push('')
+    lines.push('## Date exceptions (these override the weekly pattern)')
+    for (const o of [...config.overrides].sort((a, b) => a.date.localeCompare(b.date))) {
+      const shift = config.shifts.find((s) => s.id === o.shiftId)
+      if (!shift) continue
+      if (!shiftRuns(config, shift, o.date)) lines.push(`- ${o.date}: "${shift.name}" does not run.`)
+      else {
+        const counts = shift.requirements.map((r) => `${reqCount(config, shift, r, o.date)} × ${job(r.jobId)}`).join(', ')
+        lines.push(`- ${o.date}: "${shift.name}" runs with ${counts}.`)
+      }
+    }
   }
   lines.push('')
-  lines.push('## People')
-  for (const m of config.members) {
-    const r = responseFor(responses, m.id)
-    const parts = [
-      m.type,
-      m.jobs.length ? `can only do: ${m.jobs.map(job).join(', ')}` : 'can do any job',
-      `prefers ${r.preference === 'distributed' ? 'shifts spread evenly across the period' : 'shifts grouped close together'}`,
-      `at least ${r.minInterval} day(s) between shift dates`,
-    ]
-    if (m.maxShifts != null) parts.push(`max ${m.maxShifts} shifts`)
-    if (r.unavailable.length) parts.push(`UNAVAILABLE on ${[...r.unavailable].sort().join(', ')}`)
-    if (r.locks.length) parts.push(`MUST work ${r.locks.map((l) => `${shiftName(l.shiftId)} on ${l.date}`).join(', ')}`)
-    if (r.note.trim()) parts.push(`note: "${r.note.trim()}"`)
-    lines.push(`- "${m.name}": ${parts.join('; ')}`)
+  lines.push('## Residents and staff')
+  for (const m of workers) lines.push(personLine(config, responses, m.id, job, shiftName))
+  if (students.length) {
+    const st = config.students
+    lines.push('')
+    lines.push('## Students')
+    lines.push(
+      `Students do not fill positions. Each student joins ${st.shiftsPerStudent} shift(s) of ${st.shiftIds.map(shiftName).map((n) => `"${n}"`).join(' or ') || '(none set)'}, at most ${st.maxPerShift} student(s) per shift. Spread students so every resident and every staff member is on duty with students about equally often.`,
+    )
+    for (const m of students) lines.push(personLine(config, responses, m.id, job, shiftName))
+  }
+  if (config.presentations.length) {
+    lines.push('')
+    lines.push('## Presentations')
+    for (const r of config.presentations) {
+      lines.push(
+        `- "${r.name}" on ${r.days.map((d) => WEEKDAYS[d]).join('/')}: ${r.count} presenter(s), at least ${r.fromCount} of them must have worked "${shiftName(r.fromShiftId)}" the day before. Presenters can be: ${r.types.join(', ')}. Share presentations evenly.`,
+      )
+    }
   }
   lines.push('')
   lines.push('## Hard rules')
-  lines.push('1. Every position on every day is filled by exactly one eligible person (matching type and job).')
+  lines.push('1. Every position on every day is filled by exactly one eligible resident/staff member (matching type and job).')
   lines.push('2. Nobody works two shifts on the same date, or on dates closer together than their minimum interval.')
   lines.push('3. Never schedule someone on an UNAVAILABLE date; always honour MUST-work entries and max-shift caps.')
   lines.push('')
@@ -56,59 +100,98 @@ export function buildAiPrompt(
   lines.push('## Soft goals, in priority order')
   lines.push('1. Equal total shifts among people of the same type, then equal weekend/holiday shifts, then equal counts of each shift.')
   lines.push('2. People who prefer "spread evenly" get the most even spacing; people who prefer "grouped" get shifts near their minimum interval.')
-  if (current?.assignments.length) {
-    lines.push('')
-    lines.push('## Current draft (improve it rather than starting over if it mostly works)')
-    for (const a of [...current.assignments].sort((x, y) => x.date.localeCompare(y.date))) {
-      const req = config.shifts.find((s) => s.id === a.shiftId)?.requirements.find((r) => r.id === a.requirementId)
-      lines.push(`${a.date} | ${shiftName(a.shiftId)} | ${req ? job(req.jobId) : '?'} | ${member(a.memberId)}`)
-    }
-  }
   lines.push('')
+  if (roster?.assignments.length) {
+    lines.push('## Current roster')
+    lines.push('Start from this roster and change only what the rules or extra conditions require:')
+    lines.push('```json')
+    lines.push(JSON.stringify(rosterToJson(config, roster)))
+    lines.push('```')
+    lines.push('')
+  }
   lines.push('## Output format')
-  lines.push('First check the rules and briefly list any you cannot satisfy. Then output ONLY this JSON in a ```json code block, one entry per filled position, using the exact names above:')
+  lines.push(
+    `First, in one short list, say which rules you could not satisfy (if any) and what you changed. Then output the COMPLETE roster as ONE \`\`\`json code block in exactly this shape, using the exact names above. Keep "format": "${AI_FORMAT_TAG}" so the app can read it back:`,
+  )
   lines.push('```json')
-  lines.push('{"assignments": [{"date": "YYYY-MM-DD", "shift": "<shift name>", "job": "<job name>", "member": "<person name>"}]}')
+  lines.push(
+    JSON.stringify({
+      format: AI_FORMAT_TAG,
+      assignments: [{ date: 'YYYY-MM-DD', shift: '<shift name>', job: '<job name>', member: '<name>' }],
+      students: students.length ? [{ date: 'YYYY-MM-DD', shift: '<shift name>', member: '<student name>' }] : [],
+      presenters: config.presentations.length ? [{ date: 'YYYY-MM-DD', presentation: '<presentation name>', member: '<name>' }] : [],
+    }),
+  )
   lines.push('```')
   return lines.join('\n')
 }
 
-export type ImportResult = { ok: true; assignments: Assignment[]; skipped: string[] } | { ok: false; error: string }
+function personLine(
+  config: SessionConfig,
+  responses: Record<string, MemberResponse>,
+  id: string,
+  job: (id: string) => string,
+  shiftName: (id: string) => string,
+) {
+  const m = config.members.find((x) => x.id === id)!
+  const r = responseFor(responses, m.id)
+  const parts = [
+    m.type,
+    ...(m.type === 'student' ? [] : [m.jobs.length ? `can only do: ${m.jobs.map(job).join(', ')}` : 'can do any job']),
+    `prefers ${r.preference === 'distributed' ? 'shifts spread evenly across the period' : 'shifts grouped close together'}`,
+    `at least ${r.minInterval} day(s) between shift dates`,
+  ]
+  if (m.maxShifts != null) parts.push(`max ${m.maxShifts} shifts`)
+  if (r.unavailable.length) parts.push(`UNAVAILABLE on ${[...r.unavailable].sort().join(', ')}`)
+  if (r.locks.length) parts.push(`MUST work ${r.locks.map((l) => `${shiftName(l.shiftId)} on ${l.date}`).join(', ')}`)
+  if (r.note.trim()) parts.push(`note: "${r.note.trim()}"`)
+  return `- "${m.name}": ${parts.join('; ')}`
+}
 
-/** Parse an AI reply (raw JSON or with surrounding prose / code fences) into assignments. */
+export type ImportResult = { ok: true; roster: Roster; skipped: string[] } | { ok: false; error: string }
+
+/** Parse an AI reply (raw JSON or with prose / code fences around it) into a roster. */
 export function importAiResult(text: string, config: SessionConfig): ImportResult {
   const fenced = [...text.matchAll(/```(?:json)?\s*([\s\S]*?)```/g)].map((m) => m[1])
   const candidates = [...fenced.reverse(), text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1)]
-  let data: unknown
+  let data: Record<string, unknown> | null = null
   for (const c of candidates) {
     try {
-      data = JSON.parse(c)
-      break
+      const parsed = JSON.parse(c) as unknown
+      const obj = (Array.isArray(parsed) ? { assignments: parsed } : parsed) as Record<string, unknown>
+      if (Array.isArray(obj?.assignments)) {
+        data = obj
+        // Prefer the block tagged with our format (the reply may also echo the template).
+        if (obj.format === AI_FORMAT_TAG && (obj.assignments as unknown[]).length > 1) break
+      }
     } catch {
       // try the next candidate
     }
   }
-  const rows = Array.isArray(data) ? data : (data as { assignments?: unknown })?.assignments
-  if (!Array.isArray(rows)) return { ok: false, error: 'Could not find an "assignments" JSON array in the text.' }
+  if (!data) return { ok: false, error: 'Could not find the roster JSON in the reply. Paste the whole answer, including the ```json block.' }
 
   const norm = (s: unknown) => String(s ?? '').trim().toLowerCase()
-  const assignments: Assignment[] = []
+  const findMember = (v: unknown) => config.members.find((m) => norm(m.name) === norm(v))
+  const findShift = (v: unknown) => config.shifts.find((s) => norm(s.name) === norm(v))
+  const isDate = (v: unknown) => /^\d{4}-\d{2}-\d{2}$/.test(String(v ?? ''))
   const skipped: string[] = []
+
+  const assignments: Assignment[] = []
   const filled = new Map<string, number>()
-  for (const row of rows as Record<string, unknown>[]) {
-    const shift = config.shifts.find((s) => norm(s.name) === norm(row.shift))
-    const member = config.members.find((m) => norm(m.name) === norm(row.member))
+  for (const row of data.assignments as Record<string, unknown>[]) {
+    const shift = findShift(row.shift)
+    const member = findMember(row.member)
     const job = config.jobs.find((j) => norm(j.name) === norm(row.job))
     const date = String(row.date ?? '')
-    if (!shift || !member || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    if (!shift || !member || member.type === 'student' || !isDate(date)) {
       skipped.push(`${date} ${String(row.shift)} ${String(row.member)}`)
       continue
     }
-    // Pick the matching requirement that still has room, preferring an exact type match.
+    // Pick the matching position that still has room, preferring an exact type match.
     const reqs = shift.requirements
       .filter((r) => (!job || r.jobId === job.id) && (r.memberType === member.type || r.memberType === 'any'))
       .sort((a, b) => Number(b.memberType === member.type) - Number(a.memberType === member.type))
-    const req = reqs.find((r) => (filled.get(`${date}|${r.id}`) ?? 0) < r.count) ?? reqs[0]
+    const req = reqs.find((r) => (filled.get(`${date}|${r.id}`) ?? 0) < reqCount(config, shift, r, date)) ?? reqs[0]
     if (!req) {
       skipped.push(`${date} ${shift.name} ${member.name} (no matching position)`)
       continue
@@ -116,6 +199,34 @@ export function importAiResult(text: string, config: SessionConfig): ImportResul
     filled.set(`${date}|${req.id}`, (filled.get(`${date}|${req.id}`) ?? 0) + 1)
     assignments.push({ date, shiftId: shift.id, requirementId: req.id, memberId: member.id })
   }
+
+  const students: StudentAssignment[] = []
+  for (const row of (Array.isArray(data.students) ? data.students : []) as Record<string, unknown>[]) {
+    const shift = findShift(row.shift)
+    const member = findMember(row.member)
+    if (!shift || !member || member.type !== 'student' || !isDate(row.date)) {
+      skipped.push(`student ${String(row.date)} ${String(row.member)}`)
+      continue
+    }
+    students.push({ date: String(row.date), shiftId: shift.id, memberId: member.id })
+  }
+
+  const presenters: PresenterAssignment[] = []
+  for (const row of (Array.isArray(data.presenters) ? data.presenters : []) as Record<string, unknown>[]) {
+    const rule = config.presentations.find((r) => norm(r.name) === norm(row.presentation)) ?? (config.presentations.length === 1 ? config.presentations[0] : undefined)
+    const member = findMember(row.member)
+    const date = String(row.date ?? '')
+    if (!rule || !member || !isDate(date)) {
+      skipped.push(`presenter ${date} ${String(row.member)}`)
+      continue
+    }
+    const yesterday = new Date(Date.parse(date + 'T00:00:00Z') - 86_400_000).toISOString().slice(0, 10)
+    const postCall =
+      assignments.some((a) => a.date === yesterday && a.shiftId === rule.fromShiftId && a.memberId === member.id) ||
+      students.some((s) => s.date === yesterday && s.shiftId === rule.fromShiftId && s.memberId === member.id)
+    presenters.push({ date, ruleId: rule.id, memberId: member.id, postCall })
+  }
+
   if (assignments.length === 0) return { ok: false, error: 'No rows matched the session’s shift and member names.' }
-  return { ok: true, assignments, skipped }
+  return { ok: true, roster: { assignments, students, presenters }, skipped }
 }

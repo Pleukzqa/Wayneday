@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { api } from '../api.ts'
+import { shiftRuns, shiftsForType, shiftsOn } from '../shared/calendar.ts'
 import { dateRange, shortDate, weekday } from '../shared/dates.ts'
 import { responseFor } from '../shared/solver.ts'
-import type { MemberResponse } from '../shared/types.ts'
+import { DEFAULT_RESPONSE, type AnswerChange, type MemberResponse } from '../shared/types.ts'
 import type { SessionProps } from './props.ts'
 
 type Tool = 'unavailable' | 'lock' | 'clear'
@@ -12,8 +13,17 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
   const [pending, setPending] = useState<Record<string, MemberResponse>>({})
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'error'>('idle')
   const [tool, setTool] = useState<Tool>('unavailable')
+  const [editOthers, setEditOthers] = useState(false)
+  const [notice, setNotice] = useState<string | null>(null)
+  const myType = config.members.find((m) => m.id === me.memberId)?.type
+  // A member only sees shift slots they can actually work; the host sees all.
+  const lockChoices = me.isHost || !myType ? config.shifts : shiftsForType(config, myType)
   const [chosenLockShift, setLockShift] = useState('')
-  const lockShift = config.shifts.some((s) => s.id === chosenLockShift) ? chosenLockShift : (config.shifts[0]?.id ?? '')
+  const lockShift = lockChoices.some((s) => s.id === chosenLockShift) ? chosenLockShift : (lockChoices[0]?.id ?? '')
+  // Undo: each tap/drag or preference change is one step; a step remembers everyone it touched.
+  const undoStack = useRef<Map<string, MemberResponse>[]>([])
+  const stroke = useRef<Map<string, MemberResponse> | null>(null)
+  const [undoCount, setUndoCount] = useState(0)
   const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
   const latest = useRef(pending)
   useEffect(() => {
@@ -24,7 +34,17 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
     (memberId: string) => pending[memberId] ?? responseFor(session.responses, memberId),
     [pending, session.responses],
   )
-  const canEdit = (memberId: string) => (me.isHost || me.memberId === memberId) && session.schedule?.status !== 'final'
+  const canEdit = (memberId: string) =>
+    (me.memberId === memberId || (me.isHost && editOthers)) && (me.isHost || session.schedule?.status !== 'final')
+
+  function remember(memberId: string) {
+    const target = stroke.current ?? new Map<string, MemberResponse>()
+    if (!target.has(memberId)) target.set(memberId, respOf(memberId))
+    if (!stroke.current) {
+      undoStack.current.push(target)
+      setUndoCount(undoStack.current.length)
+    }
+  }
 
   const update = useCallback(
     (memberId: string, fn: (r: MemberResponse) => MemberResponse) => {
@@ -62,7 +82,15 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
   function apply(memberId: string, date: string, mode: Tool) {
     if (!canEdit(memberId)) return
     const shift = config.shifts.find((s) => s.id === lockShift)
-    if (mode === 'lock' && !shift?.days.includes(weekday(date))) return
+    if (mode === 'lock') {
+      const member = config.members.find((m) => m.id === memberId)!
+      if (!shift || !shiftRuns(config, shift, date)) return setNotice(`${shift?.name ?? 'That shift'} doesn’t run on ${shortDate(date)}.`)
+      if (!shiftsForType(config, member.type).some((s) => s.id === shift.id)) {
+        return setNotice(`${member.name} (${member.type}) can’t be locked into ${shift.name} — it has no ${member.type} places.`)
+      }
+    }
+    setNotice(null)
+    remember(memberId)
     update(memberId, (r) => {
       const unavailable = r.unavailable.filter((d) => d !== date)
       const locks = r.locks.filter((l) => l.date !== date)
@@ -85,6 +113,7 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
     const same = (tool === 'unavailable' && st.kind === 'unavailable') || (tool === 'lock' && st.kind === 'lock' && st.shiftId === lockShift)
     const mode: Tool = same ? 'clear' : tool
     paint.current = { mode }
+    stroke.current = new Map()
     apply(c.memberId, c.date, mode)
     e.preventDefault()
   }
@@ -99,7 +128,14 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
     }
   }
   useEffect(() => {
-    const up = () => (paint.current = null)
+    const up = () => {
+      paint.current = null
+      if (stroke.current?.size) {
+        undoStack.current.push(stroke.current)
+        setUndoCount(undoStack.current.length)
+      }
+      stroke.current = null
+    }
     addEventListener('pointerup', up)
     return () => removeEventListener('pointerup', up)
   }, [])
@@ -110,12 +146,63 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
   const holidays = new Set(config.holidays)
   const shiftShort = (id: string) => config.shifts.find((s) => s.id === id)?.name.slice(0, 5) ?? '?'
 
+  function undo() {
+    const step = undoStack.current.pop()
+    setUndoCount(undoStack.current.length)
+    if (!step) return
+    for (const [memberId, before] of step) update(memberId, () => before)
+  }
+  const setPref = (fn: (r: MemberResponse) => MemberResponse) => {
+    remember(me.memberId!)
+    update(me.memberId!, fn)
+  }
+
+  // Latest host change to my answers that I haven't acknowledged.
+  const ackKey = `wayneday:ack:${code}:${me.memberId}`
+  const [ack, setAck] = useState(() => {
+    try {
+      return Number(localStorage.getItem(ackKey) ?? 0)
+    } catch {
+      return 0
+    }
+  })
+  const acknowledge = (at: number) => {
+    setAck(at)
+    try {
+      localStorage.setItem(ackKey, String(at))
+    } catch {
+      // per-tab only
+    }
+  }
+  const hostChange = me.memberId
+    ? [...session.changes].reverse().find((c) => c.memberId === me.memberId && c.at > ack && !me.isHost)
+    : undefined
+  const nameOf = (id: string) => config.members.find((m) => m.id === id)?.name ?? '?'
+
   if (config.members.length === 0) {
     return <p className="muted">The host hasn't added anyone yet.</p>
   }
 
   return (
     <div className="stack">
+      {hostChange && (
+        <div className="alert warn" role="status">
+          <strong>The host changed your answers</strong> ({new Date(hostChange.at).toLocaleString()}): {hostChange.summary}.
+          <div className="row wrap">
+            <button
+              onClick={() => {
+                update(me.memberId!, () => hostChange.before ?? DEFAULT_RESPONSE)
+                acknowledge(hostChange.at)
+              }}
+            >
+              Restore my previous answers
+            </button>
+            <button className="link" onClick={() => acknowledge(hostChange.at)}>
+              Keep the change
+            </button>
+          </div>
+        </div>
+      )}
       {mine && me.memberId && (
         <section className="card">
           <h2>My preferences</h2>
@@ -134,7 +221,7 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
                   className={mine.preference === v ? 'on' : ''}
                   title={hint}
                   disabled={!canEdit(me.memberId!)}
-                  onClick={() => update(me.memberId!, (r) => ({ ...r, preference: v }))}
+                  onClick={() => setPref((r) => ({ ...r, preference: v }))}
                 >
                   {t}
                 </button>
@@ -148,7 +235,7 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
                 max={60}
                 value={mine.minInterval}
                 disabled={!canEdit(me.memberId)}
-                onChange={(e) => update(me.memberId!, (r) => ({ ...r, minInterval: Math.max(1, Number(e.target.value) || 1) }))}
+                onChange={(e) => setPref((r) => ({ ...r, minInterval: Math.max(1, Number(e.target.value) || 1) }))}
               />
               days between shifts
             </label>
@@ -177,9 +264,18 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
           </span>
         </div>
         <p className="muted small">
-          {me.isHost ? 'As host you can edit anyone’s column.' : me.memberId ? 'Edit your own column; everyone’s answers are visible.' : 'Log in above to fill in your column.'}{' '}
-          Tap or drag over cells.
+          {me.memberId ? 'Edit your own column; everyone’s answers are visible.' : me.isHost ? 'Everyone’s answers are visible.' : 'Log in above to fill in your column.'}{' '}
+          Tap or drag over cells. <strong>Unavailable</strong> = you can’t work that day. <strong>Lock in</strong> = you must work
+          that day, on the shift slot you pick
+          {lockChoices.length > 1 ? ` (${lockChoices.map((s) => s.name).join(' or ')})` : ''}.
         </p>
+        {me.isHost && (
+          <label className="check host-toggle">
+            <input type="checkbox" checked={editOthers} onChange={(e) => setEditOthers(e.target.checked)} />
+            Let me edit other people’s columns
+            <span className="muted small">(they’ll be told, and can restore their answers)</span>
+          </label>
+        )}
         <div className="row wrap toolbar">
           <div className="segmented" role="radiogroup" aria-label="Tool">
             <button role="radio" aria-checked={tool === 'unavailable'} className={tool === 'unavailable' ? 'on' : ''} onClick={() => setTool('unavailable')}>
@@ -192,11 +288,14 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
               Clear
             </button>
           </div>
-          {tool === 'lock' && config.shifts.length > 1 && (
+          <button onClick={undo} disabled={undoCount === 0} title="Undo your last change">
+            ↶ Undo
+          </button>
+          {tool === 'lock' && lockChoices.length > 1 && (
             <label className="inline">
-              to
+              into
               <select value={lockShift} onChange={(e) => setLockShift(e.target.value)}>
-                {config.shifts.map((s) => (
+                {lockChoices.map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.name}
                   </option>
@@ -205,6 +304,7 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
             </label>
           )}
         </div>
+        {notice && <p className="small warn-text">{notice}</p>}
         <div className="scroll-x grid-wrap">
           <table className="grid" onPointerDown={onDown} onPointerMove={onMove}>
             <thead>
@@ -213,7 +313,10 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
                 {members.map((m) => (
                   <th key={m.id} className={m.id === me.memberId ? 'me' : ''}>
                     <div className="colname">{m.name}</div>
-                    <div className="muted tiny">{m.type}</div>
+                    <div className="muted tiny">
+                      {m.type}
+                      {session.responses[m.id]?.editedByHost ? ' · host edited' : ''}
+                    </div>
                   </th>
                 ))}
               </tr>
@@ -221,7 +324,7 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
             <tbody>
               {days.map((date) => {
                 const wd = weekday(date)
-                const off = !config.shifts.some((s) => s.days.includes(wd))
+                const off = shiftsOn(config, date).length === 0
                 const weekend = wd === 0 || wd === 6 || holidays.has(date)
                 return (
                   <tr key={date} className={weekend ? 'weekend' : ''}>
@@ -296,7 +399,38 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
             </tbody>
           </table>
         </div>
+        {session.changes.length > 0 && <ChangeLog changes={session.changes} nameOf={nameOf} canRevert={me.isHost} revert={(c) => update(c.memberId, () => c.before ?? DEFAULT_RESPONSE)} />}
       </section>
     </div>
+  )
+}
+
+function ChangeLog({
+  changes,
+  nameOf,
+  canRevert,
+  revert,
+}: {
+  changes: AnswerChange[]
+  nameOf: (id: string) => string
+  canRevert: boolean
+  revert: (c: AnswerChange) => void
+}) {
+  return (
+    <details className="history">
+      <summary className="small">Host edits to people’s answers ({changes.length})</summary>
+      <ul>
+        {[...changes].reverse().slice(0, 30).map((c) => (
+          <li key={c.id} className="small">
+            <span className="muted">{new Date(c.at).toLocaleString()}</span> · {nameOf(c.memberId)}: {c.summary}{' '}
+            {canRevert && (
+              <button className="link" onClick={() => revert(c)}>
+                revert
+              </button>
+            )}
+          </li>
+        ))}
+      </ul>
+    </details>
   )
 }

@@ -5,21 +5,31 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync, existsSync } from '
 import { join } from 'node:path'
 import express, { type Request, type Response, type NextFunction } from 'express'
 import { isDate } from '../src/shared/dates.ts'
-import type {
-  Assignment,
-  Concern,
-  Member,
-  MemberResponse,
-  PublicSession,
-  Schedule,
-  SessionConfig,
-  ShiftSlot,
+import { actOnSwap, createJoin, decideJoin, OpError, requestSwap, saveResponse, type Actor, type SwapAction } from '../src/shared/ops.ts'
+import {
+  DEFAULT_STUDENTS,
+  normalizeSession,
+  type Assignment,
+  type Concern,
+  type DateOverride,
+  type Member,
+  type MemberResponse,
+  type MemberType,
+  type PresentationRule,
+  type PresenterAssignment,
+  type PublicSession,
+  type Schedule,
+  type SessionConfig,
+  type ShiftSlot,
+  type StudentAssignment,
 } from '../src/shared/types.ts'
 import { randomCode } from './words.ts'
 
-interface StoredSession extends Omit<PublicSession, 'claimed'> {
+interface StoredSession extends PublicSession {
   hostToken: string
   auth: Record<string, { salt: string; hash: string; tokens: string[] }>
+  /** Join request id -> credentials that become the member's login once the host approves. */
+  pendingAuth: Record<string, { salt: string; hash: string; token: string }>
 }
 
 const token = () => randomBytes(24).toString('base64url')
@@ -48,6 +58,7 @@ const int = (v: unknown, min: number, max: number, fallback: number) => {
   return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback
 }
 const arr = (v: unknown, max: number): unknown[] => (Array.isArray(v) ? v.slice(0, max) : [])
+const memberType = (v: unknown): MemberType => (v === 'staff' || v === 'student' ? v : 'resident')
 const time = (v: unknown) => (typeof v === 'string' && /^\d{2}:\d{2}$/.test(v) ? v : '08:00')
 
 function cleanConfig(raw: unknown): SessionConfig {
@@ -81,9 +92,38 @@ function cleanConfig(raw: unknown): SessionConfig {
     return {
       id: str(o.id, 40) || id(),
       name: str(o.name, 60) || 'Member',
-      type: o.type === 'staff' ? 'staff' : 'resident',
+      type: memberType(o.type),
       jobs: arr(o.jobs, 30).map((j) => str(j, 40)).filter((j) => jobIds.has(j)),
       ...(max === undefined ? {} : { maxShifts: max }),
+    }
+  })
+  const shiftIds = new Set(shifts.map((s) => s.id))
+  const overrides: DateOverride[] = arr(c.overrides, 2000)
+    .map((x) => x as Record<string, unknown>)
+    .filter((o) => isDate(o.date) && shiftIds.has(str(o.shiftId, 40)))
+    .map((o) => {
+      const counts = Object.fromEntries(
+        Object.entries((o.counts ?? {}) as Record<string, unknown>).slice(0, 20).map(([k, v]) => [k.slice(0, 40), int(v, 0, 20, 0)]),
+      )
+      return { date: o.date as string, shiftId: str(o.shiftId, 40), active: Boolean(o.active), ...(Object.keys(counts).length ? { counts } : {}) }
+    })
+  const st = (c.students ?? {}) as Record<string, unknown>
+  const students = {
+    shiftIds: arr(st.shiftIds, 12).map((x) => str(x, 40)).filter((x) => shiftIds.has(x)),
+    maxPerShift: int(st.maxPerShift, 1, 20, DEFAULT_STUDENTS.maxPerShift),
+    shiftsPerStudent: int(st.shiftsPerStudent, 0, 100, DEFAULT_STUDENTS.shiftsPerStudent),
+  }
+  const presentations: PresentationRule[] = arr(c.presentations, 10).map((x) => {
+    const o = x as Record<string, unknown>
+    const count = int(o.count, 1, 20, 1)
+    return {
+      id: str(o.id, 40) || id(),
+      name: str(o.name, 60) || 'Presentation',
+      days: [...new Set(arr(o.days, 7).map((d) => int(d, 0, 6, 0)))],
+      count,
+      fromShiftId: shiftIds.has(str(o.fromShiftId, 40)) ? str(o.fromShiftId, 40) : (shifts[0]?.id ?? ''),
+      fromCount: int(o.fromCount, 0, count, 0),
+      types: [...new Set(arr(o.types, 3).map(memberType))],
     }
   })
   let startDate = isDate(c.startDate) ? c.startDate : new Date().toISOString().slice(0, 10)
@@ -96,7 +136,10 @@ function cleanConfig(raw: unknown): SessionConfig {
     holidays: arr(c.holidays, 100).filter(isDate),
     jobs,
     shifts,
+    overrides,
     members,
+    students,
+    presentations,
     extraConditions: str(c.extraConditions, 5000),
   }
 }
@@ -123,9 +166,19 @@ function cleanSchedule(raw: unknown): Schedule | null {
     const o = a as Record<string, unknown>
     return { date: str(o.date, 10), shiftId: str(o.shiftId, 40), requirementId: str(o.requirementId, 40), memberId: str(o.memberId, 40) }
   })
+  const students: StudentAssignment[] = arr(s.students, 20_000).map((a) => {
+    const o = a as Record<string, unknown>
+    return { date: str(o.date, 10), shiftId: str(o.shiftId, 40), memberId: str(o.memberId, 40) }
+  })
+  const presenters: PresenterAssignment[] = arr(s.presenters, 20_000).map((a) => {
+    const o = a as Record<string, unknown>
+    return { date: str(o.date, 10), ruleId: str(o.ruleId, 40), memberId: str(o.memberId, 40), postCall: Boolean(o.postCall) }
+  })
   return {
     status: s.status === 'final' ? 'final' : 'review',
     assignments,
+    students,
+    presenters,
     generatedAt: int(s.generatedAt, 0, Number.MAX_SAFE_INTEGER, Date.now()),
     reviewUntil: int(s.reviewUntil, 0, Number.MAX_SAFE_INTEGER, Date.now()),
     source: s.source === 'ai' || s.source === 'manual' ? s.source : 'solver',
@@ -144,7 +197,8 @@ export function createApi(dataDir: string) {
     if (!/^[a-z]+-[a-z]+-[a-z]+$/.test(code)) throw new HttpError(404, 'Session not found')
     let s = cache.get(code)
     if (!s && existsSync(file(code))) {
-      s = JSON.parse(readFileSync(file(code), 'utf8')) as StoredSession
+      const raw = JSON.parse(readFileSync(file(code), 'utf8')) as StoredSession
+      s = { ...raw, ...normalizeSession(raw), pendingAuth: raw.pendingAuth ?? {} } as StoredSession
       cache.set(code, s)
     }
     if (!s) throw new HttpError(404, 'Session not found')
@@ -160,7 +214,7 @@ export function createApi(dataDir: string) {
   }
 
   function toPublic(s: StoredSession): PublicSession {
-    const { hostToken: _h, auth, ...rest } = s
+    const { hostToken: _h, auth, pendingAuth: _p, ...rest } = s
     return { ...rest, claimed: Object.keys(auth) }
   }
 
@@ -169,7 +223,10 @@ export function createApi(dataDir: string) {
     const tokens = t ? t.split(',') : []
     const isHost = tokens.some((x) => safeEqual(x, s.hostToken))
     const memberId = Object.entries(s.auth).find(([, a]) => a.tokens.some((x) => tokens.some((y) => safeEqual(x, y))))?.[0] ?? null
-    return { isHost, memberId }
+    const pendingJoinId = memberId
+      ? null
+      : (Object.entries(s.pendingAuth).find(([, a]) => tokens.some((y) => safeEqual(a.token, y)))?.[0] ?? null)
+    return { isHost, memberId, pendingJoinId }
   }
 
   const router = express.Router()
@@ -181,7 +238,7 @@ export function createApi(dataDir: string) {
         const out = fn(req, res)
         if (out !== undefined) res.json(out)
       } catch (e) {
-        next(e)
+        next(e instanceof OpError ? new HttpError(e.status, e.message) : e)
       }
     }
 
@@ -199,6 +256,11 @@ export function createApi(dataDir: string) {
         version: 0,
         hostToken: token(),
         auth: {},
+        pendingAuth: {},
+        claimed: [],
+        swaps: [],
+        joinRequests: [],
+        changes: [],
         config: cleanConfig({ title: (req.body as { title?: string })?.title, startDate: today, endDate: today }),
         responses: {},
         schedule: null,
@@ -267,11 +329,7 @@ export function createApi(dataDir: string) {
     handle((req) => {
       const s = load(String(req.params.code))
       const memberId = String(req.params.memberId)
-      const me = who(req, s)
-      if (!me.isHost && me.memberId !== memberId) throw new HttpError(403, 'You can only edit your own answers')
-      if (!s.config.members.some((m) => m.id === memberId)) throw new HttpError(404, 'No such member')
-      if (s.schedule?.status === 'final' && !me.isHost) throw new HttpError(409, 'The roster is final')
-      s.responses[memberId] = cleanResponse(req.body)
+      saveResponse(s, who(req, s), memberId, cleanResponse(req.body))
       save(s)
       return view(req, s)
     }),
@@ -323,6 +381,79 @@ export function createApi(dataDir: string) {
       const c = s.concerns.find((x) => x.id === req.params.id)
       if (!c) throw new HttpError(404, 'No such concern')
       c.resolved = Boolean((req.body as { resolved?: boolean })?.resolved)
+      save(s)
+      return view(req, s)
+    }),
+  )
+
+  const actor = (req: Request, s: StoredSession): Actor => who(req, s)
+  const shiftRef = (v: unknown) => {
+    const o = (v ?? {}) as Record<string, unknown>
+    return { date: str(o.date, 10), shiftId: str(o.shiftId, 40), requirementId: str(o.requirementId, 40) }
+  }
+
+  router.post(
+    '/sessions/:code/swaps',
+    handle((req) => {
+      const s = load(String(req.params.code))
+      const b = (req.body ?? {}) as Record<string, unknown>
+      requestSwap(s, actor(req, s), { ...shiftRef(b), note: str(b.note, 500) })
+      save(s)
+      return view(req, s)
+    }),
+  )
+
+  router.post(
+    '/sessions/:code/swaps/:id',
+    handle((req) => {
+      const s = load(String(req.params.code))
+      const b = (req.body ?? {}) as Record<string, unknown>
+      const action = str(b.action, 20)
+      const a: SwapAction =
+        action === 'offer'
+          ? { action, ...(b.give ? { give: shiftRef(b.give) } : {}) }
+          : action === 'accept'
+            ? { action, offerId: str(b.offerId, 40) }
+            : action === 'withdraw' || action === 'approve' || action === 'decline' || action === 'cancel'
+              ? { action }
+              : (() => {
+                  throw new HttpError(400, 'Unknown action')
+                })()
+      actOnSwap(s, actor(req, s), String(req.params.id), a)
+      save(s)
+      return view(req, s)
+    }),
+  )
+
+  router.post(
+    '/sessions/:code/join',
+    handle((req) => {
+      const s = load(String(req.params.code))
+      const b = (req.body ?? {}) as Record<string, unknown>
+      const pin = str(b.pin, 20)
+      if (!/^\d{4,8}$/.test(pin)) throw new HttpError(400, 'PIN must be 4–8 digits')
+      const jr = createJoin(s, str(b.name, 60), memberType(b.type))
+      const salt = randomBytes(8).toString('hex')
+      const t = token()
+      s.pendingAuth[jr.id] = { salt, hash: hashPin(pin, salt), token: t }
+      save(s)
+      return { requestToken: t }
+    }),
+  )
+
+  router.post(
+    '/sessions/:code/join/:id',
+    handle((req) => {
+      const s = load(String(req.params.code))
+      const b = (req.body ?? {}) as Record<string, unknown>
+      const jid = String(req.params.id)
+      const memberId = decideJoin(s, actor(req, s), jid, Boolean(b.approve), b.memberId ? str(b.memberId, 40) : undefined)
+      const pending = s.pendingAuth[jid]
+      if (memberId && pending) {
+        // Their requested PIN becomes the login for that name, and their waiting device is logged in.
+        s.auth[memberId] = { salt: pending.salt, hash: pending.hash, tokens: [pending.token] }
+      }
+      delete s.pendingAuth[jid]
       save(s)
       return view(req, s)
     }),

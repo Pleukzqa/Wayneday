@@ -760,3 +760,184 @@ button.link.armed {
 body:has(.demobar) .savebar {
   bottom: 4.5rem;
 }
+
+/* ---------- calendar of date exceptions ---------- */
+.cal {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+  max-width: 34rem;
+}
+.cal-head {
+  font-size: 0.72rem;
+  color: var(--muted);
+  text-align: center;
+  font-weight: 600;
+}
+.cal-day {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.1rem;
+  padding: 0.3rem 0.1rem;
+  border-radius: 6px;
+  min-width: 0;
+}
+.cal-day.holiday {
+  background: var(--weekend);
+}
+.cal-day.changed {
+  border-color: var(--warn);
+  box-shadow: inset 0 -3px 0 var(--warn);
+}
+.cal-day.on {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.cal-num {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.cal-shifts {
+  font-size: 0.68rem;
+  color: var(--muted);
+  letter-spacing: 0.05em;
+}
+.cal-editor {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.cal-shift {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1rem;
+  align-items: center;
+}
+
+/* ---------- people, history ---------- */
+.joins {
+  border: 1px solid var(--warn);
+  background: var(--warn-soft);
+  border-radius: var(--radius);
+  padding: 0.6rem 0.8rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.host-toggle {
+  font-size: 0.9rem;
+  flex-wrap: wrap;
+}
+.history summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+.history ul {
+  margin: 0.4rem 0 0;
+  padding-left: 1.1rem;
+}
+
+/* ---------- options and count ---------- */
+.count-line {
+  font-weight: 500;
+}
+.options {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr));
+  gap: 0.5rem;
+}
+.option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.2rem;
+  text-align: left;
+  white-space: normal;
+}
+.option.on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+/* ---------- roster extras ---------- */
+.roster th.extra-col,
+.roster td.extra-col {
+  background: color-mix(in srgb, var(--accent-soft) 40%, transparent);
+  min-width: 6rem;
+}
+.who-chip.small-chip {
+  font-size: 0.78rem;
+}
+.roster td.swapping {
+  box-shadow: inset 0 0 0 2px var(--lock);
+}
+
+/* ---------- swaps and announcements ---------- */
+.swaps,
+.offers,
+.announce {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.swap {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--lock);
+  border-radius: 8px;
+  padding: 0.6rem 0.8rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.swap.agreed {
+  border-left-color: var(--accent);
+}
+.offers {
+  gap: 0.25rem;
+  padding-left: 0.5rem;
+}
+.announce li {
+  background: var(--lock-soft);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 0.45rem 0.75rem;
+  font-size: 0.9rem;
+}
+
+/* ---------- calendar export ---------- */
+.calexport {
+  border-top: 1px solid var(--border);
+  padding-top: 0.75rem;
+}
+.calexport summary {
+  cursor: pointer;
+  margin-bottom: 0.6rem;
+}
+.swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.3rem;
+}
+.swatch-btn {
+  width: 1.9rem;
+  height: 1.9rem;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid transparent;
+}
+.swatch-btn.on {
+  border-color: var(--text);
+  box-shadow: 0 0 0 2px var(--surface) inset;
+}
+
+.host-login {
+  align-self: flex-start;
+}

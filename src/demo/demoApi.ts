@@ -3,7 +3,17 @@
 
 import type { SessionView } from '../apiTypes.ts'
 import { addDays } from '../shared/dates.ts'
-import type { Concern, MemberResponse, PublicSession, Schedule, SessionConfig } from '../shared/types.ts'
+import { actOnSwap, createJoin, decideJoin, requestSwap, saveResponse, type Actor, type SwapAction } from '../shared/ops.ts'
+import {
+  DEFAULT_STUDENTS,
+  normalizeSession,
+  type Concern,
+  type MemberResponse,
+  type MemberType,
+  type PublicSession,
+  type Schedule,
+  type SessionConfig,
+} from '../shared/types.ts'
 
 export type { Me, SessionView } from '../apiTypes.ts'
 
@@ -13,7 +23,7 @@ interface Store {
   acting: Record<string, string>
 }
 
-const KEY = 'wayneday-demo-v1'
+const KEY = 'wayneday-demo-v2'
 export const SAMPLE_CODE = 'sample-night-ward'
 
 let store: Store = load()
@@ -21,14 +31,26 @@ let store: Store = load()
 function load(): Store {
   try {
     const raw = localStorage.getItem(KEY)
-    if (raw) return JSON.parse(raw) as Store
+    if (raw) {
+      const st = JSON.parse(raw) as Store
+      for (const k of Object.keys(st.sessions)) st.sessions[k] = normalizeSession(st.sessions[k])
+      return st
+    }
   } catch {
     // storage blocked: keep it in memory
   }
   return { sessions: { [SAMPLE_CODE]: sample() }, acting: {} }
 }
 
+const listeners = new Set<() => void>()
+/** Lets the demo bar re-render when people are added or renamed. */
+export function onDemoChange(fn: () => void) {
+  listeners.add(fn)
+  return () => listeners.delete(fn)
+}
+
 function persist() {
+  for (const fn of listeners) fn()
   try {
     localStorage.setItem(KEY, JSON.stringify(store))
   } catch {
@@ -53,11 +75,15 @@ export const sessionOf = (code: string): PublicSession | undefined => store.sess
 const clone = <T>(x: T): T => JSON.parse(JSON.stringify(x)) as T
 const wait = () => new Promise((r) => setTimeout(r, 60))
 
+const actorFor = (code: string): Actor => {
+  const who = getActing(code)
+  return who === 'host' ? { isHost: true, memberId: null } : { isHost: false, memberId: who }
+}
+
 function view(code: string): SessionView {
   const s = store.sessions[code]
   if (!s) throw new Error('Session not found on this device. Demo sessions only exist in this browser.')
-  const who = getActing(code)
-  return { session: clone(s), me: who === 'host' ? { isHost: true, memberId: null } : { isHost: false, memberId: who } }
+  return { session: clone(s), me: actorFor(code) }
 }
 
 async function mutate(code: string, hostOnly: boolean, fn: (s: PublicSession) => void): Promise<SessionView> {
@@ -89,11 +115,26 @@ export const api = {
       code,
       createdAt: Date.now(),
       version: 0,
-      config: { title, startDate: today, endDate: today, holidays: [], jobs: [], shifts: [], members: [], extraConditions: '' },
+      config: {
+        title,
+        startDate: today,
+        endDate: today,
+        holidays: [],
+        jobs: [],
+        shifts: [],
+        overrides: [],
+        members: [],
+        students: DEFAULT_STUDENTS,
+        presentations: [],
+        extraConditions: '',
+      },
       claimed: [],
       responses: {},
       schedule: null,
       concerns: [],
+      swaps: [],
+      joinRequests: [],
+      changes: [],
     }
     store.acting[code] = 'host'
     persist()
@@ -119,12 +160,7 @@ export const api = {
       s.claimed = s.claimed.filter((id) => id !== memberId)
     }),
   saveResponse: (code: string, memberId: string, r: MemberResponse) =>
-    mutate(code, false, (s) => {
-      const who = getActing(code)
-      if (who !== 'host' && who !== memberId) throw new Error('You can only edit your own answers')
-      if (s.schedule?.status === 'final' && who !== 'host') throw new Error('The roster is final')
-      s.responses[memberId] = { ...clone(r), updatedAt: Date.now() }
-    }),
+    mutate(code, false, (s) => saveResponse(s, actorFor(code), memberId, clone(r))),
   saveSchedule: (code: string, schedule: Schedule | null) =>
     mutate(code, true, (s) => {
       s.schedule = clone(schedule)
@@ -152,6 +188,15 @@ export const api = {
       const c = s.concerns.find((x) => x.id === id)
       if (c) c.resolved = resolved
     }),
+  requestSwap: (code: string, body: { date: string; shiftId: string; requirementId: string; note: string }) =>
+    mutate(code, false, (s) => void requestSwap(s, actorFor(code), body)),
+  actOnSwap: (code: string, id: string, action: SwapAction) => mutate(code, false, (s) => actOnSwap(s, actorFor(code), id, action)),
+  async requestJoin(code: string, name: string, type: MemberType, _pin: string) {
+    await mutate(code, false, (s) => void createJoin(s, name, type))
+    return { requestToken: 'demo' }
+  },
+  decideJoin: (code: string, id: string, approve: boolean, memberId?: string) =>
+    mutate(code, true, (s) => void decideJoin(s, actorFor(code), id, approve, memberId)),
 }
 
 /** A realistic starting point: next month's night roster for a medicine ward, half the team has answered. */
@@ -166,9 +211,11 @@ function sample(): PublicSession {
 
   const residents = ['Ann', 'Bank', 'Ploy', 'Mint', 'Tonkla', 'Fah', 'Ice', 'Nat']
   const staff = ['Dr. Somchai', 'Dr. Wipa', 'Dr. Kanok', 'Dr. Pim']
+  const studentNames = ['Beam', 'Praew', 'Kaew']
   const members = [
     ...residents.map((name) => ({ id: `r-${name.toLowerCase()}`, name, type: 'resident' as const, jobs: [] })),
     ...staff.map((name, i) => ({ id: `s-${i}`, name, type: 'staff' as const, jobs: [] })),
+    ...studentNames.map((name) => ({ id: `st-${name.toLowerCase()}`, name, type: 'student' as const, jobs: [] })),
   ]
   const r = (o: Partial<MemberResponse>): MemberResponse => ({
     preference: 'distributed',
@@ -214,9 +261,26 @@ function sample(): PublicSession {
           requirements: [{ id: 'oncall-any', jobId: 'ward', memberType: 'staff', count: 1 }],
         },
       ],
+      // The 1st Sunday runs with an extra ER resident; the last day has no staff on-call (covered by another ward).
+      overrides: [
+        { date: d(7), shiftId: 'night', active: true, counts: { 'night-er': 2 } },
+        { date: end, shiftId: 'oncall', active: false },
+      ],
       members,
+      students: { shiftIds: ['night'], maxPerShift: 1, shiftsPerStudent: 6 },
+      presentations: [
+        {
+          id: 'morning-report',
+          name: 'Morning report',
+          days: [1, 2, 3, 4, 5],
+          count: 2,
+          fromShiftId: 'night',
+          fromCount: 1,
+          types: ['resident', 'student'],
+        },
+      ],
       extraConditions:
-        'Morning round Mon–Fri 07:30: the resident coming off the Ward night presents the new admissions, so they should not be on ER the following night.\nAnn and Bank are first-years and should not be on the same night.',
+        'Ann and Bank are first-years and should not be on the same night.',
     },
     claimed: ['r-ann', 'r-bank', 'r-ploy', 'r-mint', 's-1'],
     responses: {
@@ -228,5 +292,8 @@ function sample(): PublicSession {
     },
     schedule: null,
     concerns: [],
+    swaps: [],
+    joinRequests: [{ id: 'join-pond', name: 'Pond', type: 'resident', status: 'pending', createdAt: Date.now() - 600_000 }],
+    changes: [],
   }
 }

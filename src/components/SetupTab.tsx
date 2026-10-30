@@ -2,7 +2,10 @@ import { useMemo, useState } from 'react'
 import { api } from '../api.ts'
 import { addDays, dateRange, WEEKDAYS } from '../shared/dates.ts'
 import type { Member, MemberType, Requirement, SessionConfig, ShiftSlot } from '../shared/types.ts'
+import { IS_DEMO, sessionHash } from '../routes.ts'
+import { reqCount } from '../shared/calendar.ts'
 import ConfirmButton from './ConfirmButton.tsx'
+import { CalendarCard, JoinRequests, PresentationsCard, StudentsCard } from './SetupExtras.tsx'
 import { uid, type SessionProps } from './props.ts'
 
 const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6]
@@ -68,10 +71,11 @@ export default function SetupTab({ code, session, me, mutate }: SessionProps) {
     edit((c) => ({ ...c, members: c.members.map((m) => (m.id === id ? { ...m, ...patch } : m)) }))
 
   const days = dateRange(draft.startDate, draft.endDate)
-  const positionsPerPeriod = days.reduce((n, d) => {
-    const wd = new Date(d + 'T00:00:00Z').getUTCDay()
-    return n + draft.shifts.filter((s) => s.days.includes(wd)).reduce((k, s) => k + s.requirements.reduce((a, r) => a + r.count, 0), 0)
-  }, 0)
+  const positionsPerPeriod = days.reduce(
+    (n, d) => n + draft.shifts.reduce((k, s) => k + s.requirements.reduce((a, r) => a + reqCount(draft, s, r, d), 0), 0),
+    0,
+  )
+  const workers = draft.members.filter((m) => m.type !== 'student').length
 
   return (
     <div className="stack">
@@ -119,7 +123,7 @@ export default function SetupTab({ code, session, me, mutate }: SessionProps) {
           </label>
           <p className="muted small">
             {days.length} days · {positionsPerPeriod} positions to fill
-            {draft.members.length ? ` · ≈${(positionsPerPeriod / draft.members.length).toFixed(1)} per person` : ''}
+            {workers ? ` · ≈${(positionsPerPeriod / workers).toFixed(1)} per resident/staff` : ''}
           </p>
         </section>
 
@@ -297,8 +301,17 @@ export default function SetupTab({ code, session, me, mutate }: SessionProps) {
           </div>
         </section>
 
+        <CalendarCard draft={draft} edit={edit} ro={ro} />
+
         <section className="card">
           <h2>People</h2>
+          {me.isHost && <JoinRequests code={code} session={session} me={me} mutate={mutate} dirty={dirty} />}
+          {me.isHost && !IS_DEMO && (
+            <p className="muted small">
+              Already added someone? Send them their personal link (in the Login column) — it opens with their name picked, and they set a PIN.
+              People not on the list can ask to join, and appear above for you to approve.
+            </p>
+          )}
           {!ro && (
             <div className="row wrap align-end">
               <label className="grow">
@@ -308,6 +321,7 @@ export default function SetupTab({ code, session, me, mutate }: SessionProps) {
               <select value={bulkType} onChange={(e) => setBulkType(e.target.value as MemberType)}>
                 <option value="resident">as residents</option>
                 <option value="staff">as staff</option>
+                <option value="student">as students</option>
               </select>
               <button
                 type="button"
@@ -350,6 +364,7 @@ export default function SetupTab({ code, session, me, mutate }: SessionProps) {
                         <select value={m.type} onChange={(e) => setMember(m.id, { type: e.target.value as MemberType })}>
                           <option value="resident">Resident</option>
                           <option value="staff">Staff</option>
+                          <option value="student">Student</option>
                         </select>
                       </td>
                       {draft.jobs.length > 1 && (
@@ -395,7 +410,10 @@ export default function SetupTab({ code, session, me, mutate }: SessionProps) {
                             )}
                           </>
                         ) : (
-                          <span className="muted">not yet</span>
+                          <>
+                            <span className="muted">not yet</span>{' '}
+                            {me.isHost && !IS_DEMO && <PersonalLink code={code} memberId={m.id} name={m.name} />}
+                          </>
                         )}
                       </td>
                       <td>
@@ -412,6 +430,9 @@ export default function SetupTab({ code, session, me, mutate }: SessionProps) {
             </div>
           )}
         </section>
+
+        <StudentsCard draft={draft} edit={edit} ro={ro} />
+        <PresentationsCard draft={draft} edit={edit} ro={ro} />
 
         <section className="card">
           <h2>Other conditions</h2>
@@ -446,5 +467,31 @@ export default function SetupTab({ code, session, me, mutate }: SessionProps) {
         </div>
       )}
     </div>
+  )
+}
+
+function PersonalLink({ code, memberId, name }: { code: string; memberId: string; name: string }) {
+  const [state, setState] = useState<'idle' | 'copied' | 'show'>('idle')
+  const url = `${location.origin}${location.pathname}${sessionHash(code)}--${memberId}`
+  return (
+    <>
+      <button
+        type="button"
+        className="link"
+        title={`A link that opens with ${name} picked`}
+        onClick={async () => {
+          try {
+            await navigator.clipboard.writeText(`${name}, fill in your duty availability on Wayneday: ${url}`)
+            setState('copied')
+            setTimeout(() => setState('idle'), 1500)
+          } catch {
+            setState('show')
+          }
+        }}
+      >
+        {state === 'copied' ? 'copied!' : 'copy link'}
+      </button>
+      {state === 'show' && <input readOnly className="invite-url" value={url} onFocus={(e) => e.target.select()} autoFocus />}
+    </>
   )
 }
