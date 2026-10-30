@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { api } from '../api.ts'
+import { googleClientId } from '../google.ts'
 import { t } from '../shared/i18n.ts'
-import { exportCsv, exportPng, exportToDrive, exportXlsx, GOOGLE_CLIENT_ID, personTable } from '../export.ts'
+import { exportCsv, exportPng, exportToDrive, exportXlsx, personTable } from '../export.ts'
 import { findArrangements, rearrangeStudents } from '../runSolver.ts'
 import { buildAiPrompt, importAiResult } from '../shared/ai.ts'
 import { shortDate } from '../shared/dates.ts'
@@ -586,15 +587,15 @@ function Exports(props: SessionProps & { roster: Roster; tableRef: RefObject<HTM
           if (table) await exportPng(table, session.config)
         })}>{t("🖼️ Image (.png)")}</button>
         <button
-          disabled={!GOOGLE_CLIENT_ID}
-          title={GOOGLE_CLIENT_ID ? '' : t('Not set up on this server — upload the .xlsx to Drive yourself')}
+          disabled={!googleClientId()}
+          title={googleClientId() ? '' : t('Not set up on this server — upload the .xlsx to Drive yourself')}
           onClick={run(async () => {
             const url = await exportToDrive(session.config, roster)
             setMsg({ text: t('Saved to Google Drive.'), url })
           })}
         >{t("☁️ Google Sheets (Drive)")}</button>
       </div>
-      {!GOOGLE_CLIENT_ID && <p className="muted small">{t(
+      {!googleClientId() && <p className="muted small">{t(
         "Drive export isn’t configured on this server — download the .xlsx and open it in Google Drive."
       )}</p>}
       <CalendarExport {...props} />

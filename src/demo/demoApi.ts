@@ -106,6 +106,17 @@ export const setTokens = (_code: string, _t: unknown) => {}
 export const forgetMember = (code: string) => setActing(code, 'host')
 
 export const api = {
+  // No Google in the demo: hosting needs no sign-in there.
+  config: async () => ({ googleClientId: '' }),
+  signInGoogle: async (_credential: string): Promise<never> => {
+    throw new Error('Not available in the demo')
+  },
+  mySessions: async (): Promise<never> => {
+    throw new Error('Not available in the demo')
+  },
+  setHost: async (_code: string, _action: 'add' | 'remove', _email: string): Promise<never> => {
+    throw new Error('Not available in the demo')
+  },
   async create(title: string) {
     await wait()
     let code = `${pick()}-${pick()}-${pick()}`
@@ -143,7 +154,7 @@ export const api = {
     persist()
     return { code, hostToken: 'demo' }
   },
-  async get(code: string) {
+  async get(code: string, _since = -1) {
     await wait()
     return view(code)
   },

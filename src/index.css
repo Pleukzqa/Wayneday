@@ -1293,3 +1293,123 @@ h2[id] {
 .how-icon {
   font-size: 1.5rem;
 }
+
+/* ---------- Google accounts, hosts ---------- */
+.google-signin {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  min-height: 44px;
+}
+.account {
+  position: relative;
+}
+.account summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+}
+.account summary::-webkit-details-marker {
+  display: none;
+}
+.account img,
+.account .avatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+}
+.account .avatar {
+  display: grid;
+  place-items: center;
+  background: var(--accent-soft);
+  font-weight: 600;
+}
+.account-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 220px;
+  max-width: calc(100vw - 32px);
+  padding: 0.75rem 0.9rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.12);
+  overflow-wrap: anywhere;
+}
+.account-menu .link {
+  align-self: flex-start;
+  padding: 0;
+}
+.host-list,
+.my-rosters ul {
+  list-style: none;
+  margin: 0 0 0.75rem;
+  padding: 0;
+}
+.host-list li,
+.my-rosters li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.6rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--border);
+  overflow-wrap: anywhere;
+}
+.host-list li > span:first-child,
+.my-rosters li > a {
+  flex: 1 1 12rem;
+}
+.host-signin {
+  margin-top: 1.5rem;
+}
+.host-signin summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+.host-signin .google-signin {
+  margin-top: 0.5rem;
+}
+.my-rosters {
+  margin-top: 1rem;
+}
+
+/* Phones: keep the top bar on one line, and let long steps wrap. */
+.topbar-right {
+  min-width: 0;
+}
+.code-pill {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.segmented.lang,
+.account {
+  flex-shrink: 0;
+}
+.next-steps li button {
+  text-align: left;
+  white-space: normal;
+  min-width: 0;
+}
+.session-code {
+  display: none;
+}
+@media (max-width: 480px) {
+  .topbar {
+    gap: 0.5rem;
+  }
+  .session-code {
+    display: inline-block;
+  }
+  .topbar-right .code-pill {
+    display: none;
+  }
+}

@@ -1,5 +1,6 @@
 // Roster exports: CSV, Excel, PNG, Google Sheets (Drive) and calendars (Google Calendar, .ics, Google CSV).
 import { t } from './shared/i18n.ts'
+import { googleToken } from './google.ts'
 import { presentationOn, reqCount, shiftRuns } from './shared/calendar.ts'
 import { addDays, dateRange, shortDate, weekday } from './shared/dates.ts'
 import { buildProblem, statsFor } from './shared/solver.ts'
@@ -217,59 +218,7 @@ export async function exportPng(el: HTMLElement, config: SessionConfig) {
   await download(await (await fetch(url)).blob(), `${fileBase(config)}.png`)
 }
 
-// ---------- Google sign-in ----------
-
-export const GOOGLE_CLIENT_ID = (import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined) ?? ''
-
-interface TokenClient {
-  requestAccessToken(): void
-}
-declare global {
-  interface Window {
-    claude?: { use(name: string): Promise<unknown> }
-    google?: {
-      accounts: {
-        oauth2: {
-          initTokenClient(o: {
-            client_id: string
-            scope: string
-            callback: (r: { access_token?: string; error?: string }) => void
-          }): TokenClient
-        }
-      }
-    }
-  }
-}
-
-function loadGis(): Promise<void> {
-  if (window.google?.accounts) return Promise.resolve()
-  return new Promise((resolve, reject) => {
-    const s = document.createElement('script')
-    s.src = 'https://accounts.google.com/gsi/client'
-    s.onload = () => resolve()
-    s.onerror = () => reject(new Error('Could not load Google sign-in'))
-    document.head.appendChild(s)
-  })
-}
-
-const tokens = new Map<string, string>()
-async function googleToken(scope: string): Promise<string> {
-  if (!GOOGLE_CLIENT_ID) throw new Error('Google export needs VITE_GOOGLE_CLIENT_ID (see README).')
-  const cached = tokens.get(scope)
-  if (cached) return cached
-  await loadGis()
-  const t = await new Promise<string>((resolve, reject) => {
-    window.google!.accounts.oauth2
-      .initTokenClient({
-        client_id: GOOGLE_CLIENT_ID,
-        scope,
-        callback: (r) => (r.access_token ? resolve(r.access_token) : reject(new Error(r.error ?? 'Google sign-in cancelled'))),
-      })
-      .requestAccessToken()
-  })
-  tokens.set(scope, t)
-  return t
-}
+// ---------- Google ----------
 
 /** Upload the roster to the user's Drive as a Google Sheet and return its URL. */
 export async function exportToDrive(config: SessionConfig, roster: Roster): Promise<string> {

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { onAccountChange } from './account.ts'
 import { api, type SessionView } from './api.ts'
 import { normalizeSession } from './shared/types.ts'
 
@@ -20,7 +21,9 @@ export function useSession(code: string) {
 
   const refresh = useCallback(async () => {
     try {
-      accept(await api.get(code))
+      const v = await api.get(code, version.current)
+      if ('unchanged' in v) setError(null)
+      else accept(v)
     } catch (e) {
       setError((e as Error).message)
     }
@@ -32,7 +35,15 @@ export function useSession(code: string) {
     const t = setInterval(() => {
       if (document.visibilityState === 'visible') void refresh()
     }, POLL_MS)
-    return () => clearInterval(t)
+    // Signing in or out can change who you are here (host or not), so load everything again.
+    const off = onAccountChange(() => {
+      version.current = -1
+      void refresh()
+    })
+    return () => {
+      clearInterval(t)
+      off()
+    }
   }, [refresh])
 
   /** Run a mutation and adopt the session it returns. */

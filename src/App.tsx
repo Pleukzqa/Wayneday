@@ -2,7 +2,8 @@ import { lazy, Suspense, useEffect, useState } from 'react'
 import Home from './pages/Home.tsx'
 import SessionPage from './pages/SessionPage.tsx'
 import { codeFromHash, IS_DEMO } from './routes.ts'
-import { setLang, type Lang } from './shared/i18n.ts'
+import { setLang, t, type Lang } from './shared/i18n.ts'
+import { AccountChip } from './components/GoogleButton.tsx'
 
 // Only bundled into the phone demo build.
 const DemoBar = IS_DEMO ? lazy(() => import('./demo/DemoBar.tsx')) : null
@@ -36,6 +37,7 @@ export default function App() {
   setLang(lang)
   useEffect(() => {
     document.documentElement.lang = lang
+    document.title = `Wayneday — ${t('Duty roster planner')}`
   }, [lang])
   const switchLang = (l: Lang) => {
     setLangState(l)
@@ -52,10 +54,11 @@ export default function App() {
           <span className="brand-mark" aria-hidden>
             ◷
           </span>
-          Wayneday <span className="brand-sub">แอปจัดเวร</span>
+          Wayneday <span className="brand-sub">{t('Duty roster planner')}</span>
         </a>
         <div className="topbar-right">
           {code && <span className="code-pill">{code}</span>}
+          <AccountChip />
           <div className="segmented lang" role="radiogroup" aria-label="Language / ภาษา">
             {(['th', 'en'] as const).map((l) => (
               <button key={l} role="radio" aria-checked={lang === l} className={lang === l ? 'on' : ''} onClick={() => switchLang(l)}>

@@ -1,0 +1,149 @@
+import { after, describe, test } from 'node:test'
+import assert from 'node:assert/strict'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import type { AddressInfo } from 'node:net'
+import express from 'express'
+import { createApi, type ApiOptions } from './api.ts'
+import { fileStore, postgresStore, type Store } from './store.ts'
+
+// A fake Google: the "credential" is just the email address.
+const fakeGoogle: ApiOptions['verifyGoogle'] = async (credential) => {
+  if (!credential.includes('@')) throw new Error('bad token')
+  return { email: credential.toLowerCase(), name: credential.split('@')[0] }
+}
+
+async function serve(store: Store, googleClientId = 'test-client') {
+  const app = express()
+  app.use('/api', createApi({ store, googleClientId, verifyGoogle: fakeGoogle, secret: 'test-secret-0123456789' }))
+  const server = app.listen(0)
+  await new Promise((r) => server.once('listening', r))
+  const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api`
+  const call = async (method: string, path: string, opts: { body?: unknown; account?: string; bearer?: string } = {}) => {
+    const res = await fetch(base + path, {
+      method,
+      headers: {
+        ...(opts.body === undefined ? {} : { 'Content-Type': 'application/json' }),
+        ...(opts.account ? { 'X-Wayneday-Account': opts.account } : {}),
+        ...(opts.bearer ? { Authorization: `Bearer ${opts.bearer}` } : {}),
+      },
+      body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
+    })
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return { status: res.status, body: (await res.json()) as any }
+  }
+  const signIn = async (email: string) => (await call('POST', '/auth/google', { body: { credential: email } })).body.token as string
+  return { call, signIn, close: () => server.close() }
+}
+
+const stores: [string, () => Promise<Store>][] = [
+  [
+    'files',
+    async () => {
+      const dir = mkdtempSync(join(tmpdir(), 'wayneday-'))
+      after(() => rmSync(dir, { recursive: true, force: true }))
+      return fileStore(dir)
+    },
+  ],
+]
+if (process.env.TEST_DATABASE_URL) stores.push(['postgres', () => postgresStore(process.env.TEST_DATABASE_URL!)])
+
+for (const [kind, makeStore] of stores) {
+  describe(`API with ${kind} storage`, async () => {
+    const store = await makeStore()
+    const { call, signIn, close } = await serve(store)
+    after(close)
+
+    test('hosting needs Google sign-in; the creator becomes the owner', async () => {
+      assert.equal((await call('GET', '/config')).body.googleClientId, 'test-client')
+      assert.equal((await call('POST', '/sessions', { body: { title: 'Ward' } })).status, 401)
+      assert.equal((await call('POST', '/auth/google', { body: { credential: 'nope' } })).status, 401)
+      const alice = await signIn('Alice@Example.com')
+      const created = await call('POST', '/sessions', { body: { title: 'Ward' }, account: alice })
+      assert.equal(created.status, 200)
+      const v = (await call('GET', `/sessions/${created.body.code}`, { account: alice })).body
+      assert.equal(v.me.hostRole, 'owner')
+      assert.deepEqual(v.hosts.map((h: { email: string }) => h.email), ['alice@example.com'])
+      const anon = (await call('GET', `/sessions/${created.body.code}`)).body
+      assert.equal(anon.me.isHost, false)
+      assert.equal(anon.hosts, undefined, 'host emails are hidden from members')
+      assert.equal(JSON.stringify(anon).includes('alice@example.com'), false)
+    })
+
+    test('the owner adds and removes co-hosts; co-hosts can leave but not add', async () => {
+      const alice = await signIn('alice@example.com')
+      const bob = await signIn('bob@example.com')
+      const { code } = (await call('POST', '/sessions', { body: { title: 'Nights' }, account: alice })).body
+      assert.equal((await call('GET', `/sessions/${code}`, { account: bob })).body.me.isHost, false)
+      assert.equal((await call('PUT', `/sessions/${code}/config`, { body: { title: 'x' }, account: bob })).status, 403)
+
+      assert.equal((await call('POST', `/sessions/${code}/hosts`, { body: { action: 'add', email: 'not-an-email' }, account: alice })).status, 400)
+      assert.equal((await call('POST', `/sessions/${code}/hosts`, { body: { action: 'add', email: ' Bob@Example.com ' }, account: alice })).status, 200)
+      const asBob = (await call('GET', `/sessions/${code}`, { account: bob })).body
+      assert.equal(asBob.me.hostRole, 'cohost')
+      assert.equal(asBob.hosts.find((h: { email: string }) => h.email === 'bob@example.com').name, 'bob', 'their Google name replaces the email')
+      assert.equal((await call('PUT', `/sessions/${code}/config`, { body: { title: 'Nights v2' }, account: bob })).status, 200)
+      assert.equal((await call('POST', `/sessions/${code}/hosts`, { body: { action: 'add', email: 'carol@example.com' }, account: bob })).status, 403)
+      assert.equal((await call('POST', `/sessions/${code}/hosts`, { body: { action: 'remove', email: 'alice@example.com' }, account: bob })).status, 400)
+
+      const mine = (await call('GET', '/me', { account: bob })).body.sessions
+      assert.ok(mine.some((s: { code: string; role: string; title: string }) => s.code === code && s.role === 'cohost' && s.title === 'Nights v2'))
+
+      assert.equal((await call('POST', `/sessions/${code}/hosts`, { body: { action: 'remove', email: 'bob@example.com' }, account: bob })).status, 200)
+      assert.equal((await call('GET', `/sessions/${code}`, { account: bob })).body.me.isHost, false)
+      assert.equal((await call('GET', '/me')).status, 401)
+    })
+
+    test('a forged account token is ignored', async () => {
+      const alice = await signIn('alice@example.com')
+      const { code } = (await call('POST', '/sessions', { body: {}, account: alice })).body
+      const [body] = alice.split('.')
+      const forged = `${Buffer.from(JSON.stringify({ email: 'alice@example.com', name: 'x', exp: Date.now() + 1e9 })).toString('base64url')}.${body}`
+      assert.equal((await call('GET', `/sessions/${code}`, { account: forged })).body.me.isHost, false)
+    })
+
+    test('parallel saves are all kept, and polling skips unchanged sessions', async () => {
+      const alice = await signIn('alice@example.com')
+      const { code } = (await call('POST', '/sessions', { body: {}, account: alice })).body
+      const members = ['a', 'b', 'c', 'd'].map((n) => ({ id: n, name: n, type: 'student', jobs: [] }))
+      await call('PUT', `/sessions/${code}/config`, { body: { members }, account: alice })
+      const tokens = await Promise.all(
+        members.map(async (m) => (await call('POST', `/sessions/${code}/claim`, { body: { memberId: m.id, pin: '1234' } })).body.memberToken as string),
+      )
+      await Promise.all(
+        members.map((m, i) => call('PUT', `/sessions/${code}/responses/${m.id}`, { body: { minInterval: i + 2 }, bearer: tokens[i] })),
+      )
+      const v = (await call('GET', `/sessions/${code}`)).body
+      assert.deepEqual(members.map((m) => v.session.responses[m.id]?.minInterval), [2, 3, 4, 5])
+      assert.deepEqual((await call('GET', `/sessions/${code}?since=${v.session.version}`)).body, { unchanged: true })
+      assert.ok((await call('GET', `/sessions/${code}?since=${v.session.version - 1}`)).body.session)
+    })
+
+    test('PIN guessing is slowed down per name', async () => {
+      const alice = await signIn('alice@example.com')
+      const { code } = (await call('POST', '/sessions', { body: {}, account: alice })).body
+      await call('PUT', `/sessions/${code}/config`, { body: { members: [{ id: 'm', name: 'M', type: 'student' }] }, account: alice })
+      assert.equal((await call('POST', `/sessions/${code}/claim`, { body: { memberId: 'm', pin: '1111' } })).status, 200)
+      const statuses = []
+      for (let i = 0; i < 9; i++) statuses.push((await call('POST', `/sessions/${code}/claim`, { body: { memberId: 'm', pin: '9999' } })).status)
+      assert.deepEqual(statuses.slice(0, 7), Array(7).fill(401))
+      assert.equal(statuses.at(-1), 429)
+    })
+  })
+}
+
+test('a session made before sign-in gets its signed-in host as owner', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'wayneday-'))
+  after(() => rmSync(dir, { recursive: true, force: true }))
+  const store = fileStore(dir)
+  const old = await serve(store, '')
+  const { code, hostToken } = (await old.call('POST', '/sessions', { body: { title: 'Old' } })).body
+  old.close()
+  const now = await serve(store)
+  after(now.close)
+  const alice = await now.signIn('alice@example.com')
+  const v = (await now.call('GET', `/sessions/${code}`, { bearer: hostToken, account: alice })).body
+  assert.equal(v.me.hostRole, 'owner')
+  assert.equal((await now.call('GET', `/sessions/${code}`, { account: alice })).body.me.hostRole, 'owner', 'works without the device token now')
+})

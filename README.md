@@ -1,8 +1,10 @@
-# Wayneday — แอปจัดเวร
+# Wayneday — ระบบจัดเวร (duty roster planner)
 
 A group duty-roster app. A host opens a session, everyone joins with a three-word code, and the app arranges students around the hospital's resident/staff roster (or, optionally, schedules residents and staff too), with a review period before the roster is final.
 
 ## How it works
+
+**Hosts and co-hosts sign in with Google** (when the server has `GOOGLE_CLIENT_ID`): their rosters open on any device and are listed under *My rosters*; the owner adds co-hosts by Google email in *Setup → Hosts*. Members never need an account — just the code and a PIN.
 
 The whole app is in **English or Thai (ไทย)** — switch at the top right; it follows the browser language the first time. Hosts get a **Next steps** checklist that jumps to whatever still needs doing.
 
@@ -32,7 +34,7 @@ Requires Node ≥ 22.18 (runs the TypeScript server directly).
 ```sh
 npm install
 npm run dev      # app + API on http://localhost:5173
-npm test         # solver tests
+npm test         # solver, translation and API tests
 npm run lint
 ```
 
@@ -43,7 +45,9 @@ npm run build
 npm start        # serves dist/ and /api on PORT (default 8787)
 ```
 
-Session data is stored as JSON files in `data/` (override with `DATA_DIR`).
+Sessions are stored in Postgres when `DATABASE_URL` is set, otherwise as JSON files in `data/` (override with `DATA_DIR`). `TEST_DATABASE_URL=postgres://… npm test` also runs the API tests against Postgres.
+
+**Putting it online** (Supabase + Render + Google sign-in, free): see [DEPLOY.md](DEPLOY.md).
 
 ### Phone demo
 
@@ -51,18 +55,15 @@ Session data is stored as JSON files in `data/` (override with `DATA_DIR`).
 
 ### Google Drive export
 
-Create an OAuth 2.0 **Web client** in Google Cloud Console, enable the Drive API, add your site's origin to the authorised JavaScript origins, then build with:
-
-```sh
-VITE_GOOGLE_CLIENT_ID=xxxx.apps.googleusercontent.com npm run build
-```
+Uses the same `GOOGLE_CLIENT_ID` as host sign-in (set on the server at runtime; see DEPLOY.md). Enable the Drive API and add your site's origin to the client's authorised JavaScript origins.
 
 Drive export uses the `drive.file` scope (only files it creates). Calendar export uses `calendar.calendarlist.readonly`, `calendar.events` and `calendar.app.created`; enable the Google Calendar API too. These are sensitive scopes: until Google verifies the app, add your team as test users on the OAuth consent screen. Without a client ID, the buttons fall back to file downloads.
 
 ## Layout
 
 ```
-server/        Express API (sessions, PIN login, answers, roster, concerns)
+server/        Express API (sessions, PIN login, answers, roster, concerns), Google sign-in (auth.ts),
+               storage (store.ts: Postgres or JSON files), rate limits (limit.ts)
 src/shared/    Types, date helpers, solver, AI prompt/import — used by browser, server and tests
 src/shared/i18n.ts, th.ts  t('English text') looks up the Thai dictionary; a test fails if a string has no Thai entry
 src/components Setup, Availability grid, Roster tabs

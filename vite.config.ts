@@ -3,13 +3,14 @@ import react from '@vitejs/plugin-react'
 import express from 'express'
 import { defineConfig, type Plugin } from 'vite'
 import { createApi } from './server/api.ts'
+import { storeFromEnv } from './server/store.ts'
 
 // Serve the API from the dev server so `npm run dev` is a single process.
 const api = (): Plugin => ({
   name: 'wayneday-api',
   configureServer(server) {
     const app = express()
-    app.use('/api', createApi(process.env.DATA_DIR ?? join(import.meta.dirname, 'data')))
+    app.use('/api', createApi({ store: storeFromEnv(process.env.DATA_DIR ?? join(import.meta.dirname, 'data')), googleClientId: process.env.GOOGLE_CLIENT_ID }))
     server.middlewares.use(app)
   },
 })

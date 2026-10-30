@@ -1,0 +1,19 @@
+# Render blueprint: one free web service. Data lives in Postgres (DATABASE_URL, e.g. Supabase).
+# See DEPLOY.md for the step-by-step setup.
+services:
+  - type: web
+    name: wayneday
+    runtime: node
+    plan: free
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: DATABASE_URL
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: SESSION_SECRET
+        generateValue: true

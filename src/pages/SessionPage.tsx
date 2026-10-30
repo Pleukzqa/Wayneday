@@ -9,6 +9,8 @@ import SetupTab from '../components/SetupTab.tsx'
 import AvailabilityTab from '../components/AvailabilityTab.tsx'
 import RosterTab from '../components/RosterTab.tsx'
 import type { SessionProps } from '../components/props.ts'
+import { HostsCard, HostSignIn } from '../components/Hosts.tsx'
+import { googleClientId } from '../google.ts'
 
 type Tab = 'setup' | 'availability' | 'roster'
 
@@ -20,7 +22,8 @@ export default function SessionPage({ code }: { code: string }) {
   if (!view) {
     return <p className={error ? 'error' : 'muted'}>{error ?? t("Loading session…")}</p>;
   }
-  const { session, me } = view
+  const { session, me, hosts } = view
+  const google = !IS_DEMO && Boolean(googleClientId())
   // Default tab comes from the state at first load only, so saving doesn't yank the user elsewhere.
   const current: Tab = tab ?? initialTab(view)
   if (tab === null) setTab(current)
@@ -38,7 +41,7 @@ export default function SessionPage({ code }: { code: string }) {
           </p>
         </div>
         <div className="who">
-          {me.isHost && <span className="badge host">{t("Host")}</span>}
+          {me.isHost && <span className="badge host">{me.hostRole === 'cohost' ? t('Co-host') : t('Host')}</span>}
           {IS_DEMO ? null : myName ? (
             <>
               <span className="badge">{t("Logged in as")} {myName}</span>
@@ -51,6 +54,7 @@ export default function SessionPage({ code }: { code: string }) {
               >{t("Log out")}</button>
             </>
           ) : null}
+          {!IS_DEMO && <span className="code-pill session-code">{code}</span>}
           {!IS_DEMO && <ShareButton code={code} />}
         </div>
       </div>
@@ -76,9 +80,11 @@ export default function SessionPage({ code }: { code: string }) {
         ))}
       </nav>
       {me.isHost && <NextSteps session={session} go={setTab} />}
+      {current === 'setup' && google && me.isHost && <HostsCard code={code} me={me} mutate={mutate} hosts={hosts ?? []} />}
       {current === 'setup' && <SetupTab {...props} />}
       {current === 'availability' && <AvailabilityTab {...props} />}
       {current === 'roster' && <RosterTab {...props} />}
+      {google && <HostSignIn isHost={me.isHost} />}
     </div>
   );
 }

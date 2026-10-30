@@ -1,8 +1,9 @@
-import type { SessionView } from './apiTypes.ts'
+import { accountToken, type Account } from './account.ts'
+import type { MySession, SessionView } from './apiTypes.ts'
 import type { SwapAction } from './shared/ops.ts'
 import type { MemberResponse, MemberType, Schedule, SessionConfig } from './shared/types.ts'
 
-export type { Me, SessionView } from './apiTypes.ts'
+export type { HostInfo, Me, MySession, SessionView } from './apiTypes.ts'
 
 interface Tokens {
   hostToken?: string
@@ -40,11 +41,13 @@ export function forgetMember(code: string) {
 async function call<T>(code: string | null, method: string, path: string, body?: unknown): Promise<T> {
   const t = code ? getTokens(code) : {}
   const auth = [t.hostToken, t.memberToken, t.requestToken].filter(Boolean).join(',')
+  const account = accountToken()
   const res = await fetch(`/api${path}`, {
     method,
     headers: {
       ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
       ...(auth ? { Authorization: `Bearer ${auth}` } : {}),
+      ...(account ? { 'X-Wayneday-Account': account } : {}),
     },
     body: body === undefined ? undefined : JSON.stringify(body),
   })
@@ -55,7 +58,13 @@ async function call<T>(code: string | null, method: string, path: string, body?:
 
 export const api = {
   create: (title: string) => call<{ code: string; hostToken: string }>(null, 'POST', '/sessions', { title }),
-  get: (code: string) => call<SessionView>(code, 'GET', `/sessions/${code}`),
+  config: () => call<{ googleClientId: string }>(null, 'GET', '/config'),
+  signInGoogle: (credential: string) => call<{ token: string; account: Account }>(null, 'POST', '/auth/google', { credential }),
+  mySessions: () => call<{ account: Account; sessions: MySession[] }>(null, 'GET', '/me'),
+  /** With `since`, answers { unchanged: true } if the session is still at that version. */
+  get: (code: string, since = -1) =>
+    call<SessionView | { unchanged: true }>(code, 'GET', `/sessions/${code}${since >= 0 ? `?since=${since}` : ''}`),
+  setHost: (code: string, action: 'add' | 'remove', email: string) => call<SessionView>(code, 'POST', `/sessions/${code}/hosts`, { action, email }),
   saveConfig: (code: string, config: SessionConfig) => call<SessionView>(code, 'PUT', `/sessions/${code}/config`, config),
   claim: (code: string, memberId: string, pin: string) =>
     call<{ memberToken: string }>(code, 'POST', `/sessions/${code}/claim`, { memberId, pin }),

@@ -1,12 +1,12 @@
 // "Add to calendar": choose whose shifts, the event name, colour and which Google calendar.
 import { t } from '../shared/i18n.ts'
+import { googleClientId } from '../google.ts'
 import { useMemo, useState } from 'react'
 import {
   addToGoogleCalendar,
   buildEvents,
   exportGoogleCalendarCsv,
   exportIcs,
-  GOOGLE_CLIENT_ID,
   GOOGLE_COLORS,
   IN_ARTIFACT,
   listGoogleCalendars,
@@ -83,7 +83,7 @@ export default function CalendarExport({ session, me, roster }: SessionProps & {
         </div>
 
         <div className="row wrap align-end">
-          {GOOGLE_CLIENT_ID ? (
+          {googleClientId() ? (
             <>
               {calendars ? (
                 <label>{t("Calendar")} <select value={target} onChange={(e) => setTarget(e.target.value)}>
