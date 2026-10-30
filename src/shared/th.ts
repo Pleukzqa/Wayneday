@@ -521,6 +521,8 @@ export const TH: Record<string, string> = {
   "Host or co-host? Sign in with Google": "เป็นผู้จัดหรือผู้จัดร่วม? เข้าสู่ระบบด้วย Google",
   "Sign in with Google to host. Your rosters then open on any device, and you can add co-hosts. Members don’t need Google — they join with the code and a PIN.": "เข้าสู่ระบบด้วย Google เพื่อเปิดห้องจัดเวร แล้วจะเปิดตารางเวรของคุณได้จากทุกอุปกรณ์ และเพิ่มผู้จัดร่วมได้ สมาชิกไม่ต้องใช้ Google — เข้าร่วมด้วยรหัสห้องและ PIN",
   "Nothing yet — rosters you host or co-host show up here.": "ยังไม่มี — ตารางเวรที่คุณเป็นผู้จัดหรือผู้จัดร่วมจะแสดงที่นี่",
+  "Made by Pleuk MDCU78": "สร้างโดย Pleuk MDCU78",
+  "Privacy": "ความเป็นส่วนตัว",
   // Same in both languages.
   "Google Calendar, Apple, Outlook": "Google Calendar, Apple, Outlook",
   "{\"assignments\": [...]}": "{\"assignments\": [...]}",

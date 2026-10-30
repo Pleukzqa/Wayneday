@@ -68,7 +68,18 @@ export default function App() {
           </div>
         </div>
       </header>
-      <main className="page">{code ? <SessionPage key={`${code}:${viewer}`} code={code} /> : <Home />}</main>
+      <main className="page">
+        {code ? <SessionPage key={`${code}:${viewer}`} code={code} /> : <Home />}
+        <footer className="site-footer">
+          🩺 {t('Made by Pleuk MDCU78')}
+          {!IS_DEMO && (
+            <>
+              {' · '}
+              <a href="/privacy.html">{t('Privacy')}</a>
+            </>
+          )}
+        </footer>
+      </main>
       {DemoBar && (
         <Suspense fallback={null}>
           <DemoBar code={code} onSwitch={() => setViewer((v) => v + 1)} />
