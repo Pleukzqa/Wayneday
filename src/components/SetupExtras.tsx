@@ -1,8 +1,9 @@
 // Setup sections: date exceptions calendar, students, presentation rules, join requests.
 import { useState } from 'react'
 import { api } from '../api.ts'
+import { t, typeName, weekdayLetter, weekdayLong, weekdayShort } from '../shared/i18n.ts'
 import { overrideFor, presentationOn, reqCount, shiftRuns } from '../shared/calendar.ts'
-import { dateRange, shortDate, weekday, WEEKDAYS } from '../shared/dates.ts'
+import { dateRange, shortDate, weekday } from '../shared/dates.ts'
 import { DUTY_ROLES, type DateOverride, type DutyRole, type MemberType, type PresentationOverride, type PresentationRule, type SessionConfig } from '../shared/types.ts'
 import { uid, type SessionProps } from './props.ts'
 
@@ -46,17 +47,17 @@ function setPresentation(c: SessionConfig, date: string, ruleId: string, patch: 
  */
 function copyDay(c: SessionConfig, from: string, targets: string[]): SessionConfig {
   let next = c
-  for (const t of targets) {
+  for (const target of targets) {
     for (const s of c.shifts) {
-      if (!s.days.includes(weekday(t)) && !shiftRuns(c, s, t)) continue
+      if (!s.days.includes(weekday(target)) && !shiftRuns(c, s, target)) continue
       const runs = shiftRuns(c, s, from)
       const counts = Object.fromEntries(s.requirements.map((r) => [r.id, reqCount(c, s, r, from) || r.count]))
-      next = setOverride(next, t, s.id, { active: runs, counts })
+      next = setOverride(next, target, s.id, { active: runs, counts })
     }
     for (const r of c.presentations) {
-      if (!r.days.includes(weekday(t)) && !presentationOn(c, r, t)) continue
+      if (!r.days.includes(weekday(target)) && !presentationOn(c, r, target)) continue
       const p = presentationOn(c, r, from)
-      next = setPresentation(next, t, r.id, p ? { active: true, count: p.count, fromCount: p.fromCount } : { active: false })
+      next = setPresentation(next, target, r.id, p ? { active: true, count: p.count, fromCount: p.fromCount } : { active: false })
     }
   }
   return next
@@ -81,15 +82,13 @@ export function CalendarCard({ draft, edit, ro }: { draft: SessionConfig; edit: 
 
   return (
     <section className="card">
-      <h2>Calendar</h2>
-      <p className="muted small">
-        Shifts and presentations follow their weekly pattern. Tap a date to change that day: switch a shift or presentation off or on, or change
-        how many people or presentations it needs. Then copy the change to the rest of that week or to every same weekday. Changed dates are
-        marked.
-      </p>
-      <div className="cal" role="grid" aria-label="Dates in this roster">
-        {WEEKDAYS.map((w) => (
-          <div key={w} className="cal-head" role="columnheader">
+      <h2 id="sec-calendar">🗓️ {t('Calendar')}</h2>
+      <p className="muted small">{t(
+        "Shifts and presentations follow their weekly pattern. Tap a date to change that day: switch a shift or presentation off or on, or change how many people or presentations it needs. Then copy the change to the rest of that week or to every same weekday. Changed dates are marked."
+      )}</p>
+      <div className="cal" role="grid" aria-label={t("Dates in this roster")}>
+        {weekdayShort().map((w, i) => (
+          <div key={i} className="cal-head" role="columnheader">
             {w}
           </div>
         ))}
@@ -115,27 +114,22 @@ export function CalendarCard({ draft, edit, ro }: { draft: SessionConfig; edit: 
           )
         })}
       </div>
-      <div className="cal-legend small" aria-label="Legend">
+      <div className="cal-legend small" aria-label={t("Legend")}>
         {draft.shifts.map((sh) => (
           <span key={sh.id}>
-            <b>{sh.name.slice(0, 1)}</b> = {sh.name} shift runs
-          </span>
+            <b>{sh.name.slice(0, 1)}</b>= {sh.name} {t("shift runs")}</span>
         ))}
         <span>
-          <b>—</b> = no shift
-        </span>
+          <b>—</b> {t("= no shift")}</span>
         {draft.presentations.length > 0 && (
           <span>
-            <b className="accent">P2</b> = 2 presentations that morning
-          </span>
+            <b className="accent">P2</b> {t("= 2 presentations that morning")}</span>
         )}
         <span>
-          <i className="legend-box changed" aria-hidden /> changed from the usual week
-        </span>
+          <i className="legend-box changed" aria-hidden /> {t("changed from the usual week")}</span>
         {draft.holidays.length > 0 && (
           <span>
-            <i className="legend-box holiday" aria-hidden /> holiday
-          </span>
+            <i className="legend-box holiday" aria-hidden /> {t("holiday")}</span>
         )}
       </div>
       {selected && (
@@ -143,9 +137,7 @@ export function CalendarCard({ draft, edit, ro }: { draft: SessionConfig; edit: 
           <div className="row between wrap">
             <strong>{shortDate(selected)}</strong>
             {!ro && changed(selected) && (
-              <button type="button" className="link" onClick={() => resetDates([selected])}>
-                Reset this day
-              </button>
+              <button type="button" className="link" onClick={() => resetDates([selected])}>{t("Reset this day")}</button>
             )}
           </div>
           {draft.shifts.map((s) => {
@@ -167,7 +159,7 @@ export function CalendarCard({ draft, edit, ro }: { draft: SessionConfig; edit: 
                 {runs &&
                   s.requirements.map((r) => (
                     <label key={r.id} className="inline small">
-                      {job(r.jobId)} ({draft.rosterMode === 'hospital' ? 'students' : r.memberType === 'any' ? 'anyone' : r.memberType})
+                      {job(r.jobId)} ({draft.rosterMode === 'hospital' ? t("students") : r.memberType === 'any' ? t("anyone") : r.memberType})
                       <input
                         type="number"
                         min={0}
@@ -184,7 +176,7 @@ export function CalendarCard({ draft, edit, ro }: { draft: SessionConfig; edit: 
                     </label>
                   ))}
               </div>
-            )
+            );
           })}
           {draft.presentations.map((r) => {
             const p = presentationOn(draft, r, selected)
@@ -202,9 +194,7 @@ export function CalendarCard({ draft, edit, ro }: { draft: SessionConfig; edit: 
                 </label>
                 {p && (
                   <>
-                    <label className="inline small">
-                      presentations
-                      <input
+                    <label className="inline small">{t("presentations")} <input
                         type="number"
                         min={1}
                         max={20}
@@ -216,8 +206,7 @@ export function CalendarCard({ draft, edit, ro }: { draft: SessionConfig; edit: 
                         }}
                       />
                     </label>
-                    <label className="inline small">
-                      from last {from}
+                    <label className="inline small">{t("from last")} {from}
                       <input
                         type="number"
                         min={0}
@@ -230,26 +219,21 @@ export function CalendarCard({ draft, edit, ro }: { draft: SessionConfig; edit: 
                   </>
                 )}
               </div>
-            )
+            );
           })}
           {!ro && (
             <div className="row wrap cal-copy">
-              <span className="small muted">Copy this day to:</span>
-              <button type="button" onClick={() => edit((c) => copyDay(c, selected, weekOf(selected).filter((d) => d !== selected)))}>
-                Rest of this week
+              <span className="small muted">{t("Copy this day to:")}</span>
+              <button type="button" onClick={() => edit((c) => copyDay(c, selected, weekOf(selected).filter((d) => d !== selected)))}>{t("Rest of this week")}</button>
+              <button type="button" onClick={() => edit((c) => copyDay(c, selected, sameWeekday(selected).filter((d) => d !== selected)))}>{t('Every {day}', { day: weekdayLong()[weekday(selected)] })}
               </button>
-              <button type="button" onClick={() => edit((c) => copyDay(c, selected, sameWeekday(selected).filter((d) => d !== selected)))}>
-                Every {WEEKDAYS[weekday(selected)]}
-              </button>
-              <button type="button" className="link" onClick={() => resetDates(weekOf(selected))}>
-                Reset this week
-              </button>
+              <button type="button" className="link" onClick={() => resetDates(weekOf(selected))}>{t("Reset this week")}</button>
             </div>
           )}
         </div>
       )}
     </section>
-  )
+  );
 }
 
 // ---------- students ----------
@@ -264,20 +248,18 @@ export function StudentsCard({ draft, edit, ro }: { draft: SessionConfig; edit: 
     const check = (key: 'avoidRepeatResident' | 'avoidRepeatStaff' | 'avoidRepeatPartner' | 'wantPartner', label: string) => (
       <label className="check">
         <input type="checkbox" disabled={ro} checked={Boolean(st[key])} onChange={(e) => set({ [key]: e.target.checked })} />
-        {label}
+        {t(label)}
       </label>
     )
     return (
       <section className="card">
-        <h2>Student shifts</h2>
-        <p className="muted small">
-          Wayneday places students in the student places of each shift so every resident and every staff member in the hospital roster is on
-          duty with students about equally often. {count ? `${count} student(s).` : 'Add students above.'}
+        <h2 id="sec-studentrules">🎯 {t('Student shifts')}</h2>
+        <p className="muted small">{t(
+            "Wayneday places students in the student places of each shift so every resident and every staff member in the hospital roster is on duty with students about equally often."
+          )} {count ? t('{n} student(s).', { n: count }) : t("Add students above.")}
         </p>
-        <div className="segmented wrap-seg" role="radiogroup" aria-label="How many shifts each student does">
-          <button type="button" role="radio" aria-checked={!perSlot} className={!perSlot ? 'on' : ''} disabled={ro} onClick={() => set({ perSlot: {} })}>
-            A total
-          </button>
+        <div className="segmented wrap-seg" role="radiogroup" aria-label={t("How many shifts each student does")}>
+          <button type="button" role="radio" aria-checked={!perSlot} className={!perSlot ? 'on' : ''} disabled={ro} onClick={() => set({ perSlot: {} })}>{t("A total")}</button>
           <button
             type="button"
             role="radio"
@@ -285,13 +267,11 @@ export function StudentsCard({ draft, edit, ro }: { draft: SessionConfig; edit: 
             className={perSlot ? 'on' : ''}
             disabled={ro}
             onClick={() => set({ perSlot: Object.fromEntries(slots.map((x) => [x.id, 1])) })}
-          >
-            A number of each shift
-          </button>
+          >{t("A number of each shift")}</button>
         </div>
         {perSlot ? (
           <div className="row wrap">
-            <span className="small">Each student does exactly</span>
+            <span className="small">{t("Each student does exactly")}</span>
             {slots.map((x) => (
               <label key={x.id} className="inline">
                 <input
@@ -307,37 +287,32 @@ export function StudentsCard({ draft, edit, ro }: { draft: SessionConfig; edit: 
             ))}
           </div>
         ) : (
-          <label className="inline">
-            Each student does
-            <input type="number" min={0} max={100} disabled={ro} value={st.shiftsPerStudent} onChange={(e) => set({ shiftsPerStudent: Math.max(0, Number(e.target.value) || 0) })} />
-            shifts
-          </label>
+          <label className="inline">{t("Each student does")} <input type="number" min={0} max={100} disabled={ro} value={st.shiftsPerStudent} onChange={(e) => set({ shiftsPerStudent: Math.max(0, Number(e.target.value) || 0) })} /> {t("shifts")}</label>
         )}
-        <label className="inline">
-          A student’s shifts at least
-          <input type="number" min={0} max={60} disabled={ro} value={st.minGap ?? 0} onChange={(e) => set({ minGap: Math.max(0, Number(e.target.value) || 0) })} />
-          days apart <span className="muted small">(0 = each student’s own answer)</span>
+        <label className="inline">{t("A student’s shifts at least")} <input type="number" min={0} max={60} disabled={ro} value={st.minGap ?? 0} onChange={(e) => set({ minGap: Math.max(0, Number(e.target.value) || 0) })} /> {t("days apart")} <span className="muted small">{t("(0 = each student’s own answer)")}</span>
         </label>
         <div className="rules">
-          <span className="small">Try to avoid:</span>
+          <span className="small">{t("Try to avoid:")}</span>
           {check('avoidRepeatResident', 'the same resident twice for a student')}
           {check('avoidRepeatStaff', 'the same staff (อาจารย์) twice for a student')}
           {check('avoidRepeatPartner', 'the same two students together twice')}
           {check('wantPartner', 'a student being alone on every shift')}
         </div>
-        <p className="muted small">These are tried as hard as possible; the Roster tab says if any couldn’t be met.</p>
+        <p className="muted small">{t(
+          "These are tried as hard as possible; the Roster tab says if any couldn’t be met."
+        )}</p>
       </section>
-    )
+    );
   }
   return (
     <section className="card">
-      <h2>Students</h2>
-      <p className="muted small">
-        Students don’t fill positions. After residents and staff are scheduled, Wayneday places students on these shifts so every resident
-        and every staff member is on duty with students about equally often. {count ? `${count} student(s) in People.` : 'Add people as “Student” to use this.'}
+      <h2 id="sec-studentrules">🎯 {t('Students')}</h2>
+      <p className="muted small">{t(
+          "Students don’t fill positions. After residents and staff are scheduled, Wayneday places students on these shifts so every resident and every staff member is on duty with students about equally often."
+        )} {count ? `${count} student(s) in People.` : t("Add people as “Student” to use this.")}
       </p>
       <div className="row wrap">
-        <span className="small">Students join:</span>
+        <span className="small">{t("Students join:")}</span>
         {draft.shifts.map((s) => (
           <label key={s.id} className="check">
             <input
@@ -351,19 +326,11 @@ export function StudentsCard({ draft, edit, ro }: { draft: SessionConfig; edit: 
         ))}
       </div>
       <div className="row wrap">
-        <label className="inline">
-          Each student does
-          <input type="number" min={0} max={100} disabled={ro} value={st.shiftsPerStudent} onChange={(e) => set({ shiftsPerStudent: Math.max(0, Number(e.target.value) || 0) })} />
-          shifts
-        </label>
-        <label className="inline">
-          At most
-          <input type="number" min={1} max={20} disabled={ro} value={st.maxPerShift} onChange={(e) => set({ maxPerShift: Math.max(1, Number(e.target.value) || 1) })} />
-          student(s) per shift
-        </label>
+        <label className="inline">{t("Each student does")} <input type="number" min={0} max={100} disabled={ro} value={st.shiftsPerStudent} onChange={(e) => set({ shiftsPerStudent: Math.max(0, Number(e.target.value) || 0) })} /> {t("shifts")}</label>
+        <label className="inline">{t("At most")} <input type="number" min={1} max={20} disabled={ro} value={st.maxPerShift} onChange={(e) => set({ maxPerShift: Math.max(1, Number(e.target.value) || 1) })} /> {t("student(s) per shift")}</label>
       </div>
     </section>
-  )
+  );
 }
 
 // ---------- presentations ----------
@@ -375,19 +342,16 @@ export function PresentationsCard({ draft, edit, ro }: { draft: SessionConfig; e
     edit((c) => ({ ...c, presentations: c.presentations.map((p) => (p.id === id ? { ...p, ...patch } : p)) }))
   return (
     <section className="card">
-      <h2>Presentations</h2>
-      <p className="muted small">
-        E.g. morning report: on weekdays, 2 cases are presented and at least 1 presenter must be someone coming off last night’s shift.
-        Wayneday picks presenters and shares the load evenly.
-      </p>
+      <h2 id="sec-presentations">🎤 {t('Presentations')}</h2>
+      <p className="muted small">{t(
+        "E.g. morning report: on weekdays, 2 cases are presented and at least 1 presenter must be someone coming off last night’s shift. Wayneday picks presenters and shares the load evenly."
+      )}</p>
       {draft.presentations.map((p) => (
         <div key={p.id} className="shift">
           <div className="row wrap">
-            <label>
-              Name
-              <input value={p.name} disabled={ro} onChange={(e) => set(p.id, { name: e.target.value })} />
+            <label>{t("Name")} <input value={p.name} disabled={ro} onChange={(e) => set(p.id, { name: e.target.value })} />
             </label>
-            <div className="weekdays" role="group" aria-label="Days">
+            <div className="weekdays" role="group" aria-label={t("Days")}>
               {[0, 1, 2, 3, 4, 5, 6].map((d) => (
                 <button
                   type="button"
@@ -397,14 +361,12 @@ export function PresentationsCard({ draft, edit, ro }: { draft: SessionConfig; e
                   className={p.days.includes(d) ? 'day on' : 'day'}
                   onClick={() => set(p.id, { days: p.days.includes(d) ? p.days.filter((x) => x !== d) : [...p.days, d].sort() })}
                 >
-                  {WEEKDAYS[d][0]}
+                  {weekdayLetter()[d]}
                 </button>
               ))}
             </div>
             {!ro && (
-              <button type="button" className="link danger" onClick={() => edit((c) => ({ ...c, presentations: c.presentations.filter((x) => x.id !== p.id) }))}>
-                Remove
-              </button>
+              <button type="button" className="link danger" onClick={() => edit((c) => ({ ...c, presentations: c.presentations.filter((x) => x.id !== p.id) }))}>{t("Remove")}</button>
             )}
           </div>
           <div className="row wrap">
@@ -412,31 +374,25 @@ export function PresentationsCard({ draft, edit, ro }: { draft: SessionConfig; e
               <input type="number" min={1} max={20} disabled={ro} value={p.count} onChange={(e) => {
                 const count = Math.max(1, Number(e.target.value) || 1)
                 set(p.id, { count, fromCount: Math.min(p.fromCount, count) })
-              }} />
-              presentation(s), at least
-              <input type="number" min={0} max={p.count} disabled={ro} value={p.fromCount} onChange={(e) => set(p.id, { fromCount: Math.min(p.count, Math.max(0, Number(e.target.value) || 0)) })} />
-              by people on
-              <select value={p.fromShiftId} disabled={ro} onChange={(e) => set(p.id, { fromShiftId: e.target.value })}>
+              }} /> {t("presentation(s), at least")} <input type="number" min={0} max={p.count} disabled={ro} value={p.fromCount} onChange={(e) => set(p.id, { fromCount: Math.min(p.count, Math.max(0, Number(e.target.value) || 0)) })} /> {t("by people on")} <select value={p.fromShiftId} disabled={ro} onChange={(e) => set(p.id, { fromShiftId: e.target.value })}>
                 {draft.shifts.map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.name}
                   </option>
                 ))}
-              </select>
-              the day before
-            </label>
+              </select> {t("the day before")}</label>
           </div>
           <div className="row wrap">
-            <span className="small">Who can present:</span>
-            {TYPES.map((t) => (
-              <label key={t} className="check">
+            <span className="small">{t("Who can present:")}</span>
+            {TYPES.map((ty) => (
+              <label key={ty} className="check">
                 <input
                   type="checkbox"
                   disabled={ro}
-                  checked={p.types.includes(t)}
-                  onChange={(e) => set(p.id, { types: e.target.checked ? [...p.types, t] : p.types.filter((x) => x !== t) })}
+                  checked={p.types.includes(ty)}
+                  onChange={(e) => set(p.id, { types: e.target.checked ? [...p.types, ty] : p.types.filter((x) => x !== ty) })}
                 />
-                {t}
+                {typeName(ty)}
               </label>
             ))}
           </div>
@@ -454,12 +410,10 @@ export function PresentationsCard({ draft, edit, ro }: { draft: SessionConfig; e
               ],
             }))
           }
-        >
-          + Presentation rule
-        </button>
+        >{t("➕ Presentation rule")}</button>
       )}
     </section>
-  )
+  );
 }
 
 // ---------- join requests ----------
@@ -471,19 +425,18 @@ export function JoinRequests({ code, session, mutate, dirty }: SessionProps & { 
   if (pending.length === 0) return null
   return (
     <div className="joins">
-      <strong>Waiting to join ({pending.length})</strong>
-      {dirty && <p className="small warn-text">Save your setup changes first, then approve.</p>}
+      <strong>{t("Waiting to join (")}{pending.length})</strong>
+      {dirty && <p className="small warn-text">{t("Save your setup changes first, then approve.")}</p>}
       {pending.map((r) => (
         <div key={r.id} className="row wrap join-row">
           <span>
-            <strong>{r.name}</strong> <span className="muted small">{r.type}</span>
+            <strong>{r.name}</strong> <span className="muted small">{typeName(r.type)}</span>
           </span>
-          <select value={link[r.id] ?? ''} onChange={(e) => setLink({ ...link, [r.id]: e.target.value })} aria-label={`Who is ${r.name}?`}>
-            <option value="">Add as a new person</option>
+          <select value={link[r.id] ?? ''} onChange={(e) => setLink({ ...link, [r.id]: e.target.value })} aria-label={t('Who is {name}?', { name: r.name })}>
+            <option value="">{t("Add as a new person")}</option>
             {session.config.members.filter((m) => session.config.rosterMode !== 'hospital' || m.type === 'student').map((m) => (
-              <option key={m.id} value={m.id}>
-                This is {m.name}
-                {session.claimed.includes(m.id) ? ' (replaces their PIN)' : ''}
+              <option key={m.id} value={m.id}>{t("This is")} {m.name}
+                {session.claimed.includes(m.id) ? t(" (replaces their PIN)") : ''}
               </option>
             ))}
           </select>
@@ -498,17 +451,13 @@ export function JoinRequests({ code, session, mutate, dirty }: SessionProps & { 
                 setError((e as Error).message)
               }
             }}
-          >
-            Approve
-          </button>
-          <button disabled={dirty} onClick={() => void mutate(() => api.decideJoin(code, r.id, false))}>
-            Reject
-          </button>
+          >{t("✅ Approve")}</button>
+          <button disabled={dirty} onClick={() => void mutate(() => api.decideJoin(code, r.id, false))}>{t("Reject")}</button>
         </div>
       ))}
       {error && <span className="error small">{error}</span>}
     </div>
-  )
+  );
 }
 
 // ---------- who makes the resident/staff roster ----------
@@ -516,8 +465,8 @@ export function JoinRequests({ code, session, mutate, dirty }: SessionProps & { 
 export function RosterModeCard({ draft, edit, ro }: { draft: SessionConfig; edit: Edit; ro: boolean }) {
   return (
     <section className="card">
-      <h2>Residents &amp; staff roster</h2>
-      <div className="segmented wrap-seg" role="radiogroup" aria-label="Who makes the resident and staff roster">
+      <h2 id="sec-mode">👩‍⚕️ {t('Residents & staff roster')}</h2>
+      <div className="segmented wrap-seg" role="radiogroup" aria-label={t("Who makes the resident and staff roster")}>
         {(
           [
             ['hospital', 'From the hospital', 'You enter who is on duty each date; Wayneday arranges only the students.'],
@@ -530,21 +479,25 @@ export function RosterModeCard({ draft, edit, ro }: { draft: SessionConfig; edit
             role="radio"
             aria-checked={draft.rosterMode === v}
             disabled={ro}
-            title={hint}
+            title={t(hint)}
             className={draft.rosterMode === v ? 'on' : ''}
             onClick={() => edit((c) => ({ ...c, rosterMode: v }))}
           >
-            {label}
+            {v === 'hospital' ? '🏥' : '🤖'} {t(label)}
           </button>
         ))}
       </div>
       <p className="muted small">
         {draft.rosterMode === 'hospital'
-          ? 'Type or paste who the hospital put on duty each date (in “Hospital roster” below). Shift slots then describe student places, People lists only students, and Wayneday arranges only the students and presenters.'
-          : 'Wayneday schedules residents and staff from their availability and preferences, then arranges the students.'}
+          ? t(
+          "Type or paste who the hospital put on duty each date (in “Hospital roster” below). Shift slots then describe student places, People lists only students, and Wayneday arranges only the students and presenters."
+        )
+          : t(
+          "Wayneday schedules residents and staff from their availability and preferences, then arranges the students."
+        )}
       </p>
     </section>
-  )
+  );
 }
 
 // ---------- the hospital's roster (hospital mode) ----------
@@ -596,10 +549,10 @@ function parseDutyPaste(text: string, draft: SessionConfig) {
   let body = rows
   if (rows.length && !toDate(rows[0][0])) {
     colMap = rows[0].map((h) => {
-      const t = norm(h)
-      const role: DutyRole | null = /staff|อาจารย์|attending/.test(t) ? 'staff' : /resid|แพทย์ประจำบ้าน/.test(t) ? 'resident' : null
+      const head = norm(h)
+      const role: DutyRole | null = /staff|อาจารย์|attending/.test(head) ? 'staff' : /resid|แพทย์ประจำบ้าน/.test(head) ? 'resident' : null
       if (!role) return null
-      const i = cols.findIndex((c) => c.role === role && (draft.shifts.length === 1 || t.includes(norm(c.shift.name))))
+      const i = cols.findIndex((c) => c.role === role && (draft.shifts.length === 1 || head.includes(norm(c.shift.name))))
       return i >= 0 ? i : null
     })
     body = rows.slice(1)
@@ -657,7 +610,7 @@ function NameInput({
         <span key={n} className="chip name-chip">
           {n}
           {!disabled && (
-            <button type="button" className="x" aria-label={`Remove ${n}`} onClick={() => onChange(names.filter((_, k) => k !== i))}>
+            <button type="button" className="x" aria-label={t('Remove {name}', { name: n })} onClick={() => onChange(names.filter((_, k) => k !== i))}>
               ×
             </button>
           )}
@@ -707,15 +660,14 @@ function NameInput({
           ))}
           {!matches.some((m) => norm(m) === q) && (
             <li>
-              <button type="button" className={hi === matches.length ? 'on' : ''} onMouseDown={(e) => e.preventDefault()} onClick={() => add(text)}>
-                Add “{text.trim()}”
+              <button type="button" className={hi === matches.length ? 'on' : ''} onMouseDown={(e) => e.preventDefault()} onClick={() => add(text)}>{t("Add “")}{text.trim()}”
               </button>
             </li>
           )}
         </ul>
       )}
     </div>
-  )
+  );
 }
 
 export function DutyRosterCard({ draft, edit, ro }: { draft: SessionConfig; edit: Edit; ro: boolean }) {
@@ -724,7 +676,7 @@ export function DutyRosterCard({ draft, edit, ro }: { draft: SessionConfig; edit
   const [msg, setMsg] = useState<string | null>(null)
   const days = dateRange(draft.startDate, draft.endDate)
   const cols = draft.shifts.flatMap((shift) => DUTY_ROLES.map((role) => ({ shift, role })))
-  const title = (c: (typeof cols)[number]) => (draft.shifts.length > 1 ? `${c.shift.name} · ${ROLE_LABEL[c.role]}` : ROLE_LABEL[c.role])
+  const title = (c: (typeof cols)[number]) => (draft.shifts.length > 1 ? `${c.shift.name} · ${t(ROLE_LABEL[c.role])}` : t(ROLE_LABEL[c.role]))
   const doctors = draft.members.filter((m) => m.type !== 'student')
   const nameOf = (id: string) => draft.members.find((m) => m.id === id)?.name ?? '?'
   const daysFilled = new Set(draft.duty.map((a) => a.date)).size
@@ -734,17 +686,17 @@ export function DutyRosterCard({ draft, edit, ro }: { draft: SessionConfig; edit
 
   return (
     <section className="card">
-      <h2>
-        Hospital roster <span className="badge">{daysFilled}/{days.length} days</span>
+      <h2 id="sec-duty">{t("🩺 Hospital roster")} <span className="badge">{daysFilled}/{days.length} {t("days")}</span>
       </h2>
       <p className="muted small">
-        Who the hospital put on duty. Type names — Wayneday suggests names you’ve already used — or paste the hospital’s table from Excel or
-        Google Sheets (first column = date, then {cols.map((c) => `${c.shift.name.toLowerCase()} ${ROLE_LABEL[c.role]}`).join(', ')}). Separate
-        several names with commas.
+        {t(
+          'Who the hospital put on duty. Type names — Wayneday suggests names you’ve already used — or paste the hospital’s table from Excel or Google Sheets (first column = date, then {cols}). Separate several names with commas.',
+          { cols: cols.map((c) => `${c.shift.name} ${t(ROLE_LABEL[c.role])}`).join(', ') },
+        )}
       </p>
       {!ro && (
         <details className="paste">
-          <summary className="small">Paste from a spreadsheet</summary>
+          <summary className="small">{t("Paste from a spreadsheet")}</summary>
           <div className="stack">
             <div className="row wrap">
               <button
@@ -752,23 +704,19 @@ export function DutyRosterCard({ draft, edit, ro }: { draft: SessionConfig; edit
                 onClick={async () => {
                   try {
                     await navigator.clipboard.writeText(template)
-                    setMsg('Empty table copied — paste it into a spreadsheet, fill it in, then copy it back here.')
+                    setMsg(t('Empty table copied — paste it into a spreadsheet, fill it in, then copy it back here.'))
                   } catch {
-                    setMsg('Couldn’t copy. Make a spreadsheet with columns: Date, Day, ' + cols.map((c) => `${c.shift.name} ${ROLE_LABEL[c.role]}`).join(', '))
+                    setMsg(t('Couldn’t copy. Make a spreadsheet with columns: {cols}', { cols: ['Date', 'Day', ...cols.map((c) => `${c.shift.name} ${ROLE_LABEL[c.role]}`)].join(', ') }))
                   }
                 }}
-              >
-                Copy empty table
-              </button>
+              >{t("📋 Copy empty table")}</button>
               {draft.duty.length > 0 && (
-                <button type="button" className="link danger" onClick={() => edit((c) => pruneDoctors({ ...c, duty: [] }))}>
-                  Clear roster
-                </button>
+                <button type="button" className="link danger" onClick={() => edit((c) => pruneDoctors({ ...c, duty: [] }))}>{t("Clear roster")}</button>
               )}
             </div>
             <textarea
               rows={3}
-              aria-label="Pasted roster"
+              aria-label={t("Pasted roster")}
               value={paste}
               placeholder={'1/11\tAnn, Bank\tDr. Somchai\n2/11\tPloy, Mint\tDr. Wipa'}
               onChange={(e) => {
@@ -778,8 +726,7 @@ export function DutyRosterCard({ draft, edit, ro }: { draft: SessionConfig; edit
             />
             {parsed && (
               <div className="row wrap">
-                <span className="small">
-                  Read {parsed.readDays} day(s).{parsed.newNames.length > 0 && ` New names: ${parsed.newNames.join(', ')}.`}
+                <span className="small">{t("Read")} {parsed.readDays} {t("day(s).")}{parsed.newNames.length > 0 && ` New names: ${parsed.newNames.join(', ')}.`}
                 </span>
                 <button
                   type="button"
@@ -789,11 +736,9 @@ export function DutyRosterCard({ draft, edit, ro }: { draft: SessionConfig; edit
                     edit((c) => parsed.cells.reduce((acc, cell) => setDutyNames(acc, cell.date, cell.shiftId, cell.role, cell.names), c))
                     setPaste('')
                     setParsed(null)
-                    setMsg(`Filled ${parsed.readDays} day(s). Save setup to keep it.`)
+                    setMsg(t('Filled {n} day(s). Save setup to keep it.', { n: parsed.readDays }))
                   }}
-                >
-                  Use this
-                </button>
+                >{t("✅ Use this")}</button>
               </div>
             )}
           </div>
@@ -804,7 +749,7 @@ export function DutyRosterCard({ draft, edit, ro }: { draft: SessionConfig; edit
         <table className="roster duty">
           <thead>
             <tr>
-              <th className="sticky">Date</th>
+              <th className="sticky">{t("Date")}</th>
               {cols.map((c) => (
                 <th key={`${c.shift.id}-${c.role}`}>{title(c)}</th>
               ))}
@@ -835,5 +780,5 @@ export function DutyRosterCard({ draft, edit, ro }: { draft: SessionConfig; edit
         </table>
       </div>
     </section>
-  )
+  );
 }

@@ -1,10 +1,11 @@
 import { useEffect, useState, type ReactNode } from 'react'
+import { t } from '../shared/i18n.ts'
 
 /** Two-tap confirmation: first tap arms the button, second tap runs the action. Works where confirm() is blocked. */
 export default function ConfirmButton({
   onConfirm,
   children,
-  confirmText = 'Tap again to confirm',
+  confirmText,
   className,
   title,
   disabled,
@@ -19,8 +20,8 @@ export default function ConfirmButton({
   const [armed, setArmed] = useState(false)
   useEffect(() => {
     if (!armed) return
-    const t = setTimeout(() => setArmed(false), 4000)
-    return () => clearTimeout(t)
+    const timer = setTimeout(() => setArmed(false), 4000)
+    return () => clearTimeout(timer)
   }, [armed])
   return (
     <button
@@ -35,7 +36,7 @@ export default function ConfirmButton({
         } else setArmed(true)
       }}
     >
-      {armed ? confirmText : children}
+      {armed ? (confirmText ?? t('Tap again to confirm')) : children}
     </button>
   )
 }

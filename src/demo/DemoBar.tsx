@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { t } from '../shared/i18n.ts'
 import { sessionHash } from '../routes.ts'
 import { getActing, onDemoChange, resetDemo, SAMPLE_CODE, sessionOf, setActing } from './demoApi.ts'
 import ConfirmButton from '../components/ConfirmButton.tsx'
@@ -17,11 +18,11 @@ export default function DemoBar({ code, onSwitch }: { code: string | undefined; 
 
   const session = code ? sessionOf(code) : undefined
   return (
-    <div className="demobar" role="region" aria-label="Demo controls">
-      <span className="demobar-tag">Demo</span>
+    <div className="demobar" role="region" aria-label={t("Demo controls")}>
+      <span className="demobar-tag">{t("Demo")}</span>
       {session ? (
         <label className="inline">
-          <span className="muted small">Viewing as</span>
+          <span className="muted small">{t("Viewing as")}</span>
           <select
             id="demo-viewer"
             value={getActing(code!)}
@@ -31,7 +32,7 @@ export default function DemoBar({ code, onSwitch }: { code: string | undefined; 
               onSwitch()
             }}
           >
-            <option value="host">Host</option>
+            <option value="host">{t("Host")}</option>
             {session.config.members.map((m) => (
               <option key={m.id} value={m.id}>
                 {m.name} ({m.type})
@@ -40,22 +41,18 @@ export default function DemoBar({ code, onSwitch }: { code: string | undefined; 
           </select>
         </label>
       ) : (
-        <a href={sessionHash(SAMPLE_CODE)} className="small">
-          Open the sample ward
-        </a>
+        <a href={sessionHash(SAMPLE_CODE)} className="small">{t("Open the sample ward")}</a>
       )}
       <ConfirmButton
         className="link small"
-        confirmText="Tap to reset"
+        confirmText={t("Tap to reset")}
         onConfirm={() => {
           resetDemo()
           location.hash = sessionHash(SAMPLE_CODE)
           force((n) => n + 1)
           onSwitch()
         }}
-      >
-        Reset demo
-      </ConfirmButton>
+      >{t("Reset demo")}</ConfirmButton>
     </div>
-  )
+  );
 }

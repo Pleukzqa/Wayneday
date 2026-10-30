@@ -13,6 +13,7 @@ if (!script) throw new Error('No module script found in dist-demo/index.html')
 
 const page = `<title>Wayneday Demo</title>
 <meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap">
 <style>
 ${css}
 </style>

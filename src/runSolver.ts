@@ -1,3 +1,4 @@
+import { getLang } from './shared/i18n.ts'
 import type { CountResult } from './shared/solver.ts'
 import type { StudentOption } from './shared/students.ts'
 import type { Assignment, MemberResponse, PresenterAssignment, SessionConfig, StudentAssignment } from './shared/types.ts'
@@ -32,11 +33,11 @@ export type ManyResult = {
 }
 
 export const findArrangements = (config: SessionConfig, responses: Record<string, MemberResponse>, seed: number, count = 6) =>
-  run<ManyResult>({ kind: 'many', config, responses, opts: { seed, count } })
+  run<ManyResult>({ kind: 'many', lang: getLang(), config, responses, opts: { seed, count } })
 
 export type StudentsResult =
   | { ok: true; students: StudentAssignment[]; presenters: PresenterAssignment[]; warnings: string[] }
   | { ok: false; problems: string[] }
 
 export const rearrangeStudents = (config: SessionConfig, responses: Record<string, MemberResponse>, assignments: Assignment[], seed: number) =>
-  run<StudentsResult>({ kind: 'students', config, responses, assignments, seed })
+  run<StudentsResult>({ kind: 'students', lang: getLang(), config, responses, assignments, seed })

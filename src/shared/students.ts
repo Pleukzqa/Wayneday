@@ -5,6 +5,7 @@
 // - pick presenters for presentation rules, taking the required number from yesterday's shift first.
 
 import { presentationOn, reqCount, reqMin, shiftRuns } from './calendar.ts'
+import { t, weekdayShort } from './i18n.ts'
 import { addDays, dateRange, dayDiff, weekday } from './dates.ts'
 import { preferenceCost, responseFor, rng, variance } from './scoring.ts'
 import type { Assignment, Member, MemberResponse, PresenterAssignment, SessionConfig, StudentAssignment } from './types.ts'
@@ -127,7 +128,7 @@ export function arrangeStudents(
   const places = occs.reduce((n, o) => n + o.cap, 0)
   const minimum = occs.reduce((n, o) => n + o.min, 0)
   if (students.length * need > places) {
-    problems.push(`Students need ${students.length * need} shifts but there are only ${places} student places in the period.`)
+    problems.push(t('Students need {n} shifts but there are only {p} student places in the period.', { n: students.length * need, p: places }))
   }
   if (quota) {
     for (const [shiftId, n] of quota) {
@@ -135,17 +136,17 @@ export function arrangeStudents(
       const cap = os.reduce((a, o) => a + o.cap, 0)
       const min = os.reduce((a, o) => a + o.min, 0)
       const name = config.shifts.find((x) => x.id === shiftId)?.name ?? ''
-      if (students.length * n > cap) problems.push(`${name}: students need ${students.length * n} places but there are only ${cap}.`)
-      if (students.length * n < min) problems.push(`${name}: every day needs its minimum (${min} in total), but students only do ${students.length * n}.`)
+      if (students.length * n > cap) problems.push(t('{shift}: students need {n} places but there are only {cap}.', { shift: name, n: students.length * n, cap }))
+      if (students.length * n < min) problems.push(t('{shift}: every day needs its minimum ({min} in total), but students only do {n}.', { shift: name, min, n: students.length * n }))
     }
   }
   if (students.length * need < minimum) {
-    problems.push(`Every place needs at least its minimum (${minimum} student-shifts in total), but students only do ${students.length * need}. Add students or shifts per student, or lower the minimums.`)
+    problems.push(t('Every place needs at least its minimum ({min} student-shifts in total), but students only do {n}. Add students or shifts per student, or lower the minimums.', { min: minimum, n: students.length * need }))
   }
   for (const o of occs) {
     if (o.min > 0 && students.filter((_, si) => allowed[si].includes(o.i)).length < o.min) {
       const shift = config.shifts.find((x) => x.id === o.shiftId)?.name ?? ''
-      problems.push(`${o.date} ${shift}: needs ${o.min} student(s) but not enough are available.`)
+      problems.push(t('{date} {shift}: needs {n} student(s) but not enough are available.', { date: o.date, shift, n: o.min }))
     }
   }
   students.forEach((s, si) => {
@@ -158,7 +159,7 @@ export function arrangeStudents(
         last = occs[oi].day
       }
     }
-    if (n < need) problems.push(`${s.name}: only ${n} of ${need} student shifts fit around their unavailable dates and ${gap}-day interval.`)
+    if (n < need) problems.push(t('{name}: only {n} of {need} shifts fit around their unavailable dates and {gap}-day gap.', { name: s.name, n, need, gap }))
   })
   if (problems.length) return { ok: false, problems }
 
@@ -194,9 +195,9 @@ export function arrangeStudents(
       for (const l of resp[si].locks) {
         const here = occs.filter((x) => x.date === l.date && x.shiftId === l.shiftId && canDo(s, x))
         const o = here.find((x) => fits(si, x.i)) ?? here[0]
-        if (!o) lockIssues.push(`${s.name}: locked to a shift students don't join on ${l.date}.`)
-        else if (resp[si].unavailable.includes(l.date)) lockIssues.push(`${s.name}: both locked and unavailable on ${l.date}.`)
-        else if (!fits(si, o.i)) lockIssues.push(`${s.name}: lock on ${l.date} clashes with another lock or a full shift.`)
+        if (!o) lockIssues.push(t('{name}: locked to a shift with no student place on {date}.', { name: s.name, date: l.date }))
+        else if (resp[si].unavailable.includes(l.date)) lockIssues.push(t('{name}: both locked and unavailable on {date}.', { name: s.name, date: l.date }))
+        else if (!fits(si, o.i)) lockIssues.push(t('{name}: lock on {date} clashes with another lock or a full shift.', { name: s.name, date: l.date }))
         else {
           add(si, o.i)
           fixed.add(`${si}:${o.i}`)
@@ -237,7 +238,7 @@ export function arrangeStudents(
   if (!placed) {
     return {
       ok: false,
-      problems: ['Could not fit every student’s shifts while giving every place its minimum. Try fewer shifts per student, more students per shift, lower minimums, or shorter student intervals.'],
+      problems: [t('Could not fit every student’s shifts while giving every place its minimum. Try fewer shifts per student, more students per shift, lower minimums, or shorter gaps.')],
     }
   }
 
@@ -398,7 +399,7 @@ export function pickPresenters(
         if (chosen.length >= today.count) break
         chosen.push(id)
       }
-      if (chosen.length < today.count) warnings.push(`${date} ${rule.name}: only ${chosen.length} of ${today.count} presenters available.`)
+      if (chosen.length < today.count) warnings.push(t('{date} {rule}: only {n} of {need} presenters available.', { date, rule: rule.name, n: chosen.length, need: today.count }))
       for (const id of chosen) {
         count.set(id, (count.get(id) ?? 0) + 1)
         presenters.push({ date, ruleId: rule.id, memberId: id, postCall: post.includes(id) })
@@ -406,7 +407,7 @@ export function pickPresenters(
     }
     if (short.length) {
       warnings.push(
-        `${rule.name}: not enough people from the previous ${shiftName} on ${short.length} day(s) (${short.slice(0, 3).join(', ')}${short.length > 3 ? '…' : ''}). Check which member types the rule allows.`,
+        t('{rule}: not enough people from the previous {shift} on {n} day(s) ({dates}). Check which member types the rule allows.', { rule: rule.name, shift: shiftName, n: short.length, dates: `${short.slice(0, 3).join(', ')}${short.length > 3 ? '…' : ''}` }),
       )
     }
   }
@@ -420,19 +421,19 @@ export function validateStudents(config: SessionConfig, responses: Record<string
   const job = (id?: string) => config.jobs.find((j) => j.id === id)?.name ?? ''
   for (const o of occs) {
     const n = students.filter((s) => s.date === o.date && s.shiftId === o.shiftId && (!o.requirementId || s.requirementId === o.requirementId)).length
-    if (n > o.cap) out.push(`${o.date}${o.jobId ? ` ${job(o.jobId)}` : ''}: ${n} students, above the limit of ${o.cap}.`)
+    if (n > o.cap) out.push(t('{place}: {n} students, above the limit of {cap}.', { place: `${o.date}${o.jobId ? ` ${job(o.jobId)}` : ''}`, n, cap: o.cap }))
   }
   for (const s of students) {
     if (!occs.some((o) => o.date === s.date && o.shiftId === s.shiftId && (!o.requirementId || !s.requirementId || o.requirementId === s.requirementId))) {
-      out.push(`${config.members.find((m) => m.id === s.memberId)?.name ?? '?'} is on ${s.date}, which has no student place.`)
+      out.push(t('{name} is on {date}, which has no student place.', { name: config.members.find((m) => m.id === s.memberId)?.name ?? '?', date: s.date }))
     }
   }
   for (const m of config.members.filter((x) => x.type === 'student')) {
     const r = studentResponse(config, responses, m.id)
     const dates = students.filter((s) => s.memberId === m.id).map((s) => s.date).sort()
-    for (const d of dates) if (r.unavailable.includes(d)) out.push(`${m.name} (student) is unavailable on ${d}.`)
+    for (const d of dates) if (r.unavailable.includes(d)) out.push(t('{name} is unavailable on {date}.', { name: m.name, date: d }))
     for (let i = 1; i < dates.length; i++) {
-      if (dayDiff(dates[i - 1], dates[i]) < r.minInterval) out.push(`${m.name} (student): ${dates[i - 1]} and ${dates[i]} are closer than ${r.minInterval} days.`)
+      if (dayDiff(dates[i - 1], dates[i]) < r.minInterval) out.push(t('{name}: {a} and {b} are closer than {gap} days.', { name: m.name, a: dates[i - 1], b: dates[i], gap: r.minInterval }))
     }
   }
   return out
@@ -597,22 +598,22 @@ export function studentCellIssues(
   const occs = studentOccs(config, [])
   for (const o of occs) {
     const here = students.filter((s) => s.date === o.date && s.shiftId === o.shiftId && (s.requirementId ?? '') === (o.requirementId ?? ''))
-    if (here.length > o.cap) add(placeKey(o), `${here.length} students here, the limit is ${o.cap}.`)
-    if (here.length < o.min) add(placeKey(o), `Needs at least ${o.min} student(s), has ${here.length}.`)
+    if (here.length > o.cap) add(placeKey(o), t('{n} students here, the limit is {cap}.', { n: here.length, cap: o.cap }))
+    if (here.length < o.min) add(placeKey(o), t('Needs at least {min} student(s), has {n}.', { min: o.min, n: here.length }))
   }
   for (const m of config.members.filter((x) => x.type === 'student')) {
     const r = studentResponse(config, responses, m.id)
     const mine = students.filter((s) => s.memberId === m.id).sort((a, b) => a.date.localeCompare(b.date))
     for (const s of mine) {
-      if (r.unavailable.includes(s.date)) add(placeKey(s), `${m.name} is unavailable this day.`)
+      if (r.unavailable.includes(s.date)) add(placeKey(s), t('{name} is unavailable this day.', { name: m.name }))
       const o = occs.find((x) => x.date === s.date && x.shiftId === s.shiftId && (x.requirementId ?? '') === (s.requirementId ?? ''))
-      if (!o) add(placeKey(s), `${m.name}: there’s no student place here.`)
-      else if (!canDo(m, o)) add(placeKey(s), `${m.name} doesn’t cover this job.`)
+      if (!o) add(placeKey(s), t('{name}: there’s no student place here.', { name: m.name }))
+      else if (!canDo(m, o)) add(placeKey(s), t('{name} doesn’t cover this job.', { name: m.name }))
     }
     for (let i = 1; i < mine.length; i++) {
       const gap = dayDiff(mine[i - 1].date, mine[i].date)
       if (gap < r.minInterval) {
-        const msg = `${m.name}: ${mine[i - 1].date} and ${mine[i].date} are closer than their ${r.minInterval}-day interval.`
+        const msg = t('{name}: {a} and {b} are closer than {gap} days.', { name: m.name, a: mine[i - 1].date, b: mine[i].date, gap: r.minInterval })
         add(placeKey(mine[i - 1]), msg)
         add(placeKey(mine[i]), msg)
       }
@@ -620,7 +621,7 @@ export function studentCellIssues(
     for (const l of r.locks) {
       if (!mine.some((s) => s.date === l.date && s.shiftId === l.shiftId)) {
         const o = occs.find((x) => x.date === l.date && x.shiftId === l.shiftId)
-        if (o) add(placeKey(o), `${m.name} locked this shift but isn’t on it.`)
+        if (o) add(placeKey(o), t('{name} locked this shift but isn’t on it.', { name: m.name }))
       }
     }
   }
@@ -630,7 +631,7 @@ export function studentCellIssues(
       for (const [shiftId, n] of quota) {
         const mine = students.filter((s) => s.memberId === m.id && s.shiftId === shiftId)
         if (mine.length !== n && mine[0]) {
-          add(placeKey(mine[0]), `${m.name} has ${mine.length} × ${config.shifts.find((x) => x.id === shiftId)?.name}, should be ${n}.`)
+          add(placeKey(mine[0]), t('{name} has {n} × {shift}, should be {need}.', { name: m.name, n: mine.length, shift: config.shifts.find((x) => x.id === shiftId)?.name ?? '', need: n }))
         }
       }
     }
@@ -641,7 +642,7 @@ export function studentCellIssues(
       const n = students.filter((s) => s.memberId === m.id).length
       if (n !== need) {
         const first = students.find((s) => s.memberId === m.id)
-        if (first) add(placeKey(first), `${m.name} has ${n} shifts, not ${need}.`)
+        if (first) add(placeKey(first), t('{name} has {n} shifts, not {need}.', { name: m.name, n, need }))
       }
     }
   }
@@ -708,7 +709,7 @@ export function studentRuleReport(config: SessionConfig, responses: Record<strin
       avoidAsked[a.level]++
       if (mine.some((s) => s.date === a.date)) {
         avoidHits[a.level]++
-        notes.push(`${m.name} is on ${a.date}, which they asked to avoid (${['', 'light', 'medium', 'strong'][a.level]}).`)
+        notes.push(t('{name} is on {date}, which they asked to avoid ({level}).', { name: m.name, date: a.date, level: '!'.repeat(a.level) }))
       }
     }
     const met = new Map<string, number>()
@@ -724,26 +725,30 @@ export function studentRuleReport(config: SessionConfig, responses: Record<strin
     }
     for (const [w, n] of met) {
       if (n < 2) continue
-      if (type(w) === 'resident' && st.avoidRepeatResident) repeats.push(`${m.name} meets resident ${name(w)} ${n} times.`)
-      if (type(w) === 'staff' && st.avoidRepeatStaff) repeats.push(`${m.name} meets ${name(w)} ${n} times.`)
+      if (type(w) === 'resident' && st.avoidRepeatResident) repeats.push(t('{name} meets resident {other} {n} times.', { name: m.name, other: name(w), n }))
+      if (type(w) === 'staff' && st.avoidRepeatStaff) repeats.push(t('{name} meets {other} {n} times.', { name: m.name, other: name(w), n }))
     }
     if (mine.length > 1 && !withSomeone) alone++
   }
   if (st.avoidRepeatPartner) {
     for (const [key, n] of pairs) {
       // Each shared shift is counted from both sides.
-      if (n / 2 >= 2) repeats.push(`${key.split('|').map(name).join(' and ')} share ${n / 2} shifts.`)
+      if (n / 2 >= 2) repeats.push(t('{a} and {b} share {n} shifts.', { a: name(key.split('|')[0]), b: name(key.split('|')[1]), n: n / 2 }))
     }
   }
   const summary: string[] = []
   const asked = avoidAsked[1] + avoidAsked[2] + avoidAsked[3]
   if (asked) {
     const hits = avoidHits[1] + avoidHits[2] + avoidHits[3]
-    summary.push(hits ? `${hits} of ${asked} avoid requests not met (strong ${avoidHits[3]}, medium ${avoidHits[2]}, light ${avoidHits[1]})` : `all ${asked} avoid requests met`)
+    summary.push(
+      hits
+        ? t('{hits} of {asked} avoid requests not met (!!! {a}, !! {b}, ! {c})', { hits, asked, a: avoidHits[3], b: avoidHits[2], c: avoidHits[1] })
+        : `✅ ${t('all {n} avoid requests met', { n: asked })}`,
+    )
   }
   const checked = [st.avoidRepeatResident && 'residents', st.avoidRepeatStaff && 'staff', st.avoidRepeatPartner && 'student pairs'].filter(Boolean)
-  if (checked.length) summary.push(repeats.length ? `${repeats.length} repeat(s)` : `no repeated ${checked.join(', ')}`)
-  if (st.wantPartner) summary.push(alone ? `${alone} student(s) alone on every shift` : 'everyone has a partner at least once')
+  if (checked.length) summary.push(repeats.length ? `⚠️ ${t('{n} repeat(s)', { n: repeats.length })}` : `✅ ${t('no repeats ({what})', { what: checked.map((c) => t(c as string)).join(', ') })}`)
+  if (st.wantPartner) summary.push(alone ? `⚠️ ${t('{n} student(s) alone on every shift', { n: alone })}` : `✅ ${t('everyone has a partner at least once')}`)
   return { summary, details: [...notes, ...repeats], avoidHits, repeats: repeats.length, alone }
 }
 
@@ -753,8 +758,8 @@ export function studentSummaryTable(config: SessionConfig, roster: { assignments
   const type = (id: string) => config.members.find((m) => m.id === id)?.type
   const students = config.members.filter((m) => m.type === 'student')
   const most = Math.max(0, ...students.map((m) => roster.students.filter((s) => s.memberId === m.id).length))
-  const header = ['Student', 'Shifts']
-  for (let i = 1; i <= most; i++) header.push(`Shift ${i} date`, 'Day', 'Shift', 'With', 'Resident', 'Staff')
+  const header = [t('Student'), t('Shifts')]
+  for (let i = 1; i <= most; i++) header.push(t('Shift {i} date', { i }), t('Day'), t('Shift'), t('With'), t('Resident'), t('Staff'))
   const rows = students.map((m) => {
     const mine = roster.students.filter((s) => s.memberId === m.id).sort((a, b) => a.date.localeCompare(b.date))
     const row = [m.name, String(mine.length)]
@@ -769,7 +774,7 @@ export function studentSummaryTable(config: SessionConfig, roster: { assignments
       const mates = roster.students.filter((x) => x.date === s.date && x.shiftId === s.shiftId && x.memberId !== m.id).map((x) => name(x.memberId))
       row.push(
         s.date,
-        ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][weekday(s.date)],
+        weekdayShort()[weekday(s.date)],
         shift ? `${shift.name} (${shift.start}–${shift.end})` : '',
         mates.join(', ') || '-',
         on.filter((w) => type(w) === 'resident').map(name).join(', ') || '-',

@@ -1,4 +1,5 @@
 // "Add to calendar": choose whose shifts, the event name, colour and which Google calendar.
+import { t } from '../shared/i18n.ts'
 import { useMemo, useState } from 'react'
 import {
   addToGoogleCalendar,
@@ -42,15 +43,13 @@ export default function CalendarExport({ session, me, roster }: SessionProps & {
   return (
     <details className="calexport">
       <summary>
-        <strong>Add to calendar</strong> <span className="muted small">Google Calendar, Apple, Outlook</span>
+        <strong>{t("Add to calendar")}</strong> <span className="muted small">{t("Google Calendar, Apple, Outlook")}</span>
       </summary>
       <div className="stack">
         <div className="row wrap">
-          <label>
-            Whose shifts
-            <select value={who} onChange={(e) => setWho(e.target.value)}>
-              {me.memberId && <option value={me.memberId}>Mine</option>}
-              <option value="all">Everyone</option>
+          <label>{t("Whose shifts")} <select value={who} onChange={(e) => setWho(e.target.value)}>
+              {me.memberId && <option value={me.memberId}>{t("Mine")}</option>}
+              <option value="all">{t("Everyone")}</option>
               {config.members
                 .filter((m) => m.id !== me.memberId)
                 .map((m) => (
@@ -60,17 +59,13 @@ export default function CalendarExport({ session, me, roster }: SessionProps & {
                 ))}
             </select>
           </label>
-          <label className="grow">
-            Event name
-            <input value={template} onChange={(e) => setTemplate(e.target.value)} />
+          <label className="grow">{t("Event name")} <input value={template} onChange={(e) => setTemplate(e.target.value)} />
           </label>
         </div>
-        <p className="muted small">
-          Use {'{shift}'} {'{job}'} {'{name}'} {'{roster}'}. Example: <strong>{events[0]?.title ?? '—'}</strong> · {events.length} event(s)
-        </p>
+        <p className="muted small">{t("Use")} {t("{shift}")} {t("{job}")} {t("{name}")} {t("{roster}")}{t(". Example:")} <strong>{events[0]?.title ?? '—'}</strong>· {events.length} {t("event(s)")}</p>
         <div>
-          <span className="small">Colour</span>
-          <div className="swatches" role="radiogroup" aria-label="Event colour">
+          <span className="small">{t("Colour")}</span>
+          <div className="swatches" role="radiogroup" aria-label={t("Event colour")}>
             {GOOGLE_COLORS.map((c) => (
               <button
                 key={c.id}
@@ -91,27 +86,21 @@ export default function CalendarExport({ session, me, roster }: SessionProps & {
           {GOOGLE_CLIENT_ID ? (
             <>
               {calendars ? (
-                <label>
-                  Calendar
-                  <select value={target} onChange={(e) => setTarget(e.target.value)}>
-                    <option value="new">New calendar…</option>
+                <label>{t("Calendar")} <select value={target} onChange={(e) => setTarget(e.target.value)}>
+                    <option value="new">{t("New calendar…")}</option>
                     {calendars.map((c) => (
                       <option key={c.id} value={c.id}>
                         {c.summary}
-                        {c.primary ? ' (main)' : ''}
+                        {c.primary ? t(" (main)") : ''}
                       </option>
                     ))}
                   </select>
                 </label>
               ) : (
-                <button disabled={busy !== null} onClick={run('list', async () => setCalendars(await listGoogleCalendars()))}>
-                  Connect Google Calendar
-                </button>
+                <button disabled={busy !== null} onClick={run('list', async () => setCalendars(await listGoogleCalendars()))}>{t("🔗 Connect Google Calendar")}</button>
               )}
               {calendars && target === 'new' && (
-                <label>
-                  New calendar name
-                  <input value={newName} onChange={(e) => setNewName(e.target.value)} />
+                <label>{t("New calendar name")} <input value={newName} onChange={(e) => setNewName(e.target.value)} />
                 </label>
               )}
               {calendars && (
@@ -120,36 +109,32 @@ export default function CalendarExport({ session, me, roster }: SessionProps & {
                   disabled={busy !== null || events.length === 0}
                   onClick={run('add', async () => {
                     const n = await addToGoogleCalendar(events, target === 'new' ? { newName: newName || config.title } : { calendarId: target }, color, (d) =>
-                      setBusy(`Adding ${d}/${events.length}…`),
+                      setBusy(t('Adding {d}/{n}…', { d, n: events.length })),
                     )
-                    return `Added ${n} event(s) to Google Calendar.`
+                    return t('Added {n} event(s) to Google Calendar.', { n })
                   })}
                 >
-                  {busy?.startsWith('Adding') ? busy : `Add ${events.length} event(s)`}
+                  {busy && busy !== 'add' && busy !== 'list' && busy !== 'ics' && busy !== 'csv' ? busy : `📅 ${t('Add {n} event(s)', { n: events.length })}`}
                 </button>
               )}
             </>
           ) : (
-            <p className="muted small">
-              Direct Google Calendar sync isn’t set up on this server, so colour and calendar are chosen when you import the file.
-            </p>
+            <p className="muted small">{t(
+              "Direct Google Calendar sync isn’t set up on this server, so colour and calendar are chosen when you import the file."
+            )}</p>
           )}
         </div>
         <div className="row wrap">
           {!IN_ARTIFACT && (
-            <button disabled={events.length === 0} onClick={run('ics', () => exportIcs(config, events, newName || config.title))}>
-              Download .ics (Apple, Outlook, Google)
-            </button>
+            <button disabled={events.length === 0} onClick={run('ics', () => exportIcs(config, events, newName || config.title))}>{t("⬇️ Download .ics (Apple, Outlook, Google)")}</button>
           )}
-          <button disabled={events.length === 0} onClick={run('csv', () => exportGoogleCalendarCsv(config, events))}>
-            Google Calendar CSV
-          </button>
+          <button disabled={events.length === 0} onClick={run('csv', () => exportGoogleCalendarCsv(config, events))}>{t("⬇️ Google Calendar CSV")}</button>
         </div>
-        <p className="muted small">
-          To import a file into Google Calendar: on a computer, open Settings → Import &amp; export → Import, and choose which calendar it goes into.
-        </p>
+        <p className="muted small">{t(
+          "To import a file into Google Calendar: on a computer, open Settings → Import & export → Import, and choose which calendar it goes into."
+        )}</p>
         {msg && <p className="small">{msg}</p>}
       </div>
     </details>
-  )
+  );
 }

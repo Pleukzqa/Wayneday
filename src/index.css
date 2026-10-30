@@ -17,7 +17,7 @@
   --weekend: #faf6ee;
   --mine: #fff4c2;
   --radius: 10px;
-  font-family: 'Inter', 'Noto Sans Thai', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-family: 'IBM Plex Sans Thai', 'Noto Sans Thai', system-ui, -apple-system, 'Segoe UI', sans-serif;
   color: var(--text);
   background: var(--bg);
   line-height: 1.45;
@@ -1184,4 +1184,112 @@ button.chip-btn.picked:hover:not(:disabled) {
 .rules-check ul {
   margin: 0;
   padding-left: 1.1rem;
+}
+
+.segmented button.lvl-0.on {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+.segmented.levels {
+  flex-wrap: wrap;
+}
+.howto {
+  margin: 0;
+  padding-left: 1.1rem;
+  color: var(--muted);
+}
+
+.topbar-right {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+.segmented.lang button {
+  padding: 0.25rem 0.6rem;
+  font-size: 0.85rem;
+}
+
+/* host checklist */
+.next-steps {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.6rem 1rem;
+}
+.next-steps summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.next-steps ol {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.2rem;
+}
+.next-steps li {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+.next-steps li.done button {
+  color: var(--muted);
+  text-decoration: none;
+}
+.next-steps li.now button {
+  font-weight: 600;
+}
+
+/* setup jump chips */
+.jump {
+  display: flex;
+  gap: 0.4rem;
+  overflow-x: auto;
+  padding-bottom: 0.2rem;
+  position: sticky;
+  top: calc(env(safe-area-inset-top, 0px) + 3.3rem);
+  z-index: 4;
+  background: var(--bg);
+  padding-block: 0.4rem;
+}
+.jump-chip {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  white-space: nowrap;
+  padding: 0.3rem 0.7rem;
+  font-size: 0.85rem;
+}
+h2[id] {
+  scroll-margin-top: 7rem;
+}
+
+/* home */
+.hero-kicker {
+  font-weight: 600;
+  color: var(--accent);
+  letter-spacing: 0.02em;
+}
+.hero h1 {
+  text-wrap: balance;
+}
+.how {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 0.75rem;
+  counter-reset: step;
+}
+.how li {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.9rem 1rem;
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+.how-icon {
+  font-size: 1.5rem;
 }

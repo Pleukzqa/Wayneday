@@ -1,4 +1,5 @@
 import type { Ref } from 'react'
+import { t } from '../shared/i18n.ts'
 import { cellIds, cellNames, columnsFor } from '../export.ts'
 import { reqCount } from '../shared/calendar.ts'
 import { dateRange, shortDate, weekday } from '../shared/dates.ts'
@@ -49,7 +50,7 @@ export default function RosterTable({ config, roster, myId, onEdit, onEditStuden
       <table className="roster">
         <thead>
           <tr>
-            <th className="sticky">Date</th>
+            <th className="sticky">{t("Date")}</th>
             {cols.map((c) => (
               <th key={c.key} className={c.kind === 'duty' ? 'duty-col' : c.kind !== 'position' ? 'extra-col' : ''}>
                 {c.title}
@@ -66,7 +67,7 @@ export default function RosterTable({ config, roster, myId, onEdit, onEditStuden
                 <th className="sticky nowrap">
                   {shortDate(date)}
                   {holidays.has(date) && <span className="tiny"> ★</span>}
-                  {config.overrides.some((o) => o.date === date) && <span className="tiny" title="Changed from the weekly pattern"> ✎</span>}
+                  {config.overrides.some((o) => o.date === date) && <span className="tiny" title={t("Changed from the weekly pattern")}> ✎</span>}
                 </th>
                 {cols.map((c) => {
                   const names = cellNames(config, roster, c, date)
@@ -132,10 +133,10 @@ export default function RosterTable({ config, roster, myId, onEdit, onEditStuden
                             </button>
                           )
                         })}
-                        {here.length < cap && <span className={`slot ${target ? 'slot-ok' : ''}`}>{target ? 'move here' : '—'}</span>}
+                        {here.length < cap && <span className={`slot ${target ? 'slot-ok' : ''}`}>{target ? t("move here") : '—'}</span>}
                         {problems && <span className="issue-text">{problems[0]}</span>}
                       </td>
-                    )
+                    );
                   }
                   if (c.kind !== 'position') {
                     return (
@@ -152,12 +153,12 @@ export default function RosterTable({ config, roster, myId, onEdit, onEditStuden
                             {nameOf(id)}
                             {c.kind === 'presenters' &&
                               roster.presenters.find((p) => p.date === date && p.ruleId === c.ruleId && p.memberId === id)?.postCall && (
-                                <span title="Was on last night’s shift"> ●</span>
+                                <span title={t("Was on last night’s shift")}> ●</span>
                               )}
                           </span>
                         ))}
                       </td>
-                    )
+                    );
                   }
                   const shift = config.shifts.find((s) => s.id === c.shiftId)!
                   const req = shift.requirements.find((r) => r.id === c.requirementId)!
@@ -199,22 +200,22 @@ export default function RosterTable({ config, roster, myId, onEdit, onEditStuden
                         }
                         return (
                           <span key={k} className={`who-chip ${a?.memberId === myId ? 'mine' : ''} ${a ? '' : 'empty'}`}>
-                            {a ? nameOf(a.memberId) : 'unfilled'}
+                            {a ? nameOf(a.memberId) : t("unfilled")}
                             {a && swapOpen.some((s) => s.memberId === a.memberId && s.date === date && s.shiftId === c.shiftId) && (
-                              <span title="Swap requested"> ⇄</span>
+                              <span title={t("Swap requested")}> ⇄</span>
                             )}
                           </span>
-                        )
+                        );
                       })}
                     </td>
-                  )
+                  );
                 })}
               </tr>
-            )
+            );
           })}
         </tbody>
       </table>
     </div>
-  )
+  );
 }
 

@@ -2,9 +2,20 @@ import { lazy, Suspense, useEffect, useState } from 'react'
 import Home from './pages/Home.tsx'
 import SessionPage from './pages/SessionPage.tsx'
 import { codeFromHash, IS_DEMO } from './routes.ts'
+import { setLang, type Lang } from './shared/i18n.ts'
 
 // Only bundled into the phone demo build.
 const DemoBar = IS_DEMO ? lazy(() => import('./demo/DemoBar.tsx')) : null
+
+function initialLang(): Lang {
+  try {
+    const saved = localStorage.getItem('wayneday:lang')
+    if (saved === 'th' || saved === 'en') return saved
+  } catch {
+    // no storage: fall through
+  }
+  return navigator.language.toLowerCase().startsWith('th') ? 'th' : 'en'
+}
 
 function useHash() {
   const [hash, setHash] = useState(location.hash)
@@ -21,6 +32,19 @@ export default function App() {
   const code = codeFromHash(hash)
   // Bumped by the demo's identity switcher to reload the session as someone else.
   const [viewer, setViewer] = useState(0)
+  const [lang, setLangState] = useState<Lang>(initialLang)
+  setLang(lang)
+  useEffect(() => {
+    document.documentElement.lang = lang
+  }, [lang])
+  const switchLang = (l: Lang) => {
+    setLangState(l)
+    try {
+      localStorage.setItem('wayneday:lang', l)
+    } catch {
+      // this tab only
+    }
+  }
   return (
     <>
       <header className="topbar">
@@ -30,7 +54,16 @@ export default function App() {
           </span>
           Wayneday <span className="brand-sub">แอปจัดเวร</span>
         </a>
-        {code && <span className="code-pill">{code}</span>}
+        <div className="topbar-right">
+          {code && <span className="code-pill">{code}</span>}
+          <div className="segmented lang" role="radiogroup" aria-label="Language / ภาษา">
+            {(['th', 'en'] as const).map((l) => (
+              <button key={l} role="radio" aria-checked={lang === l} className={lang === l ? 'on' : ''} onClick={() => switchLang(l)}>
+                {l === 'th' ? 'ไทย' : 'EN'}
+              </button>
+            ))}
+          </div>
+        </div>
       </header>
       <main className="page">{code ? <SessionPage key={`${code}:${viewer}`} code={code} /> : <Home />}</main>
       {DemoBar && (

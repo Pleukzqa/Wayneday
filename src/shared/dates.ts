@@ -1,3 +1,5 @@
+import { weekdayShort } from './i18n.ts'
+
 // Calendar helpers on plain YYYY-MM-DD strings, computed in UTC so time zones never shift a date.
 
 const DAY_MS = 86_400_000
@@ -39,5 +41,5 @@ export const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 export function shortDate(s: string): string {
   const d = new Date(parseDate(s))
-  return `${WEEKDAYS[d.getUTCDay()]} ${d.getUTCDate()}/${d.getUTCMonth() + 1}`
+  return `${weekdayShort()[d.getUTCDay()]} ${d.getUTCDate()}/${d.getUTCMonth() + 1}`
 }

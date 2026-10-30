@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { api } from '../api.ts'
+import { t } from '../shared/i18n.ts'
 import { exportCsv, exportPng, exportToDrive, exportXlsx, GOOGLE_CLIENT_ID, personTable } from '../export.ts'
 import { findArrangements, rearrangeStudents } from '../runSolver.ts'
 import { buildAiPrompt, importAiResult } from '../shared/ai.ts'
@@ -34,8 +35,8 @@ interface Preview {
 function useNow(ms = 30_000) {
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), ms)
-    return () => clearInterval(t)
+    const timer = setInterval(() => setNow(Date.now()), ms)
+    return () => clearInterval(timer)
   }, [ms])
   return now
 }
@@ -43,24 +44,24 @@ function useNow(ms = 30_000) {
 function duration(ms: number) {
   const h = Math.floor(ms / 3_600_000)
   const m = Math.floor((ms % 3_600_000) / 60_000)
-  return h >= 24 ? `${Math.floor(h / 24)}d ${h % 24}h` : `${h}h ${m}m`
+  return h >= 24 ? t('{d}d {h}h', { d: Math.floor(h / 24), h: h % 24 }) : t('{h}h {m}m', { h, m })
 }
 
 const rosterOf = (s: Schedule): Roster => ({ assignments: s.assignments, students: s.students, presenters: s.presenters })
 
-function countText(c: CountResult, shown: number, what: string): string {
+function countText(c: CountResult, shown: number): string {
   if (c.exact) {
-    if (c.count === 0) return `No possible ${what}.`
+    if (c.count === 0) return t('No possible arrangement.')
     return c.count <= shown
-      ? `There ${c.count === 1 ? `is exactly 1 possible ${what}` : `are exactly ${c.count.toLocaleString()} possible ${what}s`} — all shown below.`
-      : `There are exactly ${c.count.toLocaleString()} possible ${what}s. Showing the ${shown} best.`
+      ? t('There are exactly {n} possible arrangement(s) — all shown below.', { n: c.count.toLocaleString() })
+      : t('There are exactly {n} possible arrangements. Showing the {k} best.', { n: c.count.toLocaleString(), k: shown })
   }
   // A very tight setup can defeat the random estimate; then all we know is that the options shown exist.
   if (!Number.isFinite(c.log10) || 10 ** c.log10 < shown * 2) {
-    return `There are at least ${shown} possible ${what}s — too many combinations to count exactly. Showing the ${shown} best distinct ones.`
+    return t('There are at least {k} possible arrangements — too many combinations to count exactly. Showing the {k} best distinct ones.', { k: shown })
   }
-  const approx = c.log10 < 15 ? `about ${Number((10 ** c.log10).toPrecision(2)).toLocaleString()}` : `about 10^${Math.round(c.log10)}`
-  return `There are ${approx} possible ${what}s (estimated — too many to list). Showing the ${shown} best distinct ones.`
+  const approx = t('about {n}', { n: c.log10 < 15 ? Number((10 ** c.log10).toPrecision(2)).toLocaleString() : `10^${Math.round(c.log10)}` })
+  return t('There are {approx} possible arrangements (estimated — too many to list). Showing the {k} best distinct ones.', { approx, k: shown })
 }
 
 /** One-line fairness summary of a roster, for comparing options. */
@@ -72,22 +73,24 @@ function summary(config: SessionConfig, roster: Roster, responses: Record<string
       const ids = config.members.filter((m) => m.type === type).map((m) => m.id)
       if (!ids.length) continue
       const totals = ids.map((id) => roster.assignments.filter((a) => a.memberId === id).length)
-      parts.push(`${type === 'resident' ? 'Residents' : 'Staff'} ${Math.min(...totals)}–${Math.max(...totals)}`)
+      parts.push(t(type === 'resident' ? 'Residents {a}–{b}' : 'Staff {a}–{b}', { a: Math.min(...totals), b: Math.max(...totals) }))
     }
     const workers = config.members.filter((m) => m.type !== 'student').map((m) => m.id)
     const wk = workers.map((id) => roster.assignments.filter((a) => a.memberId === id && isWeekend(a.date)).length)
-    if (wk.length) parts.push(`weekends ${Math.min(...wk)}–${Math.max(...wk)}`)
+    if (wk.length) parts.push(t('weekends {a}–{b}', { a: Math.min(...wk), b: Math.max(...wk) }))
   } else {
     const ids = config.members.filter((m) => m.type === 'student').map((m) => m.id)
     const wk = ids.map((id) => roster.students.filter((s) => s.memberId === id && isWeekend(s.date)).length)
-    if (wk.length && wk.some((n) => n > 0)) parts.push(`student weekends ${Math.min(...wk)}–${Math.max(...wk)}`)
+    if (wk.length && wk.some((n) => n > 0)) parts.push(t('student weekends {a}–{b}', { a: Math.min(...wk), b: Math.max(...wk) }))
     parts.push(...studentRuleReport(config, responses, roster).summary)
   }
   if (roster.students.length) {
     const exp = studentExposure(config, roster.assignments, roster.students)
     for (const type of ['resident', 'staff'] as const) {
       const xs = config.members.filter((m) => m.type === type).map((m) => exp[m.id] ?? 0)
-      if (xs.some((x) => x > 0)) parts.push(`students with ${type === 'resident' ? 'residents' : 'staff'} ${Math.min(...xs)}–${Math.max(...xs)}`)
+      if (xs.some((x) => x > 0)) {
+        parts.push(t(type === 'resident' ? 'students with residents {a}–{b}' : 'students with staff {a}–{b}', { a: Math.min(...xs), b: Math.max(...xs) }))
+      }
     }
   }
   return parts.join(' · ')
@@ -123,14 +126,13 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
   const inReview = schedule?.status === 'review' && now < schedule.reviewUntil
   const hasStudents = config.members.some((m) => m.type === 'student')
   const hospital = config.rosterMode === 'hospital'
-  const what = hospital ? 'student arrangement' : 'arrangement'
   // Hospital mode: the published roster should carry the hospital roster as it now stands in Setup.
   const dutyKey = (xs: { date: string; shiftId: string; requirementId: string; memberId: string }[]) =>
     xs.map((a) => `${a.date}|${a.shiftId}|${a.requirementId}|${a.memberId}`).sort().join(',')
   const dutyChanged = hospital && schedule !== null && dutyKey(schedule.assignments) !== dutyKey(config.duty)
 
   async function find() {
-    setRunning('Finding arrangements…')
+    setRunning('find')
     setProblems(null)
     setError(null)
     try {
@@ -145,7 +147,7 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
         setOptions(null)
         setCount(null)
         setPreview(null)
-        setProblems(r.result.ok ? ['No arrangement found.'] : r.result.problems)
+        setProblems(r.result.ok ? [t('No arrangement found.')] : r.result.problems)
       }
     } catch (e) {
       setError((e as Error).message)
@@ -156,7 +158,7 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
 
   async function studentsOnly() {
     if (!shown) return
-    setRunning('Arranging students…')
+    setRunning('students')
     setError(null)
     try {
       const r = await rearrangeStudents(config, responses, shown.assignments, seed)
@@ -177,13 +179,13 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
   async function publish(roster: Roster, source: Schedule['source'], status: Schedule['status'], keepReview = false) {
     setError(null)
     try {
-      const t = Date.now()
+      const at = Date.now()
       await mutate(() =>
         api.saveSchedule(code, {
           status,
           ...roster,
-          generatedAt: t,
-          reviewUntil: keepReview && schedule ? schedule.reviewUntil : t + reviewHours * 3_600_000,
+          generatedAt: at,
+          reviewUntil: keepReview && schedule ? schedule.reviewUntil : at + reviewHours * 3_600_000,
           source,
         }),
       )
@@ -275,33 +277,27 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
     <div className="stack">
       {me.isHost && (
         <section className="card">
-          <h2>{hospital ? 'Arrange students' : 'Generate'}</h2>
+          <h2>✨ {hospital ? t('Arrange students') : t('Generate')}</h2>
           {hospital && (
-            <p className="muted small">
-              Residents and staff come from the hospital roster you entered in Setup ({config.duty.length} shifts). Wayneday arranges the students
-              {config.presentations.length ? ' and presenters' : ''} around it.
-            </p>
+            <p className="muted small">{t("Residents and staff come from the hospital roster you entered in Setup (")}{config.duty.length} {t("shifts). Wayneday arranges the students")} {config.presentations.length ? t(" and presenters") : ''} {t("around it.")}</p>
           )}
-          {hospital && config.duty.length === 0 && <p className="small warn-text">Enter the hospital roster in Setup first.</p>}
+          {hospital && config.duty.length === 0 && <p className="small warn-text">{t("Enter the hospital roster in Setup first.")}</p>}
           {missingAnswers.length > 0 && (
-            <p className="muted small">
-              Waiting on {missingAnswers.length}: {missingAnswers.map((m) => m.name).join(', ')}. They’ll get default preferences if you
-              generate now.
-            </p>
+            <p className="muted small">{t("Waiting on")} {missingAnswers.length}: {missingAnswers.map((m) => m.name).join(', ')}{t(". They’ll get default preferences if you generate now.")}</p>
           )}
           <div className="row wrap">
             <button className="primary" disabled={running !== null || (hospital && config.duty.length === 0)} onClick={() => void find()}>
-              {running?.startsWith('Finding') ? running : options ? 'Find different arrangements' : 'Find arrangements'}
+              {running === 'find' ? `⏳ ${t('Finding arrangements…')}` : options ? `🔄 ${t('Find different arrangements')}` : `✨ ${t('Find arrangements')}`}
             </button>
             {!hospital && hasStudents && shown && (
-              <button disabled={running !== null} onClick={() => void studentsOnly()} title="Keep residents and staff exactly as they are">
-                {running?.startsWith('Arranging') ? running : 'Re-arrange students & presenters only'}
+              <button disabled={running !== null} onClick={() => void studentsOnly()} title={t("Keep residents and staff exactly as they are")}>
+                {running === 'students' ? `⏳ ${t('Arranging students…')}` : `🎲 ${t('Re-arrange students & presenters only')}`}
               </button>
             )}
           </div>
-          {count && options && <p className="small count-line">{countText(count, options.length, what)}</p>}
+          {count && options && <p className="small count-line">{countText(count, options.length)}</p>}
           {options && options.length > 0 && (
-            <div className="options" role="radiogroup" aria-label="Arrangements">
+            <div className="options" role="radiogroup" aria-label={t("Arrangements")}>
               {options.map((o, i) => {
                 const on = (preview?.base ?? preview?.roster) === o.roster
                 return (
@@ -317,40 +313,31 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
                       setEdit(null)
                     }}
                   >
-                    <strong>
-                      Option {i + 1}
-                      {i === 0 ? ' · fairest' : ''}
+                    <strong>{t("Option")} {i + 1}
+                      {i === 0 ? t(" · fairest") : ''}
                     </strong>
                     <span className="small muted">{summary(config, o.roster, responses)}</span>
-                    {i > 0 && <span className="small">{differs(options[0].roster, o.roster)} shifts differ from option 1</span>}
+                    {i > 0 && <span className="small">{differs(options[0].roster, o.roster)} {t("shifts differ from option 1")}</span>}
                   </button>
-                )
+                );
               })}
             </div>
           )}
           {preview && (
             <div className="row wrap">
-              <label className="inline">
-                Concern period
-                <input type="number" min={0} max={720} value={reviewHours} onChange={(e) => setReviewHours(Math.max(0, Number(e.target.value)))} />
-                hours
-              </label>
-              <button className="primary" onClick={() => void publish(preview.roster, preview.source, 'review')}>
-                Publish for review
-              </button>
+              <label className="inline">{t("Concern period")} <input type="number" min={0} max={720} value={reviewHours} onChange={(e) => setReviewHours(Math.max(0, Number(e.target.value)))} /> {t("hours")}</label>
+              <button className="primary" onClick={() => void publish(preview.roster, preview.source, 'review')}>{t("📢 Publish for review")}</button>
               <button
                 onClick={() => {
                   setPreview(null)
                   setOptions(null)
                 }}
-              >
-                Discard preview
-              </button>
+              >{t("Discard preview")}</button>
             </div>
           )}
           {problems && (
             <div className="alert">
-              <strong>No possible arrangement.</strong>
+              <strong>{t("No possible arrangement.")}</strong>
               <ul>
                 {problems.map((p) => (
                   <li key={p}>{p}</li>
@@ -359,10 +346,7 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
             </div>
           )}
           {preview && (
-            <p className="muted small">
-              Previewing a {preview.source === 'ai' ? 'AI-made' : preview.source === 'manual' ? 'edited' : 'generated'} roster — nobody else sees it until
-              you publish.
-              {preview.notes.map((n) => (
+            <p className="muted small">{t("Previewing a")} {preview.source === 'ai' ? t("AI-made") : preview.source === 'manual' ? t("edited") : t("generated")} {t("roster — nobody else sees it until you publish.")} {preview.notes.map((n) => (
                 <span key={n} className="block">
                   {n}
                 </span>
@@ -380,86 +364,72 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
           />
         </section>
       )}
-
       {schedule && !preview && (
         <section className={`card status ${schedule.status}`}>
           {schedule.status === 'final' ? (
             <p>
-              <strong>Final roster.</strong> Published {new Date(schedule.generatedAt).toLocaleString()}. Swaps still go through the host.
-            </p>
+              <strong>{t("Final roster.")}</strong> {t("Published")} {new Date(schedule.generatedAt).toLocaleString()}{t(". Swaps still go through the host.")}</p>
           ) : inReview ? (
             <p>
-              <strong>In review</strong> — raise concerns or ask for swaps for the next {duration(schedule.reviewUntil - now)} (until{' '}
+              <strong>{t("In review")}</strong> {t("— raise concerns or ask for swaps for the next")} {duration(schedule.reviewUntil - now)} {t("(until")}{' '}
               {new Date(schedule.reviewUntil).toLocaleString()}).
-            </p>
+                          </p>
           ) : (
             <p>
-              <strong>Review period ended.</strong> {me.isHost ? 'Address the concerns, then finalize.' : 'Waiting for the host to finalize.'}
+              <strong>{t("Review period ended.")}</strong> {me.isHost ? t("Address the concerns, then finalize.") : t("Waiting for the host to finalize.")}
             </p>
           )}
-          {me.memberId && <p className="muted small">Tap one of your own shifts to ask for a swap{inReview ? ', or any other cell to raise a concern about that date' : ''}.</p>}
+          {me.memberId && <p className="muted small">{t("Tap one of your own shifts to ask for a swap")}{inReview ? t(", or any other cell to raise a concern about that date") : ''}.</p>}
           {me.isHost && (
             <div className="row wrap">
               {schedule.status === 'review' && (
-                <button className="primary" onClick={() => void setStatus({ status: 'final' })}>
-                  Finalize
-                </button>
+                <button className="primary" onClick={() => void setStatus({ status: 'final' })}>{t("✅ Finalize")}</button>
               )}
               {schedule.status === 'review' && (
-                <button onClick={() => void setStatus({ reviewUntil: Math.max(now, schedule.reviewUntil) + 24 * 3_600_000 })}>
-                  Extend review 24h
-                </button>
+                <button onClick={() => void setStatus({ reviewUntil: Math.max(now, schedule.reviewUntil) + 24 * 3_600_000 })}>{t("⏳ Extend review 24h")}</button>
               )}
               {schedule.status === 'final' && (
-                <button onClick={() => void setStatus({ status: 'review', reviewUntil: now + 24 * 3_600_000 })}>Reopen for review</button>
+                <button onClick={() => void setStatus({ status: 'review', reviewUntil: now + 24 * 3_600_000 })}>{t("Reopen for review")}</button>
               )}
               {!edit ? (
-                <button onClick={() => setEdit(rosterOf(schedule))}>{hospital ? 'Edit students' : 'Edit cells'}</button>
+                <button onClick={() => setEdit(rosterOf(schedule))}>{hospital ? t("Edit students") : t("Edit cells")}</button>
               ) : (
                 <>
-                  <button className="primary" onClick={() => void publish(edit, 'manual', schedule.status, true)}>
-                    Save edits
-                  </button>
-                  <button onClick={() => setEdit(null)}>Cancel edits</button>
+                  <button className="primary" onClick={() => void publish(edit, 'manual', schedule.status, true)}>{t("💾 Save edits")}</button>
+                  <button onClick={() => setEdit(null)}>{t("Cancel edits")}</button>
                 </>
               )}
               <ConfirmButton
                 className="link danger"
-                confirmText="Tap again to delete (answers stay)"
+                confirmText={t("Tap again to delete (answers stay)")}
                 onConfirm={() => void mutate(() => api.saveSchedule(code, null))}
-              >
-                Delete roster
-              </ConfirmButton>
+              >{t("Delete roster")}</ConfirmButton>
             </div>
           )}
         </section>
       )}
-
       {error && <p className="error">{error}</p>}
       {me.isHost && dutyChanged && !preview && (
-        <div className="alert warn">
-          The hospital roster in Setup has changed since you published.{' '}
-          <button onClick={() => void publish({ ...rosterOf(schedule!), assignments: config.duty }, 'manual', schedule!.status, true)}>
-            Use the new hospital roster
-          </button>{' '}
-          <span className="small">(students stay where they are — find arrangements again if they should move)</span>
+        <div className="alert warn">{t("The hospital roster in Setup has changed since you published.")}{' '}
+          <button onClick={() => void publish({ ...rosterOf(schedule!), assignments: config.duty }, 'manual', schedule!.status, true)}>{t("Use the new hospital roster")}</button>{' '}
+          <span className="small">{t(
+            "(students stay where they are — find arrangements again if they should move)"
+          )}</span>
         </div>
       )}
-
       {schedule && !preview && <Swaps {...{ code, session, me, mutate }} draft={swapDraft} clearDraft={() => setSwapDraft(null)} />}
-
       {!shown ? (
-        <p className="muted">{me.isHost ? 'Tap “Find arrangements” to see the possible rosters.' : 'The host hasn’t published a roster yet.'}</p>
+        <p className="muted">{me.isHost ? t("Tap “Find arrangements” to see the possible rosters.") : t("The host hasn’t published a roster yet.")}</p>
       ) : (
         <>
           {violations.length > 0 && (
             <div className="alert warn">
-              <strong>{violations.length} rule {violations.length === 1 ? 'issue' : 'issues'}</strong>
+              <strong>{violations.length} {t("rule")} {violations.length === 1 ? t("issue") : t("issues")}</strong>
               <ul>
                 {violations.slice(0, 12).map((v) => (
                   <li key={v}>{v}</li>
                 ))}
-                {violations.length > 12 && <li>…and {violations.length - 12} more</li>}
+                {violations.length > 12 && <li>{t("…and")} {violations.length - 12} {t("more")}</li>}
               </ul>
             </div>
           )}
@@ -467,11 +437,15 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
             <div className="arrange-bar" role="status">
               <span className="small">
                 {picked
-                  ? `Moving ${config.members.find((m) => m.id === picked.memberId)?.name}: green places and outlined names keep every rule. Tap a place or a student; tap them again to cancel.`
-                  : 'Tap a student to move or swap them. Red places break a rule (tap or hover for why).'}
+                  ? t('Moving {name}: green places and outlined names keep every rule. Tap a place or a student; tap them again to cancel.', {
+                      name: config.members.find((m) => m.id === picked.memberId)?.name ?? '',
+                    })
+                  : t(
+                  "Tap a student to move or swap them. Red places break a rule (tap or hover for why)."
+                )}
               </span>
               <span className="row">
-                {arrange.changed.size > 0 && <span className="small muted">{arrange.changed.size} place(s) changed</span>}
+                {arrange.changed.size > 0 && <span className="small muted">{arrange.changed.size} {t("place(s) changed")}</span>}
                 <button
                   disabled={history.length === 0}
                   onClick={() => {
@@ -480,9 +454,7 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
                     if (prev && preview) setPreview({ ...preview, roster: prev })
                     setPicked(null)
                   }}
-                >
-                  ↶ Undo
-                </button>
+                >{t("↶ Undo")}</button>
                 {preview?.base && (
                   <button
                     onClick={() => {
@@ -490,9 +462,7 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
                       setPreview({ ...preview, roster: preview.base!, base: undefined })
                       setPicked(null)
                     }}
-                  >
-                    Back to option
-                  </button>
+                  >{t("Back to option")}</button>
                 )}
               </span>
             </div>
@@ -533,17 +503,16 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
               }
             />
           </section>
-          {config.presentations.length > 0 && <p className="muted small">● = presenting after being on the previous night’s shift.</p>}
+          {config.presentations.length > 0 && <p className="muted small">{t("● = presenting after being on the previous night’s shift.")}</p>}
           {hasStudents && <RulesCheck config={config} responses={responses} roster={shown} />}
           <Exports {...{ code, session, me, mutate }} roster={shown} tableRef={tableRef} />
           {hasStudents && <StudentSummary config={config} roster={shown} myId={me.memberId} />}
           {!hospital && <Stats {...{ code, session, me, mutate }} roster={shown} />}
         </>
       )}
-
       {schedule && <Concerns {...{ code, session, me, mutate }} open={inReview} date={concernDate} setDate={setConcernDate} />}
     </div>
-  )
+  );
 }
 
 function AiPanel({ session, roster, onImport }: SessionProps & { roster: Roster | null; onImport: (r: Roster, notes: string[]) => void }) {
@@ -555,33 +524,27 @@ function AiPanel({ session, roster, onImport }: SessionProps & { roster: Roster 
 
   return (
     <details className="ai" open={open} onToggle={(e) => setOpen((e.target as HTMLDetailsElement).open)}>
-      <summary>
-        Use an AI {hasExtra ? <span className="badge warn">you have other conditions</span> : <span className="muted small">(optional)</span>}
+      <summary>{t("Use an AI")} {hasExtra ? <span className="badge warn">{t("you have other conditions")}</span> : <span className="muted small">{t("(optional)")}</span>}
       </summary>
       <p className="small">
-        {hasExtra ? 'The built-in solver can’t check your “other conditions”. ' : ''}
-        Copy this prompt into ChatGPT, Claude or Gemini. It includes {roster ? 'the roster you’re looking at' : 'everyone’s answers'} and asks the AI to
-        reply in Wayneday’s format. Paste the whole reply below; it’s checked against the hard rules before you can publish.
-      </p>
+        {hasExtra ? t("The built-in solver can’t check your “other conditions”. ") : ''} {t("Copy this prompt into ChatGPT, Claude or Gemini. It includes")} {roster ? t("the roster you’re looking at") : t("everyone’s answers")} {t(
+          "and asks the AI to reply in Wayneday’s format. Paste the whole reply below; it’s checked against the hard rules before you can publish."
+        )}</p>
       <div className="row wrap">
         <button
           onClick={async () => {
             try {
               await navigator.clipboard.writeText(prompt)
-              setMsg('Prompt copied.')
+              setMsg(t('Prompt copied.'))
             } catch {
-              setMsg('Select the text below and copy it.')
+              setMsg(t('Select the text below and copy it.'))
             }
           }}
-        >
-          Copy AI prompt
-        </button>
+        >{t("🤖 Copy AI prompt")}</button>
         <span className="muted small">{msg}</span>
       </div>
       <textarea readOnly rows={6} value={prompt} className="mono small" onFocus={(e) => e.target.select()} />
-      <label>
-        Paste the AI’s reply
-        <textarea rows={4} value={reply} onChange={(e) => setReply(e.target.value)} placeholder='{"assignments": [...]}' />
+      <label>{t("Paste the AI’s reply")} <textarea rows={4} value={reply} onChange={(e) => setReply(e.target.value)} placeholder={t("{\"assignments\": [...]}")} />
       </label>
       <button
         disabled={!reply.trim()}
@@ -592,15 +555,13 @@ function AiPanel({ session, roster, onImport }: SessionProps & { roster: Roster 
             return
           }
           setMsg(
-            `Imported ${r.roster.assignments.length} shifts${r.roster.students.length ? `, ${r.roster.students.length} student shifts` : ''}${r.roster.presenters.length ? `, ${r.roster.presenters.length} presenters` : ''}.`,
+            t('Imported {a} shifts, {s} student shifts, {p} presenters.', { a: r.roster.assignments.length, s: r.roster.students.length, p: r.roster.presenters.length }),
           )
-          onImport(r.roster, r.skipped.length ? [`Skipped ${r.skipped.length} rows that didn’t match: ${r.skipped.slice(0, 5).join('; ')}`] : [])
+          onImport(r.roster, r.skipped.length ? [t('Skipped {n} rows that didn’t match: {rows}', { n: r.skipped.length, rows: r.skipped.slice(0, 5).join('; ') })] : [])
         }}
-      >
-        Import reply as preview
-      </button>
+      >{t("📥 Import reply as preview")}</button>
     </details>
-  )
+  );
 }
 
 function Exports(props: SessionProps & { roster: Roster; tableRef: RefObject<HTMLDivElement | null> }) {
@@ -616,57 +577,55 @@ function Exports(props: SessionProps & { roster: Roster; tableRef: RefObject<HTM
   }
   return (
     <section className="card">
-      <h2>Export</h2>
+      <h2>📤 {t('Export')}</h2>
       <div className="row wrap">
-        <button onClick={run(() => exportXlsx(session.config, session.responses, roster))}>Excel (.xlsx)</button>
-        <button onClick={run(() => exportCsv(session.config, roster))}>CSV</button>
+        <button onClick={run(() => exportXlsx(session.config, session.responses, roster))}>{t("📊 Excel (.xlsx)")}</button>
+        <button onClick={run(() => exportCsv(session.config, roster))}>{t("🧾 CSV")}</button>
         <button onClick={run(async () => {
           const table = tableRef.current?.querySelector('table')
           if (table) await exportPng(table, session.config)
-        })}>Image (.png)</button>
+        })}>{t("🖼️ Image (.png)")}</button>
         <button
           disabled={!GOOGLE_CLIENT_ID}
-          title={GOOGLE_CLIENT_ID ? '' : 'Set VITE_GOOGLE_CLIENT_ID to enable — or upload the .xlsx to Drive yourself'}
+          title={GOOGLE_CLIENT_ID ? '' : t('Not set up on this server — upload the .xlsx to Drive yourself')}
           onClick={run(async () => {
             const url = await exportToDrive(session.config, roster)
-            setMsg({ text: 'Saved to Google Drive.', url })
+            setMsg({ text: t('Saved to Google Drive.'), url })
           })}
-        >
-          Google Sheets (Drive)
-        </button>
+        >{t("☁️ Google Sheets (Drive)")}</button>
       </div>
-      {!GOOGLE_CLIENT_ID && <p className="muted small">Drive export isn’t configured on this server — download the .xlsx and open it in Google Drive.</p>}
+      {!GOOGLE_CLIENT_ID && <p className="muted small">{t(
+        "Drive export isn’t configured on this server — download the .xlsx and open it in Google Drive."
+      )}</p>}
       <CalendarExport {...props} />
       {msg && (
         <p className="small">
           {msg.text}{' '}
           {msg.url && (
-            <a href={msg.url} target="_blank" rel="noreferrer">
-              Open sheet
-            </a>
+            <a href={msg.url} target="_blank" rel="noreferrer">{t("Open sheet")}</a>
           )}
         </p>
       )}
     </section>
-  )
+  );
 }
 
 function Stats({ session, me, roster }: SessionProps & { roster: Roster }) {
-  const t = personTable(session.config, session.responses, roster)
+  const table = personTable(session.config, session.responses, roster)
   return (
     <section className="card">
-      <h2>Per person</h2>
+      <h2>👥 {t('Per person')}</h2>
       <div className="scroll-x">
         <table className="mini">
           <thead>
             <tr>
-              {t.header.map((h) => (
+              {table.header.map((h) => (
                 <th key={h}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {t.rows.map((r, i) => (
+            {table.rows.map((r, i) => (
               <tr key={session.config.members[i].id} className={session.config.members[i].id === me.memberId ? 'me' : ''}>
                 {r.map((v, j) => (
                   <td key={j} className={j === r.length - 1 ? 'small dates' : ''}>
@@ -693,14 +652,19 @@ function Concerns({
 }: SessionProps & { open: boolean; date: string; setDate: (d: string) => void }) {
   const [text, setText] = useState('')
   const [error, setError] = useState<string | null>(null)
-  const name = (id: string) => (id === 'host' ? 'Host' : (session.config.members.find((m) => m.id === id)?.name ?? '?'))
+  const name = (id: string) => (id === 'host' ? t('Host') : (session.config.members.find((m) => m.id === id)?.name ?? '?'))
   const canPost = me.isHost || (open && me.memberId)
   const list = [...session.concerns].sort((a, b) => Number(a.resolved) - Number(b.resolved) || b.createdAt - a.createdAt)
 
   return (
     <section className="card">
-      <h2>Concerns {session.concerns.filter((c) => !c.resolved).length > 0 && <span className="badge warn">{session.concerns.filter((c) => !c.resolved).length} open</span>}</h2>
-      {canPost && me.memberId && <p className="muted small">Tip: tap a cell in the roster to raise a concern about that date.</p>}
+      <h2>
+        💬 {t('Concerns')}{' '}
+        {session.concerns.filter((c) => !c.resolved).length > 0 && (
+          <span className="badge warn">{t('{n} open', { n: session.concerns.filter((c) => !c.resolved).length })}</span>
+        )}
+      </h2>
+      {canPost && me.memberId && <p className="muted small">{t("Tip: tap a cell in the roster to raise a concern about that date.")}</p>}
       {canPost ? (
         <form
           className="stack"
@@ -717,23 +681,20 @@ function Concerns({
           }}
         >
           <div className="row wrap align-end">
-            <label className="grow">
-              Your concern
-              <input id="concern-text" value={text} onChange={(e) => setText(e.target.value)} placeholder="e.g. Can I swap my 12th night with someone? I have an exam." required />
+            <label className="grow">{t("Your concern")} <input id="concern-text" value={text} onChange={(e) => setText(e.target.value)} placeholder={t("e.g. Can I swap my 12th night with someone? I have an exam.")} required />
             </label>
-            <label>
-              About date <span className="muted small">(optional)</span>
+            <label>{t("About date")} <span className="muted small">{t("(optional)")}</span>
               <input type="date" min={session.config.startDate} max={session.config.endDate} value={date} onChange={(e) => setDate(e.target.value)} />
             </label>
-            <button className="primary">Post</button>
+            <button className="primary">{t("💬 Post")}</button>
           </div>
           {error && <span className="error small">{error}</span>}
         </form>
       ) : (
-        <p className="muted small">{me.memberId ? 'The concern period is closed.' : 'Log in to raise a concern.'}</p>
+        <p className="muted small">{me.memberId ? t("The concern period is closed.") : t("Log in to raise a concern.")}</p>
       )}
       {list.length === 0 ? (
-        <p className="muted small">No concerns raised.</p>
+        <p className="muted small">{t("No concerns raised.")}</p>
       ) : (
         <ul className="concerns">
           {list.map((c) => (
@@ -746,7 +707,7 @@ function Concerns({
               <p>{c.text}</p>
               {me.isHost && (
                 <button className="link" onClick={() => void mutate(() => api.resolveConcern(code, c.id, !c.resolved))}>
-                  {c.resolved ? 'Reopen' : 'Mark resolved'}
+                  {c.resolved ? t("Reopen") : t("Mark resolved")}
                 </button>
               )}
             </li>
@@ -754,7 +715,7 @@ function Concerns({
         </ul>
       )}
     </section>
-  )
+  );
 }
 
 function RulesCheck({ config, responses, roster }: { config: SessionConfig; responses: Record<string, MemberResponse>; roster: Roster }) {
@@ -763,37 +724,37 @@ function RulesCheck({ config, responses, roster }: { config: SessionConfig; resp
   const ok = r.details.length === 0
   return (
     <section className={`card rules-check ${ok ? 'ok' : ''}`}>
-      <h2>Rules check</h2>
+      <h2>{ok ? '✅' : '⚠️'} {t('Rules check')}</h2>
       <p className="small">{r.summary.join(' · ')}</p>
       {!ok && (
         <ul className="small">
           {r.details.slice(0, 15).map((d) => (
             <li key={d}>{d}</li>
           ))}
-          {r.details.length > 15 && <li>…and {r.details.length - 15} more</li>}
+          {r.details.length > 15 && <li>{t("…and")} {r.details.length - 15} {t("more")}</li>}
         </ul>
       )}
     </section>
-  )
+  );
 }
 
 function StudentSummary({ config, roster, myId }: { config: SessionConfig; roster: Roster; myId: string | null }) {
-  const t = studentSummaryTable(config, roster)
+  const table = studentSummaryTable(config, roster)
   const students = config.members.filter((m) => m.type === 'student')
   return (
     <section className="card">
-      <h2>Per student</h2>
+      <h2>🎓 {t('Per student')}</h2>
       <div className="scroll-x">
         <table className="mini">
           <thead>
             <tr>
-              {t.header.map((h, i) => (
+              {table.header.map((h, i) => (
                 <th key={i}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {t.rows.map((r, i) => (
+            {table.rows.map((r, i) => (
               <tr key={students[i].id} className={students[i].id === myId ? 'me' : ''}>
                 {r.map((v, j) => (
                   <td key={j} className={j >= 2 && (j - 2) % 6 === 0 ? 'nowrap' : ''}>

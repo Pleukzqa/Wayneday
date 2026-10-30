@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react'
 import { api } from '../api.ts'
-import { addDays, dateRange, WEEKDAYS } from '../shared/dates.ts'
+import { addDays, dateRange } from '../shared/dates.ts'
 import type { Member, MemberType, Requirement, SessionConfig, ShiftSlot } from '../shared/types.ts'
 import { IS_DEMO, sessionHash } from '../routes.ts'
 import { reqCount } from '../shared/calendar.ts'
+import { t, weekdayLetter } from '../shared/i18n.ts'
 import ConfirmButton from './ConfirmButton.tsx'
 import { CalendarCard, DutyRosterCard, JoinRequests, PresentationsCard, RosterModeCard, StudentsCard } from './SetupExtras.tsx'
 import { uid, type SessionProps } from './props.ts'
@@ -83,26 +84,38 @@ export default function SetupTab({ code, session, me, mutate }: SessionProps) {
 
   return (
     <div className="stack">
-      {ro && <p className="muted">Only the host can change the setup. This is what they've configured.</p>}
+      {ro && <p className="muted">{t("Only the host can change the setup. This is what they've configured.")}</p>}
+      <nav className="jump" aria-label={t('Jump to')}>
+        {(
+          [
+            ['sec-period', '📆', 'Period'],
+            ['sec-mode', '👩‍⚕️', 'Roster type'],
+            ['sec-shifts', '🏥', 'Shift slots'],
+            ['sec-calendar', '🗓️', 'Calendar'],
+            ['sec-people', '🎓', hospital ? 'Students' : 'People'],
+            ...(hospital ? [['sec-duty', '🩺', 'Hospital roster']] : []),
+            ['sec-studentrules', '🎯', 'Student rules'],
+            ['sec-presentations', '🎤', 'Presentations'],
+            ['sec-other', '📝', 'Other conditions'],
+          ] as [string, string, string][]
+        ).map(([id, icon, label]) => (
+          <button key={id} type="button" className="chip jump-chip" onClick={() => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>
+            {icon} {t(label)}
+          </button>
+        ))}
+      </nav>
       <fieldset disabled={ro} className="stack">
         <section className="card">
-          <h2>Period</h2>
+          <h2 id="sec-period">📆 {t('Period')}</h2>
           <div className="row wrap">
-            <label>
-              Name
-              <input value={draft.title} onChange={(e) => edit((c) => ({ ...c, title: e.target.value }))} />
+            <label>{t("Name")} <input value={draft.title} onChange={(e) => edit((c) => ({ ...c, title: e.target.value }))} />
             </label>
-            <label>
-              From
-              <input type="date" value={draft.startDate} onChange={(e) => edit((c) => ({ ...c, startDate: e.target.value }))} />
+            <label>{t("From")} <input type="date" value={draft.startDate} onChange={(e) => edit((c) => ({ ...c, startDate: e.target.value }))} />
             </label>
-            <label>
-              To
-              <input type="date" value={draft.endDate} onChange={(e) => edit((c) => ({ ...c, endDate: e.target.value }))} />
+            <label>{t("To")} <input type="date" value={draft.endDate} onChange={(e) => edit((c) => ({ ...c, endDate: e.target.value }))} />
             </label>
           </div>
-          <label>
-            Holidays <span className="muted small">(count as weekend for fairness)</span>
+          <label>{t("Holidays")} <span className="muted small">{t("(count as weekend for fairness)")}</span>
             <div className="chips">
               {draft.holidays.map((h) => (
                 <span key={h} className="chip">
@@ -127,14 +140,14 @@ export default function SetupTab({ code, session, me, mutate }: SessionProps) {
           </label>
           <p className="muted small">
             {hospital
-              ? `${days.length} days · ${positionsPerPeriod} student places · ${shownPeople.length} students × ${draft.students.shiftsPerStudent} shifts = ${shownPeople.length * draft.students.shiftsPerStudent} needed`
-              : `${days.length} days · ${positionsPerPeriod} positions to fill${workers ? ` · ≈${(positionsPerPeriod / workers).toFixed(1)} per resident/staff` : ''}`}
+              ? t('{d} days · {p} student places · {s} students', { d: days.length, p: positionsPerPeriod, s: shownPeople.length })
+              : `${t('{d} days · {p} positions to fill', { d: days.length, p: positionsPerPeriod })}${workers ? ` · ≈${(positionsPerPeriod / workers).toFixed(1)} ${t('per resident/staff')}` : ''}`}
           </p>
         </section>
 
         <section className="card">
-          <h2>Jobs</h2>
-          <p className="muted small">Where people work during a shift, e.g. ER, Ward, OPD, ICU.</p>
+          <h2 id="sec-jobs">🏷️ {t('Jobs')}</h2>
+          <p className="muted small">{t("Where people work during a shift, e.g. ER, Ward, OPD, ICU.")}</p>
           <div className="chips">
             {draft.jobs.map((j) => (
               <span key={j.id} className="chip edit">
@@ -162,9 +175,7 @@ export default function SetupTab({ code, session, me, mutate }: SessionProps) {
               </span>
             ))}
             {!ro && (
-              <button type="button" onClick={() => edit((c) => ({ ...c, jobs: [...c.jobs, { id: uid(), name: `Job ${c.jobs.length + 1}` }] }))}>
-                + Job
-              </button>
+              <button type="button" onClick={() => edit((c) => ({ ...c, jobs: [...c.jobs, { id: uid(), name: `Job ${c.jobs.length + 1}` }] }))}>{t("➕ Job")}</button>
             )}
           </div>
         </section>
@@ -172,29 +183,23 @@ export default function SetupTab({ code, session, me, mutate }: SessionProps) {
         <RosterModeCard draft={draft} edit={edit} ro={ro} />
 
         <section className="card">
-          <h2>{hospital ? 'Shift slots & student places' : 'Shift slots'}</h2>
+          <h2 id="sec-shifts">🏥 {hospital ? t('Shift slots & student places') : t('Shift slots')}</h2>
           {hospital && (
-            <p className="muted small">
-              Each position is a place for students on that shift, e.g. “Ward × 1” and “ER × 1” means up to two students a night, one in each.
-            </p>
+            <p className="muted small">{t(
+              "Each position is a place for students on that shift, e.g. “Ward × 1” and “ER × 1” means up to two students a night, one in each."
+            )}</p>
           )}
           <div className="stack">
             {draft.shifts.map((s) => (
               <div key={s.id} className="shift">
                 <div className="row wrap">
-                  <label>
-                    Name
-                    <input value={s.name} onChange={(e) => setShift(s.id, (x) => ({ ...x, name: e.target.value }))} />
+                  <label>{t("Name")} <input value={s.name} onChange={(e) => setShift(s.id, (x) => ({ ...x, name: e.target.value }))} />
                   </label>
-                  <label>
-                    Starts
-                    <input type="time" value={s.start} onChange={(e) => setShift(s.id, (x) => ({ ...x, start: e.target.value }))} />
+                  <label>{t("Starts")} <input type="time" value={s.start} onChange={(e) => setShift(s.id, (x) => ({ ...x, start: e.target.value }))} />
                   </label>
-                  <label>
-                    Ends
-                    <input type="time" value={s.end} onChange={(e) => setShift(s.id, (x) => ({ ...x, end: e.target.value }))} />
+                  <label>{t("Ends")} <input type="time" value={s.end} onChange={(e) => setShift(s.id, (x) => ({ ...x, end: e.target.value }))} />
                   </label>
-                  <div className="weekdays" role="group" aria-label="Runs on">
+                  <div className="weekdays" role="group" aria-label={t("Runs on")}>
                     {ALL_DAYS.map((d) => (
                       <button
                         type="button"
@@ -208,22 +213,20 @@ export default function SetupTab({ code, session, me, mutate }: SessionProps) {
                           }))
                         }
                       >
-                        {WEEKDAYS[d][0]}
+                        {weekdayLetter()[d]}
                       </button>
                     ))}
                   </div>
                   {!ro && (
-                    <button type="button" className="link danger" onClick={() => edit((c) => ({ ...c, shifts: c.shifts.filter((x) => x.id !== s.id) }))}>
-                      Remove shift
-                    </button>
+                    <button type="button" className="link danger" onClick={() => edit((c) => ({ ...c, shifts: c.shifts.filter((x) => x.id !== s.id) }))}>{t("Remove shift")}</button>
                   )}
                 </div>
                 <table className="mini">
                   <thead>
                     <tr>
-                      <th>Job</th>
-                      {!hospital && <th>Who</th>}
-                      <th>{hospital ? 'Students (at least – at most)' : 'How many'}</th>
+                      <th>{t("Job")}</th>
+                      {!hospital && <th>{t("Who")}</th>}
+                      <th>{hospital ? t("Students (at least – at most)") : t("How many")}</th>
                       <th />
                     </tr>
                   </thead>
@@ -242,9 +245,9 @@ export default function SetupTab({ code, session, me, mutate }: SessionProps) {
                         {!hospital && (
                           <td>
                             <select value={r.memberType} onChange={(e) => setReq(s.id, r.id, { memberType: e.target.value as Requirement['memberType'] })}>
-                              <option value="resident">Resident</option>
-                              <option value="staff">Staff</option>
-                              <option value="any">Anyone</option>
+                              <option value="resident">{t("Resident")}</option>
+                              <option value="staff">{t("Staff")}</option>
+                              <option value="any">{t("Anyone")}</option>
                             </select>
                           </td>
                         )}
@@ -255,8 +258,8 @@ export default function SetupTab({ code, session, me, mutate }: SessionProps) {
                                 type="number"
                                 min={0}
                                 max={r.count}
-                                aria-label="At least"
-                                title="At least"
+                                aria-label={t("At least")}
+                                title={t("At least")}
                                 value={r.min ?? 0}
                                 onChange={(e) => setReq(s.id, r.id, { min: Math.min(r.count, Math.max(0, Number(e.target.value) || 0)) })}
                               />{' '}
@@ -267,8 +270,8 @@ export default function SetupTab({ code, session, me, mutate }: SessionProps) {
                             type="number"
                             min={1}
                             max={20}
-                            aria-label={hospital ? 'At most' : 'How many'}
-                            title={hospital ? 'At most' : undefined}
+                            aria-label={hospital ? t('At most') : t('How many')}
+                            title={hospital ? t('At most') : undefined}
                             value={r.count}
                             onChange={(e) => setReq(s.id, r.id, { count: Math.max(1, Number(e.target.value) || 1) })}
                           />
@@ -298,9 +301,7 @@ export default function SetupTab({ code, session, me, mutate }: SessionProps) {
                         requirements: [...x.requirements, { id: uid(), jobId: draft.jobs[0].id, memberType: 'staff', count: 1 }],
                       }))
                     }
-                  >
-                    + Position
-                  </button>
+                  >{t("➕ Position")}</button>
                 )}
               </div>
             ))}
@@ -315,7 +316,7 @@ export default function SetupTab({ code, session, me, mutate }: SessionProps) {
                       ...c.shifts,
                       {
                         id: uid(),
-                        name: `Shift ${c.shifts.length + 1}`,
+                        name: `${t('Shift')} ${c.shifts.length + 1}`,
                         start: '08:00',
                         end: '16:00',
                         days: [1, 2, 3, 4, 5],
@@ -324,9 +325,7 @@ export default function SetupTab({ code, session, me, mutate }: SessionProps) {
                     ],
                   }))
                 }
-              >
-                + Shift slot
-              </button>
+              >{t("➕ Shift slot")}</button>
             )}
           </div>
         </section>
@@ -334,31 +333,30 @@ export default function SetupTab({ code, session, me, mutate }: SessionProps) {
         <CalendarCard draft={draft} edit={edit} ro={ro} />
 
         <section className="card">
-          <h2>{hospital ? 'Students' : 'People'}</h2>
+          <h2 id="sec-people">🎓 {hospital ? t('Students') : t('People')}</h2>
           {hospital && (
-            <p className="muted small">
-              Only students go here. Residents and staff come from the hospital roster below
-              {doctorCount ? ` (${doctorCount} names so far)` : ''}.
-            </p>
+            <p className="muted small">{t(
+                "Only students go here. Residents and staff come from the hospital roster below"
+              )} {doctorCount ? ` ${t('({n} names so far)', { n: doctorCount })}` : ''}.
+                          </p>
           )}
           {me.isHost && <JoinRequests code={code} session={session} me={me} mutate={mutate} dirty={dirty} />}
           {me.isHost && !IS_DEMO && (
-            <p className="muted small">
-              Already added someone? Send them their personal link (in the Login column) — it opens with their name picked, and they set a PIN.
-              People not on the list can ask to join, and appear above for you to approve.
-            </p>
+            <p className="muted small">{t(
+              "Already added someone? Send them their personal link (in the Login column) — it opens with their name picked, and they set a PIN. People not on the list can ask to join, and appear above for you to approve."
+            )}</p>
           )}
           {!ro && (
             <div className="row wrap align-end">
               <label className="grow">
-                {hospital ? 'Add students — one name per line' : 'Add people — one name per line'}
+                {hospital ? t("Add students — one name per line") : t("Add people — one name per line")}
                 <textarea rows={3} value={bulk} onChange={(e) => setBulk(e.target.value)} placeholder={hospital ? 'Beam\nPraew' : 'Dr. Ann\nDr. Ben'} />
               </label>
               {!hospital && (
                 <select value={bulkType} onChange={(e) => setBulkType(e.target.value as MemberType)}>
-                  <option value="resident">as residents</option>
-                  <option value="staff">as staff</option>
-                  <option value="student">as students</option>
+                  <option value="resident">{t("as residents")}</option>
+                  <option value="staff">{t("as staff")}</option>
+                  <option value="student">{t("as students")}</option>
                 </select>
               )}
               <button
@@ -372,23 +370,21 @@ export default function SetupTab({ code, session, me, mutate }: SessionProps) {
                   }))
                   setBulk('')
                 }}
-              >
-                Add
-              </button>
+              >{t("Add")}</button>
             </div>
           )}
           {shownPeople.length === 0 ? (
-            <p className="muted">No one yet.</p>
+            <p className="muted">{t("No one yet.")}</p>
           ) : (
             <div className="scroll-x">
               <table className="mini people">
                 <thead>
                   <tr>
-                    <th>Name</th>
-                    {!hospital && <th>Type</th>}
-                    {draft.jobs.length > 1 && <th>Can cover</th>}
-                    {draft.rosterMode === 'generate' && <th title="Optional hard cap">Max shifts</th>}
-                    <th>Login</th>
+                    <th>{t("Name")}</th>
+                    {!hospital && <th>{t("Type")}</th>}
+                    {draft.jobs.length > 1 && <th>{t("Can cover")}</th>}
+                    {draft.rosterMode === 'generate' && <th title={t("Optional hard cap")}>{t("Max shifts")}</th>}
+                    <th>{t("Login")}</th>
                     <th />
                   </tr>
                 </thead>
@@ -401,9 +397,9 @@ export default function SetupTab({ code, session, me, mutate }: SessionProps) {
                       {!hospital && (
                       <td>
                         <select value={m.type} onChange={(e) => setMember(m.id, { type: e.target.value as MemberType })}>
-                          <option value="resident">Resident</option>
-                          <option value="staff">Staff</option>
-                          <option value="student">Student</option>
+                          <option value="resident">{t("Resident")}</option>
+                          <option value="staff">{t("Staff")}</option>
+                          <option value="student">{t("Student")}</option>
                         </select>
                       </td>
                       )}
@@ -438,22 +434,19 @@ export default function SetupTab({ code, session, me, mutate }: SessionProps) {
                       )}
                       <td className="nowrap small">
                         {session.claimed.includes(m.id) ? (
-                          <>
-                            ✓ logged in{' '}
+                          <>{t("✓ logged in")}{' '}
                             {!ro && (
                               <ConfirmButton
                                 className="link"
-                                title="Clear their PIN so they can claim their name again"
-                                confirmText="tap to reset"
+                                title={t("Clear their PIN so they can claim their name again")}
+                                confirmText={t("tap to reset")}
                                 onConfirm={() => void mutate(() => api.resetClaim(code, m.id))}
-                              >
-                                reset PIN
-                              </ConfirmButton>
+                              >{t("reset PIN")}</ConfirmButton>
                             )}
                           </>
                         ) : (
                           <>
-                            <span className="muted">not yet</span>{' '}
+                            <span className="muted">{t("not yet")}</span>{' '}
                             {me.isHost && !IS_DEMO && <PersonalLink code={code} memberId={m.id} name={m.name} />}
                           </>
                         )}
@@ -478,39 +471,35 @@ export default function SetupTab({ code, session, me, mutate }: SessionProps) {
         <PresentationsCard draft={draft} edit={edit} ro={ro} />
 
         <section className="card">
-          <h2>Other conditions</h2>
-          <p className="muted small">
-            Rules the built-in solver can't check, e.g. “Morning round Mon–Fri needs the post-night resident present until 10:00” or
-            “Ann and Ben never on the same night”. The Roster tab turns these into a prompt you can paste into an AI.
-          </p>
+          <h2 id="sec-other">📝 {t('Other conditions')}</h2>
+          <p className="muted small">{t(
+            "Rules the built-in solver can't check, e.g. “Morning round Mon–Fri needs the post-night resident present until 10:00” or “Ann and Ben never on the same night”. The Roster tab turns these into a prompt you can paste into an AI."
+          )}</p>
           <textarea
             rows={4}
             value={draft.extraConditions}
             onChange={(e) => edit((c) => ({ ...c, extraConditions: e.target.value }))}
-            placeholder="One condition per line"
+            placeholder={t("One condition per line")}
           />
         </section>
       </fieldset>
-
       {me.isHost && (
         <div className="savebar">
           {error && <span className="error small">{error}</span>}
-          {dirty && session.schedule && <span className="small warn-text">A roster exists — check it after saving.</span>}
-          <span className="muted small">{dirty ? 'Unsaved changes' : 'All changes saved'}</span>
+          {dirty && session.schedule && <span className="small warn-text">{t("A roster exists — check it after saving.")}</span>}
+          <span className="muted small">{dirty ? t("Unsaved changes") : t("All changes saved")}</span>
           {dirty && (
             <button
               onClick={() => setDraft(null)}
-            >
-              Discard
-            </button>
+            >{t("Discard")}</button>
           )}
           <button className="primary" disabled={!dirty || saving} onClick={() => void save()}>
-            {saving ? 'Saving…' : 'Save setup'}
+            {saving ? t("Saving…") : t("Save setup")}
           </button>
         </div>
       )}
     </div>
-  )
+  );
 }
 
 function PersonalLink({ code, memberId, name }: { code: string; memberId: string; name: string }) {
@@ -521,10 +510,10 @@ function PersonalLink({ code, memberId, name }: { code: string; memberId: string
       <button
         type="button"
         className="link"
-        title={`A link that opens with ${name} picked`}
+        title={t('A link that opens with {name} picked', { name })}
         onClick={async () => {
           try {
-            await navigator.clipboard.writeText(`${name}, fill in your duty availability on Wayneday: ${url}`)
+            await navigator.clipboard.writeText(t('{name}, fill in your duty availability on Wayneday: {url}', { name, url }))
             setState('copied')
             setTimeout(() => setState('idle'), 1500)
           } catch {
@@ -532,9 +521,9 @@ function PersonalLink({ code, memberId, name }: { code: string; memberId: string
           }
         }}
       >
-        {state === 'copied' ? 'copied!' : 'copy link'}
+        {state === 'copied' ? t("copied!") : t("copy link")}
       </button>
       {state === 'show' && <input readOnly className="invite-url" value={url} onFocus={(e) => e.target.select()} autoFocus />}
     </>
-  )
+  );
 }

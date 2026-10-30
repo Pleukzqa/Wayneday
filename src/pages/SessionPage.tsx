@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { forgetMember, setTokens, api } from '../api.ts'
 import { invitedMemberFromHash, IS_DEMO, sessionHash } from '../routes.ts'
 import { shortDate } from '../shared/dates.ts'
+import { t } from '../shared/i18n.ts'
 import type { MemberType } from '../shared/types.ts'
 import { useSession } from '../useSession.ts'
 import SetupTab from '../components/SetupTab.tsx'
@@ -17,7 +18,7 @@ export default function SessionPage({ code }: { code: string }) {
   const [hostLogin, setHostLogin] = useState(false)
 
   if (!view) {
-    return <p className={error ? 'error' : 'muted'}>{error ?? 'Loading session…'}</p>
+    return <p className={error ? 'error' : 'muted'}>{error ?? t("Loading session…")}</p>;
   }
   const { session, me } = view
   // Default tab comes from the state at first load only, so saving doesn't yank the user elsewhere.
@@ -32,60 +33,54 @@ export default function SessionPage({ code }: { code: string }) {
         <div>
           <h1>{session.config.title}</h1>
           <p className="muted small">
-            {session.config.startDate} → {session.config.endDate} · {session.config.members.length} people ·{' '}
+            {session.config.startDate}→ {session.config.endDate}· {session.config.members.length} {t("people ·")}{' '}
             {statusText(session)}
           </p>
         </div>
         <div className="who">
-          {me.isHost && <span className="badge host">Host</span>}
+          {me.isHost && <span className="badge host">{t("Host")}</span>}
           {IS_DEMO ? null : myName ? (
             <>
-              <span className="badge">Logged in as {myName}</span>
+              <span className="badge">{t("Logged in as")} {myName}</span>
               <button
                 className="link"
                 onClick={() => {
                   forgetMember(code)
                   void refresh()
                 }}
-              >
-                Log out
-              </button>
+              >{t("Log out")}</button>
             </>
           ) : null}
           {!IS_DEMO && <ShareButton code={code} />}
         </div>
       </div>
-
       {!IS_DEMO && !me.memberId && (session.config.members.length > 0 || me.pendingJoinId) &&
         (me.isHost && !hostLogin && !me.pendingJoinId ? (
-          <button className="link host-login" onClick={() => setHostLogin(true)}>
-            I’m also on this roster — log in as myself
-          </button>
+          <button className="link host-login" onClick={() => setHostLogin(true)}>{t("I’m also on this roster — log in as myself")}</button>
         ) : (
           <LoginCard {...props} onDone={() => void refresh()} />
         ))}
-      {error && <p className="error small">Connection problem: {error}</p>}
+      {error && <p className="error small">{t("Connection problem:")} {error}</p>}
       <Announcements session={session} me={me} go={setTab} />
-
       <nav className="tabs" role="tablist">
         {(
           [
-            ['setup', me.isHost ? '1 · Setup' : 'Setup'],
-            ['availability', '2 · Availability & preferences'],
-            ['roster', '3 · Roster'],
+            ['setup', `⚙️ ${t('Setup')}`],
+            ['availability', `🗓️ ${t('Availability')}`],
+            ['roster', `📋 ${t('Roster')}`],
           ] as const
-        ).map(([t, text]) => (
-          <button key={t} role="tab" aria-selected={current === t} className={current === t ? 'tab active' : 'tab'} onClick={() => setTab(t)}>
+        ).map(([key, text]) => (
+          <button key={key} role="tab" aria-selected={current === key} className={current === key ? 'tab active' : 'tab'} onClick={() => setTab(key)}>
             {text}
           </button>
         ))}
       </nav>
-
+      {me.isHost && <NextSteps session={session} go={setTab} />}
       {current === 'setup' && <SetupTab {...props} />}
       {current === 'availability' && <AvailabilityTab {...props} />}
       {current === 'roster' && <RosterTab {...props} />}
     </div>
-  )
+  );
 }
 
 function initialTab(v: { session: SessionProps['session']; me: SessionProps['me'] }): Tab {
@@ -102,17 +97,19 @@ function Announcements({ session, me, go }: { session: SessionProps['session']; 
   for (const s of open.slice(0, 3)) {
     items.push({
       key: s.id,
-      text: `${s.memberId === me.memberId ? 'You' : name(s.memberId)} asked to swap ${shortDate(s.date)} ${shift(s.shiftId)}${s.offers.length ? ` · ${s.offers.length} offer(s)` : ''}`,
+      text: `${t('{who} asked to swap {date} {shift}', { who: s.memberId === me.memberId ? t('You') : name(s.memberId), date: shortDate(s.date), shift: shift(s.shiftId) })}${s.offers.length ? ` · ${t('{n} offer(s)', { n: s.offers.length })}` : ''}`,
       tab: 'roster',
-      action: s.memberId === me.memberId ? 'See offers' : 'Offer',
+      action: s.memberId === me.memberId ? t('See offers') : t('Offer'),
     })
   }
-  if (open.length > 3) items.push({ key: 'more', text: `+${open.length - 3} more swap requests`, tab: 'roster', action: 'View' })
-  if (me.isHost && agreed.length) items.push({ key: 'agreed', text: `${agreed.length} swap(s) agreed and waiting for your approval`, tab: 'roster', action: 'Review' })
-  if (me.isHost && joins.length) items.push({ key: 'joins', text: `${joins.map((j) => j.name).join(', ')} asked to join`, tab: 'setup', action: 'Review' })
+  if (open.length > 3) items.push({ key: 'more', text: t('+{n} more swap requests', { n: open.length - 3 }), tab: 'roster', action: t('View') })
+  if (me.isHost && agreed.length) {
+    items.push({ key: 'agreed', text: t('{n} swap(s) agreed and waiting for your approval', { n: agreed.length }), tab: 'roster', action: t('Review') })
+  }
+  if (me.isHost && joins.length) items.push({ key: 'joins', text: t('{names} asked to join', { names: joins.map((j) => j.name).join(', ') }), tab: 'setup', action: t('Review') })
   if (!items.length) return null
   return (
-    <ul className="announce" aria-label="Announcements">
+    <ul className="announce" aria-label={t("Announcements")}>
       {items.map((i) => (
         <li key={i.key}>
           <span aria-hidden>⇄</span> <span>{i.text}</span>{' '}
@@ -128,13 +125,51 @@ function Announcements({ session, me, go }: { session: SessionProps['session']; 
         </li>
       ))}
     </ul>
-  )
+  );
 }
 
 function statusText(s: SessionProps['session']) {
-  if (!s.schedule) return 'collecting answers'
-  if (s.schedule.status === 'final') return 'roster final'
-  return Date.now() < s.schedule.reviewUntil ? 'roster in review' : 'review period ended'
+  if (!s.schedule) return `📝 ${t('collecting answers')}`
+  if (s.schedule.status === 'final') return `✅ ${t('roster final')}`
+  return Date.now() < s.schedule.reviewUntil ? `👀 ${t('roster in review')}` : `⏰ ${t('review period ended')}`
+}
+
+/** The host's checklist: what's done and what to do next, each step one tap away. */
+function NextSteps({ session, go }: { session: SessionProps['session']; go: (t: Tab) => void }) {
+  const [open, setOpen] = useState(true)
+  const c = session.config
+  const hospital = c.rosterMode === 'hospital'
+  const students = c.members.filter((m) => m.type === 'student')
+  const answering = hospital ? students : c.members
+  const answered = answering.filter((m) => session.responses[m.id]).length
+  const dutyDays = new Set(c.duty.map((a) => a.date)).size
+  const steps: { done: boolean; text: string; tab: Tab }[] = [
+    { done: c.shifts.length > 0 && c.shifts.some((s) => s.requirements.length), text: t('Set the period and shift slots'), tab: 'setup' },
+    ...(hospital ? [{ done: dutyDays > 0, text: t('Enter the hospital roster ({n} days so far)', { n: dutyDays }), tab: 'setup' as Tab }] : []),
+    { done: answering.length > 0, text: hospital ? t('Add students ({n})', { n: students.length }) : t('Add people ({n})', { n: c.members.length }), tab: 'setup' },
+    { done: answering.length > 0 && answered === answering.length, text: t('Everyone fills in availability ({a}/{n} answered)', { a: answered, n: answering.length }), tab: 'availability' },
+    { done: Boolean(session.schedule), text: t('Find arrangements and publish for review'), tab: 'roster' },
+    { done: session.schedule?.status === 'final', text: t('Handle concerns and swaps, then finalize'), tab: 'roster' },
+  ]
+  const next = steps.findIndex((s) => !s.done)
+  if (next === -1 && !open) return null
+  return (
+    <details className="next-steps" open={open} onToggle={(e) => setOpen((e.target as HTMLDetailsElement).open)}>
+      <summary>
+        🧭 {t('Next steps')} <span className="muted small">{steps.filter((s) => s.done).length}/{steps.length}</span>
+      </summary>
+      <ol>
+        {steps.map((s, i) => (
+          <li key={s.text} className={s.done ? 'done' : i === next ? 'now' : ''}>
+            <span aria-hidden>{s.done ? '✅' : i === next ? '👉' : '⬜'}</span>
+            <button className="link" onClick={() => go(s.tab)}>
+              {s.text}
+            </button>
+          </li>
+        ))}
+      </ol>
+    </details>
+  )
 }
 
 function ShareButton({ code }: { code: string }) {
@@ -146,7 +181,7 @@ function ShareButton({ code }: { code: string }) {
       <button
         onClick={async () => {
           try {
-            await navigator.clipboard.writeText(`Join "${code}" on Wayneday: ${url}`)
+            await navigator.clipboard.writeText(t('Join "{code}" on Wayneday: {url}', { code, url }))
             setCopied(true)
             setTimeout(() => setCopied(false), 1500)
           } catch {
@@ -154,11 +189,11 @@ function ShareButton({ code }: { code: string }) {
           }
         }}
       >
-        {copied ? 'Copied!' : 'Copy invite'}
+        {copied ? t("Copied!") : t("Copy invite")}
       </button>
       {show && <input readOnly className="invite-url" value={url} onFocus={(e) => e.target.select()} autoFocus />}
     </>
-  )
+  );
 }
 
 function LoginCard({ code, session, me, onDone }: SessionProps & { onDone: () => void }) {
@@ -176,21 +211,17 @@ function LoginCard({ code, session, me, onDone }: SessionProps & { onDone: () =>
     const req = session.joinRequests.find((r) => r.id === me.pendingJoinId)
     return (
       <div className="card login">
-        <strong>Waiting for the host</strong>
-        <span className="small">
-          You asked to join as {req?.name ?? 'a new person'}. You’ll be logged in here as soon as the host approves.
-        </span>
+        <strong>{t("Waiting for the host")}</strong>
+        <span className="small">{t("You asked to join as")} {req?.name ?? t("a new person")}{t(". You’ll be logged in here as soon as the host approves.")}</span>
         <button
           className="link"
           onClick={() => {
             forgetMember(code)
             onDone()
           }}
-        >
-          Cancel
-        </button>
+        >{t("Cancel")}</button>
       </div>
-    )
+    );
   }
 
   const run = (fn: () => Promise<void>) => async (e: FormEvent) => {
@@ -211,8 +242,8 @@ function LoginCard({ code, session, me, onDone }: SessionProps & { onDone: () =>
     <input
       inputMode="numeric"
       pattern="\d{4,8}"
-      aria-label="PIN"
-      placeholder={mode === 'claim' && claimed ? 'Your PIN' : 'Choose a 4–8 digit PIN'}
+      aria-label={t("PIN")}
+      placeholder={mode === 'claim' && claimed ? t('Your PIN') : t('Choose a 4–8 digit PIN')}
       value={pin}
       onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))}
       required
@@ -228,23 +259,19 @@ function LoginCard({ code, session, me, onDone }: SessionProps & { onDone: () =>
           setTokens(code, { requestToken: r.requestToken })
         })}
       >
-        <strong>Ask to join</strong>
-        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" aria-label="Your name" required />
-        <select value={type} onChange={(e) => setType(e.target.value as MemberType)} aria-label="I am a">
-          <option value="resident">Resident</option>
-          <option value="staff">Staff</option>
-          <option value="student">Student</option>
+        <strong>{t("Ask to join")}</strong>
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder={t("Your name")} aria-label={t("Your name")} required />
+        <select value={type} onChange={(e) => setType(e.target.value as MemberType)} aria-label={t("I am a")}>
+          <option value="resident">{t("Resident")}</option>
+          <option value="staff">{t("Staff")}</option>
+          <option value="student">{t("Student")}</option>
         </select>
         {pinInput}
-        <button className="primary" disabled={busy}>
-          Send request
-        </button>
-        <button type="button" className="link" onClick={() => setMode('claim')}>
-          Back
-        </button>
+        <button className="primary" disabled={busy}>{t("📨 Send request")}</button>
+        <button type="button" className="link" onClick={() => setMode('claim')}>{t("Back")}</button>
         {error && <span className="error small">{error}</span>}
       </form>
-    )
+    );
   }
 
   return (
@@ -255,26 +282,24 @@ function LoginCard({ code, session, me, onDone }: SessionProps & { onDone: () =>
         setTokens(code, { memberToken: r.memberToken })
       })}
     >
-      <strong>Who are you?</strong>
-      <select value={memberId} onChange={(e) => setMemberId(e.target.value)} required aria-label="Your name">
-        <option value="">Choose your name…</option>
+      <strong>{t("Who are you?")}</strong>
+      <select value={memberId} onChange={(e) => setMemberId(e.target.value)} required aria-label={t("Your name")}>
+        <option value="">{t("Choose your name…")}</option>
         {session.config.members
           // Hospital mode: residents and staff only appear in the hospital's roster; students are the ones who log in.
           .filter((m) => session.config.rosterMode !== 'hospital' || m.type === 'student')
           .map((m) => (
             <option key={m.id} value={m.id}>
-              {m.name} {session.claimed.includes(m.id) ? '(has PIN)' : ''}
+              {m.name} {session.claimed.includes(m.id) ? t("(has PIN)") : ''}
             </option>
           ))}
       </select>
       {pinInput}
       <button className="primary" disabled={busy || !memberId}>
-        {claimed ? 'Log in' : 'Claim & log in'}
+        {claimed ? t("Log in") : t("Claim & log in")}
       </button>
-      <button type="button" className="link" onClick={() => setMode('join')}>
-        I’m not on the list
-      </button>
+      <button type="button" className="link" onClick={() => setMode('join')}>{t("I’m not on the list")}</button>
       {error && <span className="error small">{error}</span>}
     </form>
-  )
+  );
 }

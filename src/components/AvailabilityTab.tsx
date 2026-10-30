@@ -1,22 +1,26 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { api } from '../api.ts'
 import { shiftRuns, shiftsForType, shiftsOn } from '../shared/calendar.ts'
+import { t, typeName } from '../shared/i18n.ts'
 import { dateRange, shortDate, weekday } from '../shared/dates.ts'
 import { responseFor } from '../shared/solver.ts'
 import { DEFAULT_RESPONSE, type AnswerChange, type AvoidLevel, type MemberResponse } from '../shared/types.ts'
 import type { SessionProps } from './props.ts'
 
-type Tool = 'unavailable' | 'avoid' | 'lock' | 'clear'
+// 'mark' = can't work / would rather not, at the chosen level (0 = can't at all).
+type Tool = 'mark' | 'lock' | 'clear'
+type MarkLevel = 0 | AvoidLevel
 
-const AVOID_LABEL = ['', 'Rather not', 'Important', 'Really need off']
+const AVOID_LABEL = ['', 'Rather not', 'Important', 'Really need it off']
+const MARK_LABEL = ['Can’t', ...AVOID_LABEL.slice(1)]
 
 export default function AvailabilityTab({ code, session, me, mutate }: SessionProps) {
   const { config } = session
   const [pending, setPending] = useState<Record<string, MemberResponse>>({})
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'error'>('idle')
-  const [tool, setTool] = useState<Tool>('unavailable')
+  const [tool, setTool] = useState<Tool>('mark')
   const [editOthers, setEditOthers] = useState(false)
-  const [avoidLvl, setAvoidLvl] = useState<AvoidLevel>(3)
+  const [markLvl, setMarkLvl] = useState<MarkLevel>(0)
   const [notice, setNotice] = useState<string | null>(null)
   const myType = config.members.find((m) => m.id === me.memberId)?.type
   // A member only sees shift slots they can actually work; the host sees all.
@@ -89,9 +93,9 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
     const shift = config.shifts.find((s) => s.id === lockShift)
     if (mode === 'lock') {
       const member = config.members.find((m) => m.id === memberId)!
-      if (!shift || !shiftRuns(config, shift, date)) return setNotice(`${shift?.name ?? 'That shift'} doesn’t run on ${shortDate(date)}.`)
+      if (!shift || !shiftRuns(config, shift, date)) return setNotice(t('{shift} doesn’t run on {date}.', { shift: shift?.name ?? t('That shift'), date: shortDate(date) }))
       if (!shiftsForType(config, member.type).some((s) => s.id === shift.id)) {
-        return setNotice(`${member.name} (${member.type}) can’t be locked into ${shift.name} — it has no ${member.type} places.`)
+        return setNotice(t('{name} can’t be locked into {shift} — it has no places for them.', { name: member.name, shift: shift.name }))
       }
     }
     setNotice(null)
@@ -100,8 +104,8 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
       const unavailable = r.unavailable.filter((d) => d !== date)
       const locks = r.locks.filter((l) => l.date !== date)
       const avoid = (r.avoid ?? []).filter((a) => a.date !== date)
-      if (mode === 'avoid') avoid.push({ date, level: avoidLvl })
-      if (mode === 'unavailable') unavailable.push(date)
+      if (mode === 'mark' && markLvl > 0) avoid.push({ date, level: markLvl as AvoidLevel })
+      if (mode === 'mark' && markLvl === 0) unavailable.push(date)
       if (mode === 'lock') locks.push({ date, shiftId: lockShift })
       return { ...r, unavailable, locks, avoid }
     })
@@ -118,9 +122,9 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
     const st = cellState(respOf(c.memberId), c.date)
     // Pressing on a cell that already has this state erases instead.
     const same =
-      (tool === 'unavailable' && st.kind === 'unavailable') ||
-      (tool === 'lock' && st.kind === 'lock' && st.shiftId === lockShift) ||
-      (tool === 'avoid' && st.kind === 'avoid' && st.level === avoidLvl)
+      (tool === 'mark' && markLvl === 0 && st.kind === 'unavailable') ||
+      (tool === 'mark' && markLvl > 0 && st.kind === 'avoid' && st.level === markLvl) ||
+      (tool === 'lock' && st.kind === 'lock' && st.shiftId === lockShift)
     const mode: Tool = same ? 'clear' : tool
     paint.current = { mode }
     stroke.current = new Map()
@@ -135,9 +139,9 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
       const want = paint.current.mode
       const already =
         (want === 'clear' && st.kind === 'free') ||
-        (want === 'unavailable' && st.kind === 'unavailable') ||
+        (want === 'mark' && markLvl === 0 && st.kind === 'unavailable') ||
         (want === 'lock' && st.kind === 'lock' && st.shiftId === lockShift) ||
-        (want === 'avoid' && st.kind === 'avoid' && st.level === avoidLvl)
+        (want === 'mark' && markLvl > 0 && st.kind === 'avoid' && st.level === markLvl)
       if (!already) apply(c.memberId, c.date, want)
     }
   }
@@ -198,140 +202,124 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
   const nameOf = (id: string) => config.members.find((m) => m.id === id)?.name ?? '?'
 
   if (config.members.length === 0) {
-    return <p className="muted">The host hasn't added anyone yet.</p>
+    return <p className="muted">{t("The host hasn't added anyone yet.")}</p>;
   }
   if (members.length === 0) {
-    return <p className="muted">No students yet. Residents and staff come from the hospital roster, so only students fill in this page.</p>
+    return (
+      <p className="muted">{t(
+        "No students yet. Residents and staff come from the hospital roster, so only students fill in this page."
+      )}</p>
+    );
   }
 
   return (
     <div className="stack">
       {hostChange && (
         <div className="alert warn" role="status">
-          <strong>The host changed your answers</strong> ({new Date(hostChange.at).toLocaleString()}): {hostChange.summary}.
+          <strong>{t("The host changed your answers")}</strong> ({new Date(hostChange.at).toLocaleString()}): {hostChange.summary}.
           <div className="row wrap">
             <button
               onClick={() => {
                 update(me.memberId!, () => hostChange.before ?? DEFAULT_RESPONSE)
                 acknowledge(hostChange.at)
               }}
-            >
-              Restore my previous answers
-            </button>
-            <button className="link" onClick={() => acknowledge(hostChange.at)}>
-              Keep the change
-            </button>
+            >{t("Restore my previous answers")}</button>
+            <button className="link" onClick={() => acknowledge(hostChange.at)}>{t("Keep the change")}</button>
           </div>
         </div>
       )}
       {hospital && me.memberId && !iAnswer && (
-        <p className="muted small">Your shifts come from the hospital roster, so there’s nothing for you to fill in here. Students’ answers are below.</p>
+        <p className="muted small">{t(
+          "Your shifts come from the hospital roster, so there’s nothing for you to fill in here. Students’ answers are below."
+        )}</p>
       )}
       {mine && me.memberId && (
         <section className="card">
-          <h2>My preferences</h2>
+          <h2>🙋 {t('My preferences')}</h2>
           <div className="row wrap">
-            <div className="segmented" role="radiogroup" aria-label="Shift pattern">
+            <div className="segmented" role="radiogroup" aria-label={t("Shift pattern")}>
               {(
                 [
                   ['distributed', 'Spread out', 'Shifts evenly spaced across the period'],
                   ['dense', 'Grouped', 'Shifts close together, at your minimum interval'],
                 ] as const
-              ).map(([v, t, hint]) => (
+              ).map(([v, label, hint]) => (
                 <button
                   key={v}
                   role="radio"
                   aria-checked={mine.preference === v}
                   className={mine.preference === v ? 'on' : ''}
-                  title={hint}
+                  title={t(hint)}
                   disabled={!canEdit(me.memberId!)}
                   onClick={() => setPref((r) => ({ ...r, preference: v }))}
                 >
-                  {t}
+                  {v === 'distributed' ? '🌤️' : '📦'} {t(label)}
                 </button>
               ))}
             </div>
-            <label className="inline">
-              At least
-              <input
+            <label className="inline">{t("At least")} <input
                 type="number"
                 min={1}
                 max={60}
                 value={mine.minInterval}
                 disabled={!canEdit(me.memberId)}
                 onChange={(e) => setPref((r) => ({ ...r, minInterval: Math.max(1, Number(e.target.value) || 1) }))}
-              />
-              days between shifts
-            </label>
+              /> {t("days between shifts")}</label>
           </div>
           <p className="muted small">
-            {mine.minInterval === 1 ? 'Consecutive days are OK.' : `e.g. a shift on the 1st means the next is the ${mine.minInterval + 1}th at the earliest.`}{' '}
-            Spread-out preferences are given priority; grouped shifts are packed as close as your interval allows.
-          </p>
-          <label>
-            Note for the host
-            <input
+            {mine.minInterval === 1 ? t("Consecutive days are OK.") : `e.g. a shift on the 1st means the next is the ${mine.minInterval + 1}th at the earliest.`}{' '} {t(
+              "Spread-out preferences are given priority; grouped shifts are packed as close as your interval allows."
+            )}</p>
+          <label>{t("Note for the host")} <input
               value={mine.note}
               disabled={!canEdit(me.memberId)}
-              placeholder="e.g. exam on the 14th, prefer no Fridays"
+              placeholder={t("e.g. exam on the 14th, prefer no Fridays")}
               onChange={(e) => update(me.memberId!, (r) => ({ ...r, note: e.target.value }))}
             />
           </label>
         </section>
       )}
-
       <section className="card">
         <div className="row wrap between">
-          <h2>Availability</h2>
+          <h2>{t("🗓️ Availability")}</h2>
           <span className={`small ${saveState === 'error' ? 'error' : 'muted'}`}>
-            {saveState === 'saving' || Object.keys(pending).length ? 'Saving…' : saveState === 'error' ? 'Couldn’t save — retrying on next change' : 'Saved'}
+            {saveState === 'saving' || Object.keys(pending).length ? t('Saving…') : saveState === 'error' ? t('Couldn’t save — retrying on next change') : `✓ ${t('Saved')}`}
           </span>
         </div>
         <p className="muted small">
-          {me.memberId ? 'Edit your own column; everyone’s answers are visible.' : me.isHost ? 'Everyone’s answers are visible.' : 'Log in above to fill in your column.'}{' '}
-          Tap or drag over cells. <strong>Unavailable</strong> = you can’t work that day. <strong>Avoid</strong> = you’d rather not, in
-          three levels (!!! really need it off, !! important, ! rather not) — Wayneday tries hardest for !!!. <strong>Lock in</strong> = you must work
-          that day, on the shift slot you pick
-          {lockChoices.length > 1 ? ` (${lockChoices.map((s) => s.name).join(' or ')})` : ''}.
+          {me.memberId ? t('Edit your own column; everyone’s answers are visible.') : me.isHost ? t('Everyone’s answers are visible.') : t('Log in above to fill in your column.')}{' '}
+          {t('Pick a tool, then tap or drag over cells.')}
         </p>
+        <ul className="howto small">
+          <li>{t('🚫 Can’t / avoid — ✕ means you can’t work that day; !!! / !! / ! mean you’d rather not (Wayneday tries hardest for !!!).')}</li>
+          <li>
+            {t('🔒 Lock in — you must work that day, on the shift slot you pick.')}
+            {lockChoices.length > 1 ? ` (${lockChoices.map((s) => s.name).join(' / ')})` : ''}
+          </li>
+        </ul>
         {me.isHost && (
           <label className="check host-toggle">
-            <input type="checkbox" checked={editOthers} onChange={(e) => setEditOthers(e.target.checked)} />
-            Let me edit other people’s columns
-            <span className="muted small">(they’ll be told, and can restore their answers)</span>
+            <input type="checkbox" checked={editOthers} onChange={(e) => setEditOthers(e.target.checked)} /> {t("Let me edit other people’s columns")} <span className="muted small">{t("(they’ll be told, and can restore their answers)")}</span>
           </label>
         )}
         <div className="row wrap toolbar">
-          <div className="segmented" role="radiogroup" aria-label="Tool">
-            <button role="radio" aria-checked={tool === 'unavailable'} className={tool === 'unavailable' ? 'on' : ''} onClick={() => setTool('unavailable')}>
-              <span className="swatch unavail">✕</span> Unavailable
-            </button>
-            <button role="radio" aria-checked={tool === 'lock'} className={tool === 'lock' ? 'on' : ''} onClick={() => setTool('lock')}>
-              <span className="swatch lock">🔒</span> Lock in
-            </button>
-            <button role="radio" aria-checked={tool === 'avoid'} className={tool === 'avoid' ? 'on' : ''} onClick={() => setTool('avoid')}>
-              <span className="swatch avoid">!</span> Avoid
-            </button>
-            <button role="radio" aria-checked={tool === 'clear'} className={tool === 'clear' ? 'on' : ''} onClick={() => setTool('clear')}>
-              Clear
-            </button>
+          <div className="segmented" role="radiogroup" aria-label={t("Tool")}>
+            <button role="radio" aria-checked={tool === 'mark'} className={tool === 'mark' ? 'on' : ''} onClick={() => setTool('mark')}>{t("🚫 Can’t / avoid")}</button>
+            <button role="radio" aria-checked={tool === 'lock'} className={tool === 'lock' ? 'on' : ''} onClick={() => setTool('lock')}>{t("🔒 Lock in")}</button>
+            <button role="radio" aria-checked={tool === 'clear'} className={tool === 'clear' ? 'on' : ''} onClick={() => setTool('clear')}>{t("🧽 Clear")}</button>
           </div>
-          <button onClick={undo} disabled={undoCount === 0} title="Undo your last change">
-            ↶ Undo
-          </button>
-          {tool === 'avoid' && (
-            <div className="segmented" role="radiogroup" aria-label="How much it matters">
-              {([3, 2, 1] as const).map((l) => (
-                <button key={l} role="radio" aria-checked={avoidLvl === l} className={`${avoidLvl === l ? 'on' : ''} lvl-${l}`} onClick={() => setAvoidLvl(l)}>
-                  {'!'.repeat(l)} {AVOID_LABEL[l]}
+          <button onClick={undo} disabled={undoCount === 0} title={t("Undo your last change")}>{t("↶ Undo")}</button>
+          {tool === 'mark' && (
+            <div className="segmented levels" role="radiogroup" aria-label={t("How much it matters")}>
+              {([0, 3, 2, 1] as const).map((l) => (
+                <button key={l} role="radio" aria-checked={markLvl === l} className={`${markLvl === l ? 'on' : ''} lvl-${l}`} onClick={() => setMarkLvl(l)}>
+                  {l === 0 ? '✕' : '!'.repeat(l)} {t(MARK_LABEL[l])}
                 </button>
               ))}
             </div>
           )}
           {tool === 'lock' && lockChoices.length > 1 && (
-            <label className="inline">
-              into
-              <select value={lockShift} onChange={(e) => setLockShift(e.target.value)}>
+            <label className="inline">{t("into")} <select value={lockShift} onChange={(e) => setLockShift(e.target.value)}>
                 {lockChoices.map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.name}
@@ -346,13 +334,13 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
           <table className="grid" onPointerDown={onDown} onPointerMove={onMove}>
             <thead>
               <tr>
-                <th className="sticky">Date</th>
+                <th className="sticky">{t("Date")}</th>
                 {members.map((m) => (
                   <th key={m.id} className={m.id === me.memberId ? 'me' : ''}>
                     <div className="colname">{m.name}</div>
                     <div className="muted tiny">
-                      {m.type}
-                      {session.responses[m.id]?.editedByHost ? ' · host edited' : ''}
+                      {typeName(m.type)}
+                      {session.responses[m.id]?.editedByHost ? t(" · host edited") : ''}
                     </div>
                   </th>
                 ))}
@@ -380,11 +368,11 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
                           className={`cell ${st.kind} ${st.kind === 'avoid' ? `avoid-${st.level}` : ''} ${editable ? 'editable' : ''} ${off ? 'off' : ''} ${m.id === me.memberId ? 'me' : ''}`}
                           title={`${m.name} · ${date}${
                             st.kind === 'lock'
-                              ? ` · locked to ${config.shifts.find((s) => s.id === st.shiftId)?.name}`
+                              ? ` · ${t('locked to {shift}', { shift: config.shifts.find((s) => s.id === st.shiftId)?.name ?? '' })}`
                               : st.kind === 'unavailable'
-                                ? ' · unavailable'
+                                ? ` · ${t('Unavailable')}`
                                 : st.kind === 'avoid'
-                                  ? ` · avoid: ${AVOID_LABEL[st.level]}`
+                                  ? ` · ${t(AVOID_LABEL[st.level])}`
                                   : ''
                           }`}
                         >
@@ -405,21 +393,20 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
           </table>
         </div>
       </section>
-
       <section className="card">
-        <h2>Everyone’s answers</h2>
+        <h2>👥 {t('Everyone’s answers')}</h2>
         <div className="scroll-x">
           <table className="mini">
             <thead>
               <tr>
-                <th>Name</th>
-                <th>Pattern</th>
-                <th>Min interval</th>
-                <th>Unavailable</th>
-                <th>Avoid</th>
-                <th>Locked</th>
-                <th>Note</th>
-                <th>Updated</th>
+                <th>{t("Name")}</th>
+                <th>{t("Pattern")}</th>
+                <th>{t("Min interval")}</th>
+                <th>{t("Unavailable")}</th>
+                <th>{t("Avoid")}</th>
+                <th>{t("Locked")}</th>
+                <th>{t("Note")}</th>
+                <th>{t("Updated")}</th>
               </tr>
             </thead>
             <tbody>
@@ -429,25 +416,23 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
                 return (
                   <tr key={m.id} className={m.id === me.memberId ? 'me' : ''}>
                     <td className="nowrap">
-                      {m.name} <span className="muted tiny">{m.type}</span>
+                      {m.name} <span className="muted tiny">{typeName(m.type)}</span>
                     </td>
                     {answered || pending[m.id] ? (
                       <>
-                        <td>{r.preference === 'distributed' ? 'Spread out' : 'Grouped'}</td>
-                        <td>{r.minInterval} d</td>
+                        <td>{r.preference === 'distributed' ? t("Spread out") : t("Grouped")}</td>
+                        <td>{t("{n} d", { n: r.minInterval })}</td>
                         <td>{r.unavailable.length}</td>
                         <td>{r.avoid?.length ?? 0}</td>
                         <td>{r.locks.length}</td>
                         <td className="note">{r.note}</td>
-                        <td className="muted small nowrap">{r.updatedAt ? new Date(r.updatedAt).toLocaleString() : 'now'}</td>
+                        <td className="muted small nowrap">{r.updatedAt ? new Date(r.updatedAt).toLocaleString() : t("now")}</td>
                       </>
                     ) : (
-                      <td colSpan={7} className="muted small">
-                        No answer yet — defaults: spread out, {r.minInterval}-day interval
-                      </td>
+                      <td colSpan={7} className="muted small">{t("No answer yet — defaults: spread out,")} {r.minInterval}{t("-day interval")}</td>
                     )}
                   </tr>
-                )
+                );
               })}
             </tbody>
           </table>
@@ -455,7 +440,7 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
         {session.changes.length > 0 && <ChangeLog changes={session.changes} nameOf={nameOf} canRevert={me.isHost} revert={(c) => update(c.memberId, () => c.before ?? DEFAULT_RESPONSE)} />}
       </section>
     </div>
-  )
+  );
 }
 
 function ChangeLog({
@@ -471,19 +456,17 @@ function ChangeLog({
 }) {
   return (
     <details className="history">
-      <summary className="small">Host edits to people’s answers ({changes.length})</summary>
+      <summary className="small">{t("Host edits to people’s answers (")}{changes.length})</summary>
       <ul>
         {[...changes].reverse().slice(0, 30).map((c) => (
           <li key={c.id} className="small">
             <span className="muted">{new Date(c.at).toLocaleString()}</span> · {nameOf(c.memberId)}: {c.summary}{' '}
             {canRevert && (
-              <button className="link" onClick={() => revert(c)}>
-                revert
-              </button>
+              <button className="link" onClick={() => revert(c)}>{t("revert")}</button>
             )}
           </li>
         ))}
       </ul>
     </details>
-  )
+  );
 }
