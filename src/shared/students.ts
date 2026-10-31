@@ -637,7 +637,9 @@ function pickPresentersOnce(
   }
   // Even totals come first: someone short of one type (e.g. one-day ones, tied to a few nights) makes it up in
   // another (e.g. morning reports). Then even within each type.
-  const load = (id: string, k: string) => 2 * (total.get(id) ?? 0) + (byKind.get(`${k}|${id}`) ?? 0)
+  // Everyone presents at each weekly presentation (e.g. morning report) at least once: whoever hasn't yet goes first.
+  const firstTurn = (id: string, k: string) => k !== 'one-day' && !(byKind.get(`${k}|${id}`) ?? 0)
+  const load = (id: string, k: string) => 2 * (total.get(id) ?? 0) + (byKind.get(`${k}|${id}`) ?? 0) - (firstTurn(id, k) ? 1000 : 0)
   const byFewest = (ids: string[], k: string) => sortedBy(ids, (id) => load(id, k) + rand() * 0.5)
 
   /** One presenter place: who could take it (`pool`) and who did. */
@@ -682,7 +684,7 @@ function pickPresentersOnce(
   }
 
   // Even it out: hand a place to someone else who could take it whenever that makes the counts more even.
-  const cost = (id: string, k: string) => 3 * (total.get(id) ?? 0) ** 2 + (byKind.get(`${k}|${id}`) ?? 0) ** 2
+  const cost = (id: string, k: string) => 3 * (total.get(id) ?? 0) ** 2 + (byKind.get(`${k}|${id}`) ?? 0) ** 2 + (firstTurn(id, k) ? 500 : 0)
   for (let pass = 0; pass < 20; pass++) {
     let better = false
     for (const slot of slots) {
@@ -813,7 +815,8 @@ export function studentOptions(
       const r = studentRuleReport(config, responses, o.roster)
       const missed = r.avoidHits[1] + r.avoidHits[2] + r.avoidHits[3]
       const both = r.pointsOk && missed === 0 ? 0 : r.pointsOk && r.avoidHits[3] === 0 ? 1 : 2
-      return [o, [both, r.pointsOk ? 0 : 1, r.pointsSpread, r.avoidHits[3], r.avoidHits[2], r.avoidHits[1], o.score]] as const
+      // Everyone at morning report (each weekly presentation) at least once comes before all else.
+      return [o, [r.missingWeekly.length, both, r.pointsOk ? 0 : 1, r.pointsSpread, r.avoidHits[3], r.avoidHits[2], r.avoidHits[1], o.score]] as const
     }),
   )
   out.sort((a, b) => {
@@ -1176,6 +1179,8 @@ export function studentRuleReport(
   let pointsOk = true
   /** Most minus fewest points (shifts, plus presentations when they count); 0 when points are off. */
   let pointsSpread = 0
+  /** Students who never present at some weekly presentation (everyone should, at least once). */
+  const missingWeekly: string[] = []
   if (st.auto) {
     const counts = config.members.filter((m) => m.type === 'student').map((m) => roster.students.filter((s) => s.memberId === m.id).length)
     if (counts.length) {
@@ -1223,6 +1228,15 @@ export function studentRuleReport(
     summary.push(
       `🎤 ${t('{n} presentations each', { n: range(() => true) })}${kinds.length > 1 ? ` (${kinds.map((k) => `${k.name} ${range(k.f)}`).join(', ')})` : ''}`,
     )
+    // Everyone should present at each weekly presentation at least once.
+    for (const r of config.presentations.filter((x) => !isOneDay(x))) {
+      const none = studs.filter((m) => !roster.presenters!.some((x) => x.memberId === m.id && x.ruleId === r.id))
+      if (none.length) {
+        summary.push(`⚠️ ${t('{n} never present at {rule}', { n: none.length, rule: r.name })}`)
+        notes.push(t('Never present at {rule}: {names}.', { rule: r.name, names: none.map((m) => m.name).join(', ') }))
+        for (const m of none) if (!missingWeekly.includes(m.id)) missingWeekly.push(m.id)
+      }
+    }
     // Nobody should present twice in a day.
     const p = roster.presenters
     const twice = p.filter((x, i) => p.findIndex((y) => y.date === x.date && y.memberId === x.memberId) !== i)
@@ -1243,7 +1257,7 @@ export function studentRuleReport(
   if (pairRepeats.length) summary.push(`👥 ${t('{n} pair(s) of students together more than once', { n: pairRepeats.length })}`)
   if (meets.length) summary.push(`🔁 ${t('{n} time(s) a student meets the same resident or staff again', { n: meets.length })}`)
   if (st.wantPartner) summary.push(alone ? `⚠️ ${t('{n} student(s) alone on every shift', { n: alone })}` : `✅ ${t('everyone has a partner at least once')}`)
-  return { summary, details: [...notes, ...repeats], avoidHits, repeats: repeats.length, alone, unmet, pairRepeats, meets, pointsOk, pointsSpread }
+  return { summary, details: [...notes, ...repeats], avoidHits, repeats: repeats.length, alone, unmet, pairRepeats, meets, pointsOk, pointsSpread, missingWeekly }
 }
 
 /**

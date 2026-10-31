@@ -797,4 +797,6 @@ export const TH: Record<string, string> = {
   "Points (shifts + presentations)": "แต้ม (เวร + การนำเสนอ)",
   "best fit": "เหมาะที่สุด",
   "fair points · no !!! missed": "แต้มยุติธรรม · ไม่พลาด !!!",
+  "{n} never present at {rule}": "{n} คนไม่ได้นำเสนอ {rule} เลย",
+  "Never present at {rule}: {names}.": "ไม่ได้นำเสนอ {rule} เลย: {names}",
 }

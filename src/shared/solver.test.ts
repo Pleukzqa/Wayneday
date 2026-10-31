@@ -404,6 +404,7 @@ test('presentations are shared out evenly, in all and by type', () => {
     const count = (f: (x: (typeof p)[number]) => boolean) => studs.map((id) => p.filter((x) => x.memberId === id && f(x)).length)
     assert.ok(spread(count(() => true)) <= 1, `seed ${seed}: total ${count(() => true)}`)
     assert.ok(spread(count((x) => x.ruleId === 'mr')) <= 1, `seed ${seed}: morning ${count((x) => x.ruleId === 'mr')}`)
+    assert.ok(Math.min(...count((x) => x.ruleId === 'mr')) >= 1, `seed ${seed}: everyone presents at morning report at least once`)
     assert.ok(spread(count((x) => x.ruleId.startsWith('cc'))) <= 1, `seed ${seed}: one-day ${count((x) => x.ruleId.startsWith('cc'))}`)
   }
   const table = studentSummaryTable(c, { assignments: c.duty, students: [], presenters: [] })
