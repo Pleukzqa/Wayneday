@@ -1901,3 +1901,15 @@ button.big {
   margin: 0 0 0.3rem;
   font-weight: 600;
 }
+.showing {
+  margin: 0.2rem 0 0.4rem;
+}
+.saved li.open {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+/* The whole cell lights up too, so a highlighted person stands out in busy columns (e.g. presentations). */
+.has-lit td:has(.who-chip.lit) {
+  background: color-mix(in srgb, var(--accent) 18%, var(--surface));
+  box-shadow: inset 0 0 0 2px var(--accent);
+}

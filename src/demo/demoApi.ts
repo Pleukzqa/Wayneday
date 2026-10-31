@@ -192,7 +192,7 @@ export const api = {
   saveArrangement: (code: string, name: string, d: { roster: Roster; source: Schedule['source']; notes: string[] }) =>
     mutate(code, false, (s) => saveArrangement(s, actorFor(code), name, clone(d))),
   removeArrangement: (code: string, id: string) => mutate(code, false, (s) => removeArrangement(s, actorFor(code), id)),
-  saveDraft: (code: string, draft: { roster: Roster; source: Schedule['source']; notes: string[] } | null) =>
+  saveDraft: (code: string, draft: { roster: Roster; source: Schedule['source']; notes: string[]; name?: string } | null) =>
     mutate(code, true, (s) => {
       s.draft = draft ? { ...clone(draft), savedAt: Date.now() } : null
     }),

@@ -427,6 +427,8 @@ export interface SavedArrangement extends Draft {
 export interface Draft {
   roster: Roster
   source: Schedule['source']
+  /** Which arrangement it is, as shown to the host: "Option 3", a saved arrangement's name, "AI reply"… */
+  name?: string
   /** The arranger's notes about it (e.g. presentations short on some days). */
   notes: string[]
   savedAt: number

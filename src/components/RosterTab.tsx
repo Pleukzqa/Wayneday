@@ -35,6 +35,10 @@ interface Preview {
   notes: string[]
   /** The roster as the option/AI produced it, before the host moved students by hand. */
   base?: Roster
+  /** Which arrangement this is: "Option 3", a saved one's name, "AI reply"… */
+  name?: string
+  /** The saved arrangement it was opened from. */
+  savedId?: string
 }
 
 function useNow(ms = 30_000) {
@@ -126,14 +130,14 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
     // The very one shown before switching tabs (so its option stays picked), else the saved draft.
     const before = kept.get(code)?.preview
     if (before && session.draft) return before
-    return session.draft ? { roster: session.draft.roster, source: session.draft.source, notes: session.draft.notes } : null
+    return session.draft ? { roster: session.draft.roster, source: session.draft.source, notes: session.draft.notes, name: session.draft.name } : null
   })
   const savedDraft = useRef<Preview | null>(preview)
   const latestPreview = useRef<Preview | null>(preview)
   const saveDraft = useCallback(
     (p: Preview | null) => {
       savedDraft.current = p
-      void mutate(() => api.saveDraft(code, p ? { roster: p.roster, source: p.source, notes: p.notes } : null)).catch(() => {})
+      void mutate(() => api.saveDraft(code, p ? { roster: p.roster, source: p.source, notes: p.notes, name: p.name } : null)).catch(() => {})
     },
     [code, mutate],
   )
@@ -190,7 +194,7 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
         setOptions(r.result.alternatives)
         setCount(r.count)
         const best = r.result.alternatives[0]
-        setPreview({ roster: best.roster, source: 'solver', notes: best.warnings })
+        setPreview({ roster: best.roster, source: 'solver', notes: best.warnings, name: t('Option {n}', { n: 1 }) })
       } else {
         setOptions(null)
         setCount(null)
@@ -215,7 +219,7 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
       if (!r.ok) setProblems(r.problems)
       else {
         setProblems(null)
-        setPreview({ roster: { assignments: shown.assignments, students: r.students, presenters: r.presenters }, source: preview?.source ?? 'manual', notes: r.warnings })
+        setPreview({ roster: { assignments: shown.assignments, students: r.students, presenters: r.presenters }, source: preview?.source ?? 'manual', notes: r.warnings, name: t('Students re-arranged') })
         setEdit(null)
       }
     } catch (e) {
@@ -379,7 +383,7 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
                     aria-checked={on}
                     className={`option ${on ? 'on' : ''}`}
                     onClick={() => {
-                      setPreview({ roster: o.roster, source: 'solver', notes: o.warnings })
+                      setPreview({ roster: o.roster, source: 'solver', notes: o.warnings, name: t('Option {n}', { n: i + 1 }) })
                       setPicked(null)
                       setHistory([])
                       setEdit(null)
@@ -476,7 +480,7 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
             {...{ code, session, me, mutate }}
             roster={shown}
             onImport={(r, notes) => {
-              setPreview({ roster: r, source: 'ai', notes })
+              setPreview({ roster: r, source: 'ai', notes, name: t('AI reply') })
               setOptions(null)
               setProblems(null)
             }}
@@ -490,10 +494,14 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
           saved={session.saved ?? []}
           open={(x) => {
             setEdit(null)
-            setPreview({ roster: x.roster, source: x.source, notes: x.notes })
+            const opened = { roster: x.roster, source: x.source, notes: x.notes, name: x.name, savedId: x.id }
+            setPreview(opened)
+            // Kept as the draft straight away, so a reload shows it too.
+            saveDraft(opened)
             setTimeout(() => tableRef.current?.scrollIntoView({ behavior: 'smooth' }), 50)
           }}
           remove={(id) => void mutate(() => api.removeArrangement(code, id)).catch((e) => setError((e as Error).message))}
+          openId={preview?.savedId}
         />
       )}
       {schedule && !preview && (
@@ -600,6 +608,7 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
               </span>
             </div>
           )}
+          <ShowingLine preview={preview} edit={edit} schedule={schedule} options={options?.length ?? 0} />
           <section className="card flush">
             <RosterTable
               arrange={arrange}
@@ -852,6 +861,29 @@ function Concerns({
   );
 }
 
+/** Which arrangement the table below is showing. */
+function ShowingLine({ preview, edit, schedule, options }: { preview: Preview | null; edit: Roster | null; schedule: Schedule | null; options: number }) {
+  let what: string
+  if (preview) {
+    const n = preview.name?.match(/^(?:Option|แบบที่) (\d+)$/)?.[1]
+    what = preview.savedId
+      ? t('saved arrangement “{name}”', { name: preview.name ?? '' })
+      : n && options
+        ? t('{name} of {n}', { name: preview.name!, n: options })
+        : (preview.name ?? t('the arrangement being tried out'))
+  } else if (schedule) {
+    what = schedule.status === 'final' ? t('the published roster (final)') : t('the published roster (in review)')
+  } else return null
+  const changed = Boolean(preview?.base) || Boolean(edit)
+  return (
+    <p className="showing small">
+      👁️ {t('Showing:')} <b>{what}</b>
+      {changed && <span className="muted"> · {t('changed by hand')}</span>}
+      {preview && <span className="muted"> · {t('not published')}</span>}
+    </p>
+  )
+}
+
 /** "Save for later": keep the arrangement on screen under a name, to open again from Saved arrangements. */
 function SaveForLater({ count, save }: { count: number; save: (name: string) => Promise<unknown> }) {
   const [open, setOpen] = useState(false)
@@ -899,12 +931,14 @@ function SavedArrangements({
   saved,
   open,
   remove,
+  openId,
 }: {
   config: SessionConfig
   responses: Record<string, MemberResponse>
   saved: SavedArrangement[]
   open: (x: SavedArrangement) => void
   remove: (id: string) => void
+  openId?: string
 }) {
   return (
     <section className="card saved">
@@ -912,9 +946,12 @@ function SavedArrangements({
       <p className="muted small">{t('Only you and your co-hosts see these. Open one to look at it again, change it or publish it.')}</p>
       <ul>
         {[...saved].reverse().map((x) => (
-          <li key={x.id}>
+          <li key={x.id} className={x.id === openId ? 'open' : ''}>
             <div className="row wrap between">
-              <strong>{x.name}</strong>
+              <strong>
+                {x.name}
+                {x.id === openId && <span className="badge"> {t('showing')}</span>}
+              </strong>
               <span className="row">
                 <button type="button" className="primary" onClick={() => open(x)}>{t('Open')}</button>
                 <ConfirmButton className="link danger" confirmText={t('tap to delete')} onConfirm={() => remove(x.id)}>

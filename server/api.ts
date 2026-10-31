@@ -688,6 +688,7 @@ export function createApi(opts: ApiOptions) {
             roster: { assignments: roster.assignments, students: roster.students, presenters: roster.presenters },
             source: b!.source === 'ai' || b!.source === 'manual' ? b!.source : 'solver',
             notes: arr(b!.notes, 20).map((n) => str(n, 300)),
+            ...(str(b!.name, 80) ? { name: str(b!.name, 80) } : {}),
             savedAt: Date.now(),
           }
         : null
