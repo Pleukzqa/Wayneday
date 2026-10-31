@@ -107,13 +107,26 @@ function differs(a: Roster, b: Roster): number {
   return [...b.assignments, ...b.students].filter((x) => !inA.has(key(x))).length
 }
 
+/**
+ * What the host found while arranging, kept per roster while the page is open: the tab unmounts when you
+ * switch to another one, and coming back should show the same options (the chosen one is also saved as a draft).
+ */
+const kept = new Map<
+  string,
+  { preview: Preview | null; options: StudentOption[] | null; count: CountResult | null; problems: string[] | null; explain: Explanation | null; seed: number }
+>()
+
 export default function RosterTab({ code, session, me, mutate }: SessionProps) {
   const { config, responses, schedule } = session
   const now = useNow()
   // The arrangement being tried out comes back from the server (hosts only), so it's here every time.
-  const [preview, setPreview] = useState<Preview | null>(() =>
-    me.isHost && session.draft ? { roster: session.draft.roster, source: session.draft.source, notes: session.draft.notes } : null,
-  )
+  const [preview, setPreview] = useState<Preview | null>(() => {
+    if (!me.isHost) return null
+    // The very one shown before switching tabs (so its option stays picked), else the saved draft.
+    const before = kept.get(code)?.preview
+    if (before && session.draft) return before
+    return session.draft ? { roster: session.draft.roster, source: session.draft.source, notes: session.draft.notes } : null
+  })
   const savedDraft = useRef<Preview | null>(preview)
   const latestPreview = useRef<Preview | null>(preview)
   const saveDraft = useCallback(
@@ -136,12 +149,15 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
     },
     [me.isHost, saveDraft],
   )
-  const [options, setOptions] = useState<StudentOption[] | null>(null)
-  const [count, setCount] = useState<CountResult | null>(null)
-  const [problems, setProblems] = useState<string[] | null>(null)
-  const [explain, setExplain] = useState<Explanation | null>(null)
+  const [options, setOptions] = useState<StudentOption[] | null>(() => kept.get(code)?.options ?? null)
+  const [count, setCount] = useState<CountResult | null>(() => kept.get(code)?.count ?? null)
+  const [problems, setProblems] = useState<string[] | null>(() => kept.get(code)?.problems ?? null)
+  const [explain, setExplain] = useState<Explanation | null>(() => kept.get(code)?.explain ?? null)
   const [running, setRunning] = useState<string | null>(null)
-  const [seed, setSeed] = useState(1)
+  const [seed, setSeed] = useState(() => kept.get(code)?.seed ?? 1)
+  useEffect(() => {
+    kept.set(code, { preview, options, count, problems, explain, seed })
+  }, [code, preview, options, count, problems, explain, seed])
   const [reviewHours, setReviewHours] = useState(48)
   const [edit, setEdit] = useState<Roster | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -338,7 +354,7 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
             <button className="primary" disabled={running !== null || (hospital && !config.noDuty && config.duty.length === 0)} onClick={() => void find()}>
               {running === 'find'
                 ? `⏳ ${t('Finding arrangements…')}`
-                : options
+                : options || preview
                   ? `🔄 ${t('Find different arrangements')}`
                   : practice
                     ? `🧪 ${t('Try arrangements (practice)')}`
