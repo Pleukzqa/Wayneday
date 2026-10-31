@@ -369,6 +369,15 @@ export default function SetupTab({ code, session, me, mutate }: SessionProps) {
               "Already added someone? Send them their personal link (in the Login column) — it opens with their name picked, and they set a PIN. People not on the list can ask to join, and appear above for you to approve."
             )}</p>
           )}
+          {me.isHost && !IS_DEMO && (
+            <ShareInvites
+              code={code}
+              title={session.config.title}
+              people={session.config.members.filter((m) => !hospital || m.type === 'student')}
+              claimed={session.claimed}
+              unsaved={shownPeople.some((m) => !session.config.members.some((x) => x.id === m.id))}
+            />
+          )}
           {!ro && (
             <div className="row wrap align-end">
               <label className="grow">
@@ -609,9 +618,63 @@ function PlanSuggestions({ draft, others, pick }: { draft: SessionConfig; others
   )
 }
 
+/** A member's own link: opens the roster with their name picked. */
+const personalUrl = (code: string, memberId: string) => `${location.origin}${location.pathname}${sessionHash(code)}--${memberId}`
+
+/** One message with every name and their own link, to paste into a group chat. */
+function ShareInvites({ code, title, people, claimed, unsaved }: { code: string; title: string; people: Member[]; claimed: string[]; unsaved: boolean }) {
+  const [open, setOpen] = useState(false)
+  const [onlyNew, setOnlyNew] = useState(false)
+  const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle')
+  const list = people.filter((m) => !onlyNew || !claimed.includes(m.id))
+  const text = [
+    t('{title} — fill in your duty availability on Wayneday. Tap the link next to your name:', { title: title || 'Wayneday' }),
+    '',
+    ...list.map((m) => `${m.name}: ${personalUrl(code, m.id)}`),
+  ].join('\n')
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(text)
+      setState('copied')
+      setTimeout(() => setState('idle'), 1500)
+    } catch {
+      setState('failed')
+    }
+  }
+  if (!people.length && !unsaved) return null
+  return (
+    <div className="share-invites">
+      <button type="button" aria-expanded={open} onClick={() => setOpen(!open)}>
+        📤 {t('Share invites')}
+      </button>
+      {open && (
+        <div className="stack-tight">
+          <label className="check small">
+            <input type="checkbox" checked={onlyNew} onChange={(e) => setOnlyNew(e.target.checked)} />
+            {t('Only people who haven’t logged in yet ({n})', { n: people.filter((m) => !claimed.includes(m.id)).length })}
+          </label>
+          {unsaved && <span className="warn-text small">{t('Save setup first — names added since aren’t in the list yet.')}</span>}
+          <textarea readOnly rows={Math.min(12, list.length + 3)} value={text} onFocus={(e) => e.target.select()} aria-label={t('Invite message')} />
+          <div className="row wrap">
+            <button type="button" className="primary" disabled={!list.length} onClick={() => void copy()}>
+              {state === 'copied' ? t('copied!') : t('Copy message')}
+            </button>
+            {typeof navigator.share === 'function' && (
+              <button type="button" disabled={!list.length} onClick={() => void navigator.share({ text }).catch(() => {})}>
+                {t('Share…')}
+              </button>
+            )}
+            {state === 'failed' && <span className="muted small">{t('Couldn’t copy — select the text above and copy it.')}</span>}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function PersonalLink({ code, memberId, name }: { code: string; memberId: string; name: string }) {
   const [state, setState] = useState<'idle' | 'copied' | 'show'>('idle')
-  const url = `${location.origin}${location.pathname}${sessionHash(code)}--${memberId}`
+  const url = personalUrl(code, memberId)
   return (
     <>
       <button

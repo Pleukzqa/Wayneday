@@ -629,4 +629,12 @@ export const TH: Record<string, string> = {
   "usual": "ตามปกติ",
   "Set this shift’s points by hand; other shifts keep theirs": "กำหนดแต้มของเวรนี้เอง เวรอื่นไม่เปลี่ยน",
   "Back to the calculation: {calc}": "กลับไปใช้การคำนวณ: {calc}",
+  "{title} — fill in your duty availability on Wayneday. Tap the link next to your name:": "{title} — กรอกวันว่างสำหรับจัดเวรใน Wayneday กดลิงก์ข้างชื่อของตัวเอง:",
+  "Share invites": "แชร์ลิงก์เชิญ",
+  "Only people who haven’t logged in yet ({n})": "เฉพาะคนที่ยังไม่ได้เข้าสู่ระบบ ({n})",
+  "Save setup first — names added since aren’t in the list yet.": "บันทึกการตั้งค่าก่อน — ชื่อที่เพิ่งเพิ่มยังไม่อยู่ในรายการ",
+  "Invite message": "ข้อความเชิญ",
+  "Copy message": "คัดลอกข้อความ",
+  "Share…": "แชร์…",
+  "Couldn’t copy — select the text above and copy it.": "คัดลอกไม่ได้ — เลือกข้อความด้านบนแล้วคัดลอกเอง",
 }
