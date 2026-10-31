@@ -6,6 +6,7 @@ import { dateRange, shortDate, weekday } from '../shared/dates.ts'
 import { responseFor } from '../shared/solver.ts'
 import { DEFAULT_RESPONSE, type AnswerChange, type AvoidLevel, type HostNote, type MemberResponse } from '../shared/types.ts'
 import type { SessionProps } from './props.ts'
+import Expandable from './Expandable.tsx'
 
 // 'mark' = can't work / would rather not, at the chosen level (0 = can't at all).
 type Tool = 'mark' | 'lock' | 'clear'
@@ -385,6 +386,7 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
           )}
         </div>
         {notice && <p className="small warn-text">{notice}</p>}
+        <Expandable title={t("🗓️ Availability")}>
         <div className="scroll-x grid-wrap">
           <table className="grid" onPointerDown={onDown} onPointerMove={onMove}>
             <thead>
@@ -450,6 +452,7 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
             </tbody>
           </table>
         </div>
+        </Expandable>
       </section>
       {mine && me.memberId && (
         <section className={`card ready-card ${mine.ready ? 'is-ready' : ''}`}>

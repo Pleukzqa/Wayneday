@@ -813,4 +813,6 @@ export const TH: Record<string, string> = {
   "changed by hand": "แก้ด้วยมือ",
   "not published": "ยังไม่เผยแพร่",
   "showing": "กำลังแสดง",
+  "Close full screen": "ปิดเต็มจอ",
+  "Full screen": "เต็มจอ",
 }

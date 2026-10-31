@@ -1,4 +1,5 @@
 import { useState, type Ref } from 'react'
+import Expandable from './Expandable.tsx'
 import { t } from '../shared/i18n.ts'
 import { cellIds, cellNames, columnsFor, presenterParts } from '../shared/columns.ts'
 import { reqCount } from '../shared/calendar.ts'
@@ -68,7 +69,7 @@ export default function RosterTable({ config, roster, myId, avoidOf, onEdit, onE
   const litClass = (id?: string | null) => (id && id === lit ? 'lit' : '')
 
   return (
-    <>
+    <Expandable title={t('Roster')}>
     {pinned && (
       <p className="small lit-bar">
         {t('Highlighting {name}', { name: nameOf(pinned) })}{' '}
@@ -276,7 +277,7 @@ export default function RosterTable({ config, roster, myId, avoidOf, onEdit, onE
         </tbody>
       </table>
     </div>
-    </>
+    </Expandable>
   );
 }
 
