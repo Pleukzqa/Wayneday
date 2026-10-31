@@ -283,8 +283,6 @@ function cleanResponse(raw: unknown): MemberResponse {
       .filter((a) => isDate(a.date))
       .map((a) => ({ date: a.date as string, level: int(a.level, 1, 3, 1) as 1 | 2 | 3 })),
     ...(Number(r.ready) > 0 ? { ready: Math.min(Math.floor(Number(r.ready)), Date.now()) } : {}),
-    ...(Array.isArray(r.avoidWeekdays) && r.avoidWeekdays.length ? { avoidWeekdays: [...new Set(arr(r.avoidWeekdays, 7).map((d) => int(d, 0, 6, 0)))].sort() } : {}),
-    ...(Array.isArray(r.noPresentWeekdays) && r.noPresentWeekdays.length ? { noPresentWeekdays: [...new Set(arr(r.noPresentWeekdays, 7).map((d) => int(d, 0, 6, 0)))].sort() } : {}),
     updatedAt: Date.now(),
   }
 }

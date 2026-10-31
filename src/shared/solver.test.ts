@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import { addDays, dateRange, dayDiff } from './dates.ts'
 import { shiftHours, shiftPoints, shiftTimes } from './calendar.ts'
 import { countArrangements, solve, solveMany, validate } from './solver.ts'
-import { arrangeStudents, countStudentArrangements, equalShare, shareGroups, shiftsNeeded, pickPresenters, placeKey, studentCellIssues, studentExposure, studentOptions, fairnessReport, presentationLoad, repairRoster, studentDetails, studentRuleReport, studentSummaryTable, studentTargets, typeSpread } from './students.ts'
+import { arrangeStudents, countStudentArrangements, equalShare, shareGroups, shiftsNeeded, pickPresenters, placeKey, studentCellIssues, studentExposure, studentOptions, everyOtherDay, fairnessReport, presentationLoad, presentsInARow, repairRoster, studentDetails, studentRuleReport, studentSummaryTable, studentTargets, typeSpread } from './students.ts'
 import { buildAiPrompt, importAiResult } from './ai.ts'
 import { explainNoArrangement } from './explain.ts'
 import { ANY_SHIFT, DEFAULT_RESPONSE, DEFAULT_STUDENTS, dutyOf, personHue, presentationPoints, type MemberResponse, type SessionConfig, type StudentAssignment } from './types.ts'
@@ -520,6 +520,25 @@ test('per student: average days between shifts, overall and per type of shift', 
   const table = studentSummaryTable(c, { assignments: [], students })
   assert.deepEqual(table.header.slice(2, 5), ['Average days between shifts', 'Average days between Night', 'Average days between Day'])
   assert.deepEqual(table.rows[0].slice(2, 5), ['4.3', '6', '10'])
+})
+
+test('every other day: runs of shifts two days apart, and presenting two days apart, are counted', () => {
+  assert.equal(everyOtherDay([1, 3, 5]), 1)
+  assert.equal(everyOtherDay([1, 3, 5, 7]), 2)
+  assert.equal(everyOtherDay([1, 3, 6, 8]), 0)
+  const p = (memberId: string, date: string) => ({ memberId, date, ruleId: 'mr', postCall: false })
+  const ps = [p('a', '2026-11-02'), p('a', '2026-11-04'), p('b', '2026-11-02'), p('b', '2026-11-03')]
+  assert.deepEqual(presentsInARow(ps, 2).map((x) => x.memberId), ['a'])
+  assert.deepEqual(presentsInARow(ps).map((x) => x.memberId), ['b'])
+  // The arranger keeps people off three every-other-day shifts in a row when there's room (5 shifts in 30 days).
+  const c = hospital()
+  for (let seed = 1; seed <= 3; seed++) {
+    const r = arrangeStudents(c, {}, c.duty, seed)
+    assert.ok(r.ok)
+    if (!r.ok) return
+    const runs = c.members.reduce((n, m) => n + everyOtherDay(r.students.filter((x) => x.memberId === m.id).map((x) => dayDiff(c.startDate, x.date)).sort((a, b) => a - b)), 0)
+    assert.equal(runs, 0, `seed ${seed}`)
+  }
 })
 
 test('nobody presents twice in a day', () => {

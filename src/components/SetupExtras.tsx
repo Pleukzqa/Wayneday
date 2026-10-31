@@ -653,8 +653,8 @@ export function StudentsCard({ draft, edit, ro, responses }: { draft: SessionCon
         </label>
         {slots.length > 1 && (
           <div className="rules">
-            <span className="small" title={t('Everyone gets about as many of these (at most 1 apart in a group); points can’t make up for fewer.')}>
-              {t('Always even (at most 1 apart):')}
+            <span className="small" title={t('Everyone gets about as many of these (at most 1 apart in a group); where that isn’t possible, whoever has fewer makes it up in points.')}>
+              {t('Keep even (at most 1 apart):')}
             </span>
             {slots.map((x) => (
               <label key={x.id} className="check">
