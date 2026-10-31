@@ -356,6 +356,21 @@ test('sharing equally within rotations of different sizes', () => {
   assert.equal(shiftsNeeded(c), 15)
 })
 
+test('someone away on a presentation day isn’t put on the night it takes presenters from', () => {
+  // One student a night; a case discussion on the 17th needs last night's student, and Student A is ✕ that day.
+  const c = hospital()
+  c.students = { ...c.students, auto: true }
+  c.presentations = [{ id: 'ccr', name: 'CCR', days: [], dates: ['2026-11-17'], count: 1, fromShiftId: 'night', fromCount: 1, types: ['student'] }]
+  const responses = { stA: resp({ unavailable: ['2026-11-17'] }) }
+  for (let seed = 1; seed <= 6; seed++) {
+    const s = arrangeStudents(c, responses, c.duty, seed)
+    assert.ok(s.ok)
+    if (!s.ok) return
+    assert.notEqual(s.students.find((x) => x.date === '2026-11-16')?.memberId, 'stA', `seed ${seed}`)
+    assert.deepEqual(pickPresenters(c, responses, c.duty, s.students).warnings, [])
+  }
+})
+
 test('dated places: a student covers Ward A until the 15th, then Ward B', () => {
   const c = hospital()
   c.jobs = [{ id: 'a', name: 'Ward A' }, { id: 'b', name: 'Ward B' }]

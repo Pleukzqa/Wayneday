@@ -76,6 +76,8 @@ const REPEAT_RESIDENT_PENALTY = 400
 const REPEAT_STAFF_PENALTY = 300
 const REPEAT_PARTNER_PENALTY = 350
 const ALONE_PENALTY = 150
+/** On a shift a presentation draws presenters from, while ✕ on the presentation day. */
+const PRESENT_AWAY_PENALTY = 600
 
 /** Exact count per shift slot for each student, when the host set one; null = a single total. */
 export function slotQuota(config: SessionConfig): Map<string, number> | null {
@@ -285,6 +287,23 @@ export function arrangeStudents(
   })
   if (problems.length) return { ok: false, problems }
 
+  // Places a presentation takes its presenters from, with the dates those presenters present: someone
+  // who's ✕ that day shouldn't take the place, or the presentation may be short (e.g. the only one on a night).
+  const presentsOn = new Map<number, string[]>()
+  for (const rule of config.presentations) {
+    for (const date of days) {
+      const today = presentationOn(config, rule, date)
+      if (!today) continue
+      for (const src of today.sources) {
+        if (!src.count) continue
+        for (const n of sourceOffsets(src, today.daysBack)) {
+          const day = addDays(date, -n)
+          for (const o of occs) if (o.date === day && sourceMatches(config, src, o.shiftId, o.requirementId)) presentsOn.set(o.i, [...(presentsOn.get(o.i) ?? []), date])
+        }
+      }
+    }
+  }
+  const away = (si: number, oi: number) => Boolean(presentsOn.get(oi)?.some((d) => resp[si].unavailable.includes(d)))
   const rand = rng(seed * 7919 + 13)
   // Shifts each student does. Sharing equally, the students with the most open places take the extra
   // ones (with a random tie-break, so each option shares them differently).
@@ -362,7 +381,7 @@ export function arrangeStudents(
       for (const { o } of short) {
         while (placed && load[o.i] < target(o)) {
           const cands = students.map((_, si) => si).filter((si) => mine[si].length < needs[si] && allowed[si].includes(o.i) && fits(si, o.i))
-          if (cands.length) add(sortedBy(cands, (si) => mine[si].length - needs[si] + (rand() - 0.5) * 0.9)[0], o.i)
+          if (cands.length) add(sortedBy(cands, (si) => mine[si].length - needs[si] + (rand() - 0.5) * 0.9 + (away(si, o.i) ? 5 : 0))[0], o.i)
           else if (load[o.i] < o.min) placed = false
           else break
         }
@@ -377,7 +396,7 @@ export function arrangeStudents(
             break
           }
           // Prefer places still under their minimum, then emptier ones, then random.
-          add(si, sortedBy(cands, (oi) => (load[oi] < occs[oi].min ? -10 : 0) + load[oi] + (rand() - 0.5) * 0.9)[0])
+          add(si, sortedBy(cands, (oi) => (load[oi] < occs[oi].min ? -10 : 0) + load[oi] + (rand() - 0.5) * 0.9 + (away(si, oi) ? 20 : 0))[0])
         }
       }
       if (placed && occs.some((o) => load[o.i] < o.min)) placed = false
@@ -427,6 +446,7 @@ export function arrangeStudents(
     mine.forEach((m, si) => {
       sc += preferenceCost(m.map((oi) => occs[oi].day).sort((a, b) => a - b), days.length, resp[si])
       for (const oi of m) sc += AVOID_PENALTY[avoidLevel(resp[si], occs[oi].date)]
+      for (const oi of m) if (away(si, oi)) sc += PRESENT_AWAY_PENALTY
       if (noRepeat || noRepeatStaff) {
         const seen = new Set<string>()
         for (const oi of m) {
