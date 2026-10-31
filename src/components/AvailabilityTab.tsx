@@ -4,7 +4,7 @@ import { shiftRuns, shiftsForType, shiftsOn } from '../shared/calendar.ts'
 import { t, typeName } from '../shared/i18n.ts'
 import { dateRange, shortDate, weekday } from '../shared/dates.ts'
 import { responseFor } from '../shared/solver.ts'
-import { DEFAULT_RESPONSE, type AnswerChange, type AvoidLevel, type HostNote, type MemberResponse } from '../shared/types.ts'
+import { DEFAULT_RESPONSE, missingReasons, type AnswerChange, type AvoidLevel, type HostNote, type MemberResponse } from '../shared/types.ts'
 import type { SessionProps } from './props.ts'
 import Expandable from './Expandable.tsx'
 
@@ -418,14 +418,17 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
                       {holidays.has(date) && <span className="tiny"> ★</span>}
                     </th>
                     {members.map((m) => {
-                      const st = cellState(respOf(m.id), date)
+                      const r = respOf(m.id)
+                      const st = cellState(r, date)
                       const editable = canEdit(m.id)
+                      const why = r.reasons?.[date]?.trim()
+                      const needsWhy = m.id === me.memberId && !why && (st.kind === 'unavailable' || (st.kind === 'avoid' && st.level >= 2))
                       return (
                         <td
                           key={m.id}
                           data-date={date}
                           data-member={m.id}
-                          className={`cell ${st.kind} ${st.kind === 'avoid' ? `avoid-${st.level}` : ''} ${editable ? 'editable' : ''} ${off ? 'off' : ''} ${m.id === me.memberId ? 'me' : ''}`}
+                          className={`cell ${st.kind} ${st.kind === 'avoid' ? `avoid-${st.level}` : ''} ${editable ? 'editable' : ''} ${off ? 'off' : ''} ${m.id === me.memberId ? 'me' : ''} ${needsWhy ? 'no-reason' : ''}`}
                           title={`${m.name} · ${date}${
                             st.kind === 'lock'
                               ? ` · ${t('locked to {shift}', { shift: config.shifts.find((s) => s.id === st.shiftId)?.name ?? '' })}`
@@ -434,7 +437,7 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
                                 : st.kind === 'avoid'
                                   ? ` · ${t(AVOID_LABEL[st.level])}`
                                   : ''
-                          }`}
+                          }${why ? ` · ${why}` : needsWhy ? ` · ${t('Why? (required)')}` : ''}`}
                         >
                           {st.kind === 'unavailable'
                             ? '✕'
@@ -455,6 +458,13 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
         </Expandable>
       </section>
       {mine && me.memberId && (
+        <ReasonsCard
+          r={mine}
+          editable={canEdit(me.memberId)}
+          set={(date, text) => update(me.memberId!, (r) => ({ ...r, reasons: { ...r.reasons, [date]: text } }))}
+        />
+      )}
+      {mine && me.memberId && (
         <section className={`card ready-card ${mine.ready ? 'is-ready' : ''}`}>
           {mine.ready ? (
             <>
@@ -472,9 +482,20 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
             <>
               <h2>🏁 {t('Finished?')}</h2>
               <p className="muted small">{t('Mark the days you can’t do or would rather avoid above, then press this so the host knows you’re done.')}</p>
-              <button type="button" className="primary big" disabled={!canEdit(me.memberId)} onClick={() => setPref((r) => ({ ...r, ready: Date.now() }))}>
+              <button
+                type="button"
+                className="primary big"
+                disabled={!canEdit(me.memberId) || missingReasons(mine).length > 0}
+                onClick={() => setPref((r) => ({ ...r, ready: Date.now() }))}
+              >
                 ✅ {t('I’m ready!')}
               </button>
+              {missingReasons(mine).length > 0 && (
+                <p className="small warn-text">
+                  {t('First write why for {n} day(s) in “Why these days?” above.', { n: missingReasons(mine).length })}{' '}
+                  <a href="#reasons">{t('Go there')}</a>
+                </p>
+              )}
             </>
           )}
         </section>
@@ -502,6 +523,7 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
                 <th>{t("Avoid")}</th>
                 <th>{t("Locked")}</th>
                 <th>{t("Note")}</th>
+                <th>{t("Why")}</th>
                 <th>{t("Updated")}</th>
                 {me.isHost && <th>{t('Notes')}</th>}
               </tr>
@@ -553,10 +575,16 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
                         <td>{r.avoid?.length ?? 0}</td>
                         <td>{r.locks.length}</td>
                         <td className="note">{r.note}</td>
+                        <td className="note small">
+                          <Reasons r={r} />
+                          {(me.isHost || m.id === me.memberId) && missingReasons(r).length > 0 && (
+                            <span className="warn-text"> ⚠️ {t('{n} without a reason', { n: missingReasons(r).length })}</span>
+                          )}
+                        </td>
                         <td className="muted small nowrap">{r.updatedAt ? new Date(r.updatedAt).toLocaleString() : t("now")}</td>
                       </>
                     ) : (
-                      <td colSpan={7} className="muted small">{t("No answer yet — defaults: spread out,")} {r.minInterval}{t("-day interval")}</td>
+                      <td colSpan={8} className="muted small">{t("No answer yet — defaults: spread out,")} {r.minInterval}{t("-day interval")}</td>
                     )}
                     {me.isHost && (
                       <td>
@@ -575,7 +603,7 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
                   </tr>
                   {me.isHost && notesFor === m.id && (
                     <tr className="notes-row">
-                      <td colSpan={10}>
+                      <td colSpan={11}>
                         <HostNotes
                           name={m.name}
                           notes={notes}
@@ -595,6 +623,57 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
       </section>
     </div>
   );
+}
+
+/** Every ✕ and ! day with its mark, in date order. */
+function marks(r: MemberResponse) {
+  return [
+    ...r.unavailable.map((date) => ({ date, mark: '✕', required: true })),
+    ...(r.avoid ?? []).map((a) => ({ date: a.date, mark: '!'.repeat(a.level), required: a.level >= 2 })),
+  ].sort((a, b) => a.date.localeCompare(b.date))
+}
+
+/** The reasons someone gave (only they and the hosts get them), e.g. "12 Nov ✕ exam". */
+function Reasons({ r }: { r: MemberResponse }) {
+  const given = marks(r).filter((x) => r.reasons?.[x.date]?.trim())
+  return given.map((x, i) => (
+    <span key={x.date}>
+      {i > 0 && ' · '}
+      {shortDate(x.date)} <b>{x.mark}</b> {r.reasons![x.date]}
+    </span>
+  ))
+}
+
+/** A member writes why for each day they marked: required for ✕, !!! and !!, optional for !. */
+function ReasonsCard({ r, editable, set }: { r: MemberResponse; editable: boolean; set: (date: string, text: string) => void }) {
+  const list = marks(r)
+  if (!list.length) return null
+  const missing = missingReasons(r).length
+  return (
+    <section className="card reasons" id="reasons">
+      <h2>
+        📝 {t('Why these days?')} {missing > 0 && <span className="badge warn">{t('{n} to fill in', { n: missing })}</span>}
+      </h2>
+      <p className="muted small">{t('Write a short reason for each ✕, !!! and !! day. Only you and the hosts see it. For ! it’s optional.')}</p>
+      <ul className="reason-list">
+        {list.map((x) => (
+          <li key={x.date} className={x.required && !r.reasons?.[x.date]?.trim() ? 'missing' : ''}>
+            <span className="nowrap">
+              <b className="reason-mark">{x.mark}</b> {shortDate(x.date)}
+            </span>
+            <input
+              value={r.reasons?.[x.date] ?? ''}
+              maxLength={300}
+              disabled={!editable}
+              placeholder={x.required ? t('Why? (required)') : t('Why? (optional)')}
+              aria-label={t('Why {date}', { date: shortDate(x.date) })}
+              onChange={(e) => set(x.date, e.target.value)}
+            />
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
 }
 
 /** A host's notes to one member: what was sent and whether they've seen it, and a box for a new one. */

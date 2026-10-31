@@ -3,7 +3,7 @@
 
 import type { SessionView } from '../apiTypes.ts'
 import { addDays } from '../shared/dates.ts'
-import { actOnSwap, addConcern, addNote, removeConcern, removeReply, replyConcern, resolveConcern, visibleConcerns, voteConcern, createJoin, decideJoin, readNote, removeArrangement, removeNote, requestSwap, saveArrangement, saveFeedback, saveResponse, visibleFeedback, visibleNotes, type Actor, type SwapAction } from '../shared/ops.ts'
+import { actOnSwap, addConcern, addNote, removeConcern, removeReply, replyConcern, resolveConcern, visibleConcerns, voteConcern, createJoin, decideJoin, readNote, removeArrangement, removeNote, requestSwap, saveArrangement, saveFeedback, saveResponse, visibleFeedback, visibleNotes, visibleResponses, visibleChanges, type Actor, type SwapAction } from '../shared/ops.ts'
 import {
   DEFAULT_STUDENTS,
   normalizeSession,
@@ -84,7 +84,7 @@ function view(code: string): SessionView {
   const s = store.sessions[code]
   if (!s) throw new Error('Session not found on this device. Demo sessions only exist in this browser.')
   return {
-    session: { ...clone(s), concerns: visibleConcerns(s, actorFor(code)), notes: visibleNotes(s, actorFor(code)), feedback: visibleFeedback(s, actorFor(code)), draft: actorFor(code).isHost ? (s.draft ?? null) : null, saved: actorFor(code).isHost ? (s.saved ?? []) : [] },
+    session: { ...clone(s), responses: visibleResponses(s, actorFor(code)), changes: visibleChanges(s, actorFor(code)), concerns: visibleConcerns(s, actorFor(code)), notes: visibleNotes(s, actorFor(code)), feedback: visibleFeedback(s, actorFor(code)), draft: actorFor(code).isHost ? (s.draft ?? null) : null, saved: actorFor(code).isHost ? (s.saved ?? []) : [] },
     me: actorFor(code),
     organizers: code === SAMPLE_CODE ? [{ name: 'Dr. Wipa', role: 'owner' }, { name: 'Ploy', role: 'cohost' }] : [],
   }

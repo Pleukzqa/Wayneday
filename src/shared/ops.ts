@@ -1,5 +1,5 @@
 // Session changes shared by the API server and the in-browser demo, so both enforce the same rules.
-import { DEFAULT_RESPONSE, FEEDBACK_QUESTIONS, STUDENT_SLOT, type AnswerChange, type Concern, type Draft, type Feedback, type HostNote, type JoinRequest, type MemberResponse, type MemberType, type PublicSession, type Roster, type SwapRequest } from './types.ts'
+import { DEFAULT_RESPONSE, FEEDBACK_QUESTIONS, missingReasons, STUDENT_SLOT, type AnswerChange, type Concern, type Draft, type Feedback, type HostNote, type JoinRequest, type MemberResponse, type MemberType, type PublicSession, type Roster, type SwapRequest } from './types.ts'
 
 export interface Actor {
   isHost: boolean
@@ -34,6 +34,7 @@ function summarize(before: MemberResponse | null, after: MemberResponse): string
   if (b.minInterval !== after.minInterval) parts.push(`interval ${b.minInterval}→${after.minInterval} days`)
   if (b.preference !== after.preference) parts.push(`pattern → ${after.preference === 'dense' ? 'grouped' : 'spread out'}`)
   if (b.note !== after.note) parts.push('edited the note')
+  if (JSON.stringify(before?.reasons ?? {}) !== JSON.stringify(after.reasons ?? {})) parts.push('edited reasons')
   if (Boolean(before?.ready) !== Boolean(after.ready)) parts.push(after.ready ? 'marked ready' : 'marked not ready')
   return parts.join(', ') || 'no visible change'
 }
@@ -48,6 +49,11 @@ export function saveResponse(s: PublicSession, actor: Actor, memberId: string, r
   const before = s.responses[memberId] ?? null
   const byHostForOther = actor.isHost && actor.memberId !== memberId
   const next: MemberResponse = { ...r, updatedAt: Date.now(), editedByHost: byHostForOther ? Date.now() : before?.editedByHost }
+  // ✕, !!! and !! need a reason before "I'm ready!"; a new one without a reason makes them not ready again.
+  if (!byHostForOther && next.ready && missingReasons(next).length) {
+    if (!before?.ready) throw new OpError(400, 'Write why for each ✕, !!! and !! day first')
+    delete next.ready
+  }
   if (byHostForOther) {
     // Host edits to the same person within 2 minutes merge into one entry, keeping the original "before".
     const reason = hostEdit?.reason.trim().slice(0, 500) || undefined
@@ -96,6 +102,18 @@ export function readNote(s: PublicSession, actor: Actor, id: string) {
   if (actor.memberId !== note.memberId) throw new OpError(403, 'This note is for someone else')
   note.readAt ??= Date.now()
 }
+
+/** Everyone's answers, with the reasons for days off kept to the person themselves and the hosts. */
+export const visibleResponses = (s: PublicSession, actor: Actor): Record<string, MemberResponse> =>
+  actor.isHost
+    ? s.responses
+    : Object.fromEntries(Object.entries(s.responses).map(([id, r]) => [id, id === actor.memberId || !r.reasons ? r : { ...r, reasons: undefined }]))
+
+/** The host's change log, without the reasons inside others' earlier answers. */
+export const visibleChanges = (s: PublicSession, actor: Actor): AnswerChange[] =>
+  actor.isHost
+    ? s.changes
+    : s.changes.map((c) => (c.memberId === actor.memberId || !c.before?.reasons ? c : { ...c, before: { ...c.before, reasons: undefined } }))
 
 /** The notes a viewer may see: all for hosts, their own for a member, none for anyone else. */
 export const visibleNotes = (s: PublicSession, actor: Actor) => (s.notes ?? []).filter((n) => actor.isHost || n.memberId === actor.memberId)

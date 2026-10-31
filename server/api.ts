@@ -3,7 +3,7 @@
 import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto'
 import express, { type Request, type Response, type NextFunction } from 'express'
 import { isDate } from '../src/shared/dates.ts'
-import { actOnSwap, addConcern, addNote, createJoin, removeConcern, removeReply, replyConcern, resolveConcern, visibleConcerns, voteConcern, decideJoin, OpError, readNote, removeArrangement, removeNote, requestSwap, saveArrangement, saveFeedback, saveResponse, visibleFeedback, visibleNotes, type SwapAction } from '../src/shared/ops.ts'
+import { actOnSwap, addConcern, addNote, createJoin, removeConcern, removeReply, replyConcern, resolveConcern, visibleConcerns, voteConcern, decideJoin, OpError, readNote, removeArrangement, removeNote, requestSwap, saveArrangement, saveFeedback, saveResponse, visibleFeedback, visibleNotes, visibleResponses, visibleChanges, type SwapAction } from '../src/shared/ops.ts'
 import {
   ANY_SHIFT,
   DEFAULT_STUDENTS,
@@ -282,8 +282,22 @@ function cleanResponse(raw: unknown): MemberResponse {
       .filter((a) => isDate(a.date))
       .map((a) => ({ date: a.date as string, level: int(a.level, 1, 3, 1) as 1 | 2 | 3 })),
     ...(Number(r.ready) > 0 ? { ready: Math.min(Math.floor(Number(r.ready)), Date.now()) } : {}),
+    ...reasonsOf(r),
     updatedAt: Date.now(),
   }
+}
+
+/** Reasons kept only for days that are marked (✕ or any !). */
+function reasonsOf(r: Record<string, unknown>): { reasons?: Record<string, string> } {
+  const marked = new Set([...arr(r.unavailable, 400), ...arr(r.avoid, 400).map((a) => (a as Record<string, unknown>)?.date)].filter(isDate))
+  const raw = (r.reasons && typeof r.reasons === 'object' ? r.reasons : {}) as Record<string, unknown>
+  const reasons = Object.fromEntries(
+    Object.entries(raw)
+      .filter(([d, v]) => marked.has(d) && typeof v === 'string' && v.trim())
+      .slice(0, 400)
+      .map(([d, v]) => [d, str(v, 300)]),
+  )
+  return Object.keys(reasons).length ? { reasons } : {}
 }
 
 function cleanSchedule(raw: unknown): Schedule | null {
@@ -436,6 +450,8 @@ export function createApi(opts: ApiOptions) {
     return {
       session: {
         ...toPublic(s),
+        responses: visibleResponses(s, me),
+        changes: visibleChanges(s, me),
         concerns: visibleConcerns(s, me),
         notes: visibleNotes(s, me),
         feedback: visibleFeedback(s, me),

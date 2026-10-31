@@ -2126,3 +2126,30 @@ body.no-scroll {
   margin-top: 0.75rem;
   padding-top: 0.75rem;
 }
+
+/* Reasons for days off: one row per marked day; required ones still empty stand out. */
+.reason-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 0.4rem;
+}
+.reason-list li {
+  display: grid;
+  grid-template-columns: 7.5rem 1fr;
+  gap: 0.5rem;
+  align-items: center;
+}
+.reason-list li.missing input {
+  border-color: var(--danger);
+}
+.reason-mark {
+  display: inline-block;
+  min-width: 2rem;
+  color: var(--danger);
+}
+.cell.no-reason {
+  outline: 2px dashed var(--danger);
+  outline-offset: -3px;
+}

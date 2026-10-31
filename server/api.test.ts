@@ -220,6 +220,23 @@ for (const [kind, makeStore] of stores) {
       assert.equal(v.session.responses.m.ready, undefined)
     })
 
+    test('reasons for days off: kept only for marked days, needed for ✕/!!!/!! before ready, private', async () => {
+      const alice = await signIn('alice@example.com')
+      const { code } = (await call('POST', '/sessions', { body: {}, account: alice })).body
+      await call('PUT', `/sessions/${code}/config`, { body: { members: [{ id: 'm', name: 'M', type: 'student' }, { id: 'n', name: 'N', type: 'student' }] }, account: alice })
+      const claim = async (id: string) => (await call('POST', `/sessions/${code}/claim`, { body: { memberId: id, pin: '1234' } })).body.memberToken as string
+      const [m, n] = [await claim('m'), await claim('n')]
+      const answer = { unavailable: ['2026-11-03'], avoid: [{ date: '2026-11-05', level: 2 }], reasons: { '2026-11-03': 'Exam', '2026-11-09': 'not marked' } }
+      assert.equal((await call('PUT', `/sessions/${code}/responses/m`, { body: { ...answer, ready: Date.now() - 1000 }, bearer: m })).status, 400)
+      const saved = (await call('PUT', `/sessions/${code}/responses/m`, { body: answer, bearer: m })).body
+      assert.deepEqual(saved.session.responses.m.reasons, { '2026-11-03': 'Exam' })
+      const done = { ...answer, reasons: { ...answer.reasons, '2026-11-05': 'Family' }, ready: Date.now() - 1000 }
+      assert.equal((await call('PUT', `/sessions/${code}/responses/m`, { body: done, bearer: m })).status, 200)
+      assert.equal((await call('GET', `/sessions/${code}`, { bearer: n })).body.session.responses.m.reasons, undefined)
+      assert.equal((await call('GET', `/sessions/${code}`)).body.session.responses.m.reasons, undefined)
+      assert.equal((await call('GET', `/sessions/${code}`, { account: alice })).body.session.responses.m.reasons['2026-11-05'], 'Family')
+    })
+
     test('the hospital roster can be left blank', async () => {
       const alice = await signIn('alice@example.com')
       const { code } = (await call('POST', '/sessions', { body: {}, account: alice })).body

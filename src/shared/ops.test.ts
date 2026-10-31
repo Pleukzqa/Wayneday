@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { actOnSwap, addConcern, addNote, removeConcern, removeReply, replyConcern, resolveConcern, visibleConcerns, voteConcern, createJoin, decideJoin, MOST_SAVED, readNote, removeArrangement, removeNote, requestSwap, saveArrangement, saveFeedback, saveResponse, visibleFeedback, visibleNotes } from './ops.ts'
-import { DEFAULT_RESPONSE, DEFAULT_STUDENTS, type PublicSession } from './types.ts'
+import { actOnSwap, addConcern, addNote, removeConcern, removeReply, replyConcern, resolveConcern, visibleConcerns, voteConcern, createJoin, decideJoin, MOST_SAVED, readNote, removeArrangement, removeNote, requestSwap, saveArrangement, saveFeedback, saveResponse, visibleChanges, visibleFeedback, visibleNotes, visibleResponses } from './ops.ts'
+import { DEFAULT_RESPONSE, DEFAULT_STUDENTS, missingReasons, type PublicSession } from './types.ts'
 
 function session(): PublicSession {
   return {
@@ -231,4 +231,25 @@ test('concerns: private to the hosts, replies, votes counted without names, the 
   assert.throws(() => addConcern(s, as('ann'), { text: 'late' }), /closed/)
   addConcern(s, host, { text: 'Hosts can still post', private: true })
   assert.equal(s.concerns[0].private, undefined, 'a host’s concern is for everyone')
+})
+
+test('✕, !!! and !! need a reason before “I’m ready!”; ! doesn’t; only they and the hosts see reasons', () => {
+  const s = session()
+  const marked = { ...DEFAULT_RESPONSE, unavailable: ['2026-11-01'], avoid: [{ date: '2026-11-02', level: 3 as const }, { date: '2026-11-03', level: 1 as const }] }
+  assert.deepEqual(missingReasons(marked), ['2026-11-01', '2026-11-02'])
+  saveResponse(s, as('ann'), 'ann', marked) // saving while filling in is fine
+  assert.throws(() => saveResponse(s, as('ann'), 'ann', { ...marked, ready: Date.now() }), /Write why/)
+  const why = { ...marked, reasons: { '2026-11-01': 'Exam', '2026-11-02': 'Sister’s wedding' } }
+  saveResponse(s, as('ann'), 'ann', { ...why, ready: Date.now() })
+  assert.ok(s.responses.ann.ready, 'the ! day needs no reason')
+  // A new ✕ without a reason later: no longer ready.
+  saveResponse(s, as('ann'), 'ann', { ...why, unavailable: ['2026-11-01', '2026-11-03'], avoid: why.avoid.slice(0, 1), ready: s.responses.ann.ready })
+  assert.equal(s.responses.ann.ready, undefined)
+  assert.equal(visibleResponses(s, as('ben')).ann.reasons, undefined)
+  assert.equal(visibleResponses(s, as('ann')).ann.reasons!['2026-11-01'], 'Exam')
+  assert.equal(visibleResponses(s, host).ann.reasons!['2026-11-02'], 'Sister’s wedding')
+  // A host's change keeps the old answers in the log; others don't get the reasons from there either.
+  saveResponse(s, host, 'ann', { ...DEFAULT_RESPONSE }, { reason: 'Clearing', by: 'Dr. Host', role: 'owner' })
+  assert.equal(visibleChanges(s, as('ben'))[0].before!.reasons, undefined)
+  assert.ok(visibleChanges(s, as('ann'))[0].before!.reasons)
 })

@@ -245,6 +245,14 @@ export interface MemberResponse {
   avoid?: AvoidDate[]
   /** When they pressed "I'm ready!" (finished filling in); missing = not yet. */
   ready?: number
+  /** Why, by date: required for ✕, !!! and !! before "I'm ready!", optional for !. Only they and the hosts see it. */
+  reasons?: Record<string, string>
+}
+
+/** The ✕, !!! and !! days that still need a reason, in date order. */
+export function missingReasons(r: MemberResponse): string[] {
+  const need = [...r.unavailable, ...(r.avoid ?? []).filter((a) => a.level >= 2).map((a) => a.date)]
+  return [...new Set(need)].filter((d) => !r.reasons?.[d]?.trim()).sort()
 }
 
 export type AvoidLevel = 1 | 2 | 3
