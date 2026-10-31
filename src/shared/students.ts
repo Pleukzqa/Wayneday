@@ -450,8 +450,15 @@ export function arrangeStudents(
       sc += 100 * variance(ids.map((id) => exposure.get(id) ?? 0))
     }
     if (pointsOn) sc += 80 * variance(mine.map((m) => m.reduce((n, oi) => n + occs[oi].pts, 0)))
-    for (const places of presentKinds.values()) if (places.size) sc += 300 * variance(mine.map((m) => m.filter((oi) => places.has(oi)).length))
     else sc += 30 * variance(mine.map((m) => m.filter((oi) => occs[oi].weekend).length))
+    // Shifts presenters come from, spread evenly by type of presentation.
+    for (const places of presentKinds.values()) {
+      if (!places.size) continue
+      const n = mine.map((m) => m.filter((oi) => places.has(oi)).length)
+      sc += 300 * variance(n)
+      // Everyone gets at least one chance at each type, when there are enough to go round.
+      if (places.size >= students.length) sc += 400 * n.filter((k) => k === 0).length
+    }
     if (auto) for (const id of slotIds) sc += 40 * variance(mine.map((m) => m.filter((oi) => occs[oi].shiftId === id).length))
     mine.forEach((m, si) => {
       sc += preferenceCost(m.map((oi) => occs[oi].day).sort((a, b) => a - b), days.length, resp[si])
@@ -581,7 +588,9 @@ export function pickPresenters(
     total.set(id, (total.get(id) ?? 0) + d)
     byKind.set(`${k}|${id}`, (byKind.get(`${k}|${id}`) ?? 0) + d)
   }
-  const load = (id: string, k: string) => 2 * (byKind.get(`${k}|${id}`) ?? 0) + (total.get(id) ?? 0)
+  // Even totals come first: someone short of one type (e.g. one-day ones, tied to a few nights) makes it up in
+  // another (e.g. morning reports). Then even within each type.
+  const load = (id: string, k: string) => 2 * (total.get(id) ?? 0) + (byKind.get(`${k}|${id}`) ?? 0)
   const byFewest = (ids: string[], k: string) => sortedBy(ids, (id) => load(id, k) + rand() * 0.5)
 
   /** One presenter place: who could take it (`pool`) and who did. */
@@ -623,7 +632,7 @@ export function pickPresenters(
   }
 
   // Even it out: hand a place to someone else who could take it whenever that makes the counts more even.
-  const cost = (id: string, k: string) => (total.get(id) ?? 0) ** 2 + 2 * (byKind.get(`${k}|${id}`) ?? 0) ** 2
+  const cost = (id: string, k: string) => 3 * (total.get(id) ?? 0) ** 2 + (byKind.get(`${k}|${id}`) ?? 0) ** 2
   for (let pass = 0; pass < 20; pass++) {
     let better = false
     for (const slot of slots) {
