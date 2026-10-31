@@ -466,3 +466,9 @@ export function normalizeSession(s: PublicSession): PublicSession {
     feedback: s.feedback ?? [],
   }
 }
+
+/** A colour (hue, 0–360) for each person, spread around the wheel in roster order so neighbours differ. */
+export function personHue(config: Pick<SessionConfig, 'members'>, id: string): number | null {
+  const i = config.members.findIndex((m) => m.id === id)
+  return i < 0 ? null : Math.round((i * 137.508) % 360)
+}

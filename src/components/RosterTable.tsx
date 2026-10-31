@@ -1,11 +1,11 @@
-import { useState, type Ref } from 'react'
+import { useState, type CSSProperties, type Ref } from 'react'
 import Expandable from './Expandable.tsx'
 import { t } from '../shared/i18n.ts'
 import { cellIds, cellNames, columnsFor, presenterParts } from '../shared/columns.ts'
 import { presentationOn, reqCount } from '../shared/calendar.ts'
 import { dateRange, shortDate, weekday } from '../shared/dates.ts'
 import { placeKey } from '../shared/students.ts'
-import { coversJob, presenterTypes, STUDENT_SLOT, type Concern, type Roster, type SessionConfig, type StudentAssignment, type SwapRequest } from '../shared/types.ts'
+import { coversJob, personHue, presenterTypes, STUDENT_SLOT, type Concern, type Roster, type SessionConfig, type StudentAssignment, type SwapRequest } from '../shared/types.ts'
 
 interface Props {
   config: SessionConfig
@@ -69,6 +69,11 @@ export default function RosterTable({ config, roster, myId, avoidOf, onEdit, onE
   })
   const pin = (id: string) => setPinned((p) => (p === id ? null : id))
   const litClass = (id?: string | null) => (id && id === lit ? 'lit' : '')
+  // Everyone has their own colour, so names are easy to tell apart.
+  const hue = (id?: string | null) => {
+    const h = id ? personHue(config, id) : null
+    return h === null ? undefined : ({ '--h': h } as CSSProperties)
+  }
 
   return (
     <Expandable title={t('Roster')}>
@@ -118,7 +123,8 @@ export default function RosterTable({ config, roster, myId, avoidOf, onEdit, onE
                         {Array.from({ length: Math.max(slots, ids.length) }, (_, k) => (
                           <select
                             key={k}
-                            className="cell-select"
+                            className="cell-select who-select"
+                            style={hue(ids[k])}
                             value={ids[k] ?? ''}
                             aria-label={`${shortDate(date)} ${c.title}`}
                             onChange={(e) => onEditStudent(date, c.shiftId, k, e.target.value, placeReq)}
@@ -158,6 +164,7 @@ export default function RosterTable({ config, roster, myId, avoidOf, onEdit, onE
                               type="button"
                               className={`who-chip small-chip chip-btn ${picked ? 'picked' : ''} ${swap ? 'swap-ok' : ''} ${avoided(x.memberId, date) ? `avoided avoided-${avoided(x.memberId, date)}` : ''} ${litClass(x.memberId)}`}
                               aria-pressed={picked}
+                              style={hue(x.memberId)}
                               {...follow(x.memberId)}
                               onClick={(e) => {
                                 e.stopPropagation()
@@ -187,6 +194,8 @@ export default function RosterTable({ config, roster, myId, avoidOf, onEdit, onE
                               {Array.from({ length: need }, (_, k) => (
                                 <select
                                   key={k}
+                                  className="who-select"
+                                  style={hue(who[k])}
                                   aria-label={`${shortDate(date)} ${rule.name} ${k + 1}`}
                                   value={who[k] ?? ''}
                                   onChange={(e) => onEditPresenter(date, rule.id, k, e.target.value)}
@@ -214,7 +223,7 @@ export default function RosterTable({ config, roster, myId, avoidOf, onEdit, onE
                             {c.ruleIds.length > 1 && <span className="present-label">{rule.name}</span>}
                             {who.length === 0 && <span className="muted tiny">—</span>}
                             {who.map((id) => (
-                              <span key={id} className={`who-chip small-chip ${id === myId ? 'mine' : ''} ${litClass(id)}`} {...follow(id)} onClick={() => pin(id)}>
+                              <span key={id} className={`who-chip small-chip ${id === myId ? 'mine' : ''} ${litClass(id)}`} style={hue(id)} {...follow(id)} onClick={() => pin(id)}>
                                 {nameOf(id)}
                                 {roster.presenters.find((p) => p.date === date && p.ruleId === rule.id && p.memberId === id)?.postCall && (
                                   <span title={t("Was on last night’s shift")}> ●</span>
@@ -240,6 +249,7 @@ export default function RosterTable({ config, roster, myId, avoidOf, onEdit, onE
                           <span
                             key={k}
                             className={`who-chip small-chip ${id === myId ? 'mine' : ''} ${studentCol && avoided(id, date) ? `avoided avoided-${avoided(id, date)}` : ''} ${litClass(id)}`}
+                            style={hue(id)}
                             {...follow(id)}
                             onClick={() => pin(id)}
                           >
@@ -274,7 +284,8 @@ export default function RosterTable({ config, roster, myId, avoidOf, onEdit, onE
                           return (
                             <select
                               key={k}
-                              className="cell-select"
+                              className="cell-select who-select"
+                              style={hue(a?.memberId)}
                               value={a?.memberId ?? ''}
                               aria-label={`${shortDate(date)} ${c.title}`}
                               onChange={(e) => onEdit(date, c.shiftId, c.requirementId, k, e.target.value)}
@@ -292,6 +303,7 @@ export default function RosterTable({ config, roster, myId, avoidOf, onEdit, onE
                           <span
                             key={k}
                             className={`who-chip ${a?.memberId === myId ? 'mine' : ''} ${a ? '' : 'empty'} ${litClass(a?.memberId)}`}
+                            style={hue(a?.memberId)}
                             {...(a ? { ...follow(a.memberId), onClick: () => pin(a.memberId) } : {})}
                           >
                             {a ? nameOf(a.memberId) : t("unfilled")}

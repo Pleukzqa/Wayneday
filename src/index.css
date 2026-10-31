@@ -2017,3 +2017,67 @@ body.no-scroll {
 .per-student .gaps {
   margin: 0.3rem 0 0;
 }
+/* Each person's own colour (set as --h, a hue) */
+.who-chip[style*='--h'] {
+  background: hsl(var(--h) 75% 90%);
+  color: hsl(var(--h) 55% 24%);
+  border: 1px solid hsl(var(--h) 45% 72%);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .who-chip[style*='--h'] {
+    background: hsl(var(--h) 35% 24%);
+    color: hsl(var(--h) 70% 85%);
+    border-color: hsl(var(--h) 35% 38%);
+  }
+}
+:root[data-theme='dark'] .who-chip[style*='--h'] {
+  background: hsl(var(--h) 35% 24%);
+  color: hsl(var(--h) 70% 85%);
+  border-color: hsl(var(--h) 35% 38%);
+}
+/* Highlight and "me" still win over the colour */
+.who-chip.lit[style*='--h'] {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+.who-chip.mine[style*='--h'] {
+  outline: 2px solid var(--accent);
+  font-weight: 600;
+}
+.has-lit .who-chip[style*='--h']:not(.lit) {
+  opacity: 0.35;
+}
+.ps-types {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.1rem 0.7rem;
+  margin-top: 0.15rem;
+}
+.type-count b {
+  color: var(--accent);
+}
+.fairness td {
+  vertical-align: top;
+}
+.fairness tr.bad td {
+  background: var(--warn-soft);
+}
+.fairness tr.differs td {
+  background: color-mix(in srgb, var(--accent-soft) 50%, transparent);
+}
+.who-select[style*='--h'] {
+  background-color: hsl(var(--h) 75% 92%);
+  color: hsl(var(--h) 55% 24%);
+  border-color: hsl(var(--h) 45% 72%);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .who-select[style*='--h'] {
+    background-color: hsl(var(--h) 35% 22%);
+    color: hsl(var(--h) 70% 85%);
+  }
+}
+:root[data-theme='dark'] .who-select[style*='--h'] {
+  background-color: hsl(var(--h) 35% 22%);
+  color: hsl(var(--h) 70% 85%);
+}

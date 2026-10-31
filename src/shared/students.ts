@@ -1225,16 +1225,24 @@ export function repairRoster(
     // Only those who were picked for a source (they were on its shift) must still be on it.
     return !was(roster.students) || was(cur)
   }
-  const presenterDays = [...new Set([...changedNights].flatMap((d) => [d, addDays(d, 1)]))]
-    .filter((d) => roster.presenters.some((p) => p.date === d && !stillFits(p)))
-    .sort()
+  // Re-pick only the presentations (on those days) where someone no longer fits; keep all others.
+  const nearChanges = new Set([...changedNights].flatMap((d) => [d, addDays(d, 1)]))
+  const redo = new Set(roster.presenters.filter((p) => nearChanges.has(p.date) && !stillFits(p)).map((p) => `${p.date}|${p.ruleId}`))
   const again = pickPresenters(config, responses, roster.assignments, cur).presenters
-  const presenters = [
-    ...roster.presenters.filter((p) => !presenterDays.includes(p.date)),
-    ...again.filter((p) => presenterDays.includes(p.date)),
-  ]
-    .map((p) => ({ ...p }))
-    .sort((x, y) => x.date.localeCompare(y.date))
+  const kept = roster.presenters.filter((p) => !redo.has(`${p.date}|${p.ruleId}`))
+  const fresh: PresenterAssignment[] = []
+  for (const k of redo) {
+    const [date, ruleId] = k.split('|')
+    const need = roster.presenters.filter((p) => p.date === date && p.ruleId === ruleId).length
+    const busy = new Set([...kept, ...fresh].filter((p) => p.date === date).map((p) => p.memberId))
+    // The new pick for it, minus anyone already presenting that day; the old ones who still fit fill any gap.
+    const picks = again.filter((p) => p.date === date && p.ruleId === ruleId && !busy.has(p.memberId))
+    const old = roster.presenters.filter((p) => p.date === date && p.ruleId === ruleId && stillFits(p) && !busy.has(p.memberId))
+    for (const p of [...old, ...picks].filter((p, i, all) => all.findIndex((q) => q.memberId === p.memberId) === i).slice(0, need)) fresh.push(p)
+  }
+  const presenters = [...kept, ...fresh].map((p) => ({ ...p })).sort((x, y) => x.date.localeCompare(y.date))
+  const presenterDays = [...new Set([...redo].map((k) => k.split('|')[0]))]
+
   // Re-picking can leave someone without a weekly presentation they had: hand them one of the re-picked turns
   // they could take (they were on its shift), from someone who has more than one.
   for (const rule of config.presentations.filter((r) => !isOneDay(r))) {
@@ -1577,4 +1585,110 @@ export function studentSummaryTable(config: SessionConfig, roster: { assignments
     return row
   })
   return { header, rows, lead, per }
+}
+
+/** One line of the fairness table: a rule, the setting it follows, what the roster gives, and whether that's met. */
+export interface FairnessRow {
+  key: string
+  what: string
+  setting: string
+  result: string
+  /** true met, false not met, null nothing to meet (just a measure). */
+  ok: boolean | null
+}
+
+/** Every fairness rule Wayneday accounts for, with this roster's result: for the fairness table and comparing two. */
+export function fairnessReport(
+  config: SessionConfig,
+  responses: Record<string, MemberResponse>,
+  roster: { assignments: Assignment[]; students: StudentAssignment[]; presenters: PresenterAssignment[] },
+): FairnessRow[] {
+  const st = config.students
+  const studs = config.members.filter((m) => m.type === 'student')
+  const groups = shareGroups(config)
+  const report = studentRuleReport(config, responses, roster)
+  const details = studentDetails(config, roster)
+  const range = (xs: number[]) => {
+    if (!xs.length) return '-'
+    const [a, b] = [Math.min(...xs), Math.max(...xs)]
+    return a === b ? fmtPoints(a) : `${fmtPoints(a)}–${fmtPoints(b)}`
+  }
+  const spread = (xs: number[]) => (xs.length ? Math.max(...xs) - Math.min(...xs) : 0)
+  // By group when students rotate in groups ("7–8 / 8–9"), else for everyone.
+  const byGroup = (f: (si: number) => number) => groups.map((g) => g.members.map(f))
+  const groupRanges = (f: (si: number) => number) => byGroup(f).map(range).join(' / ')
+  const count = (si: number, filter: (x: StudentAssignment) => boolean = () => true) => roster.students.filter((x) => x.memberId === studs[si].id && filter(x)).length
+  const rows: FairnessRow[] = []
+
+  const need = shiftsNeeded(config)
+  rows.push({
+    key: 'shifts',
+    what: t('Shifts each'),
+    setting: st.auto ? (groups.length > 1 ? t('Equal share, ±1 within each group') : t('Equal share, ±1')) : t('{n} each', { n: need }),
+    result: groupRanges((si) => count(si)),
+    ok: st.auto ? byGroup((si) => count(si)).every((xs) => spread(xs) <= 1) : studs.every((_, si) => count(si) === need),
+  })
+  for (const sh of config.shifts.filter((x) => roster.students.some((y) => y.shiftId === x.id))) {
+    rows.push({
+      key: `type-${sh.id}`,
+      what: sh.name,
+      setting: t('Even, at most 1 apart'),
+      result: groupRanges((si) => count(si, (x) => x.shiftId === sh.id)),
+      ok: byGroup((si) => count(si, (x) => x.shiftId === sh.id)).every((xs) => spread(xs) <= 1),
+    })
+  }
+  if (st.points?.on) {
+    const pts = details.map((d) => d.points)
+    const avg = pts.reduce((a, b) => a + b, 0) / (pts.length || 1)
+    const pct = avg ? Math.round((spread(pts) / avg) * 100) : 0
+    rows.push({
+      key: 'points',
+      what: presentationsCount(config) ? t('Points (shifts + presentations)') : t('Points'),
+      setting: st.points.maxDiff ? t('Within {p}% of the average', { p: st.points.maxDiff }) : t('As equal as possible'),
+      result: `${range(pts)} (${t('{p}% apart', { p: pct })})`,
+      ok: st.points.maxDiff ? report.pointsOk : null,
+    })
+  }
+  if (config.presentations.length) {
+    const talk = presentationLoad(config, roster.presenters)
+    rows.push({
+      key: 'talks',
+      what: t('Presentations'),
+      setting: t('Even by their points'),
+      result: `${range(details.map((d) => d.presents.length))} (${range(studs.map((m) => talk[m.id] ?? 0))} ${t('pts')})`,
+      ok: null,
+    })
+    for (const r of config.presentations.filter((x) => !isOneDay(x))) {
+      const n = details.map((d) => d.byRule(r.id))
+      rows.push({ key: `talk-${r.id}`, what: r.name, setting: t('Everyone at least once'), result: range(n), ok: n.every((k) => k > 0) })
+    }
+    if (config.presentations.some(isOneDay)) {
+      rows.push({ key: 'talk-one-day', what: t('One-day presentations'), setting: t('Even, as the nights allow'), result: range(details.map((d) => d.oneDay)), ok: null })
+    }
+    const p = roster.presenters
+    const twice = p.filter((x, i) => p.findIndex((y) => y.date === x.date && y.memberId === x.memberId) !== i).length
+    rows.push({ key: 'twice', what: t('Twice in a day'), setting: t('Nobody presents twice in a day'), result: String(twice), ok: twice === 0 })
+  }
+  const asked = studs.reduce((n, m) => n + (studentResponse(config, responses, m.id).avoid?.length ?? 0), 0)
+  rows.push({
+    key: 'avoid',
+    what: t('Days asked to avoid'),
+    setting: t('!!! first, then !!, then !'),
+    result: t('{a} !!! · {b} !! · {c} ! not met (of {n})', { a: report.avoidHits[3], b: report.avoidHits[2], c: report.avoidHits[1], n: asked }),
+    ok: report.avoidHits[3] === 0 ? (report.avoidHits[2] + report.avoidHits[1] === 0 ? true : null) : false,
+  })
+  const hard = [...studentCellIssues(config, responses, roster.students).values()].flat().length
+  rows.push({ key: 'hard', what: t('Hard rules'), setting: t('✕ days, minimum gaps, places, locks'), result: hard ? t('{n} broken', { n: hard }) : t('all kept'), ok: hard === 0 })
+  if (st.avoidRepeatPartner) {
+    rows.push({ key: 'pairs', what: t('Same two students together'), setting: t('Not twice'), result: t('{n} pair(s) more than once', { n: report.pairRepeats.length }), ok: report.pairRepeats.length === 0 ? true : null })
+  }
+  const gaps = details.map((d) => d.gap.avg).filter((x): x is number => x != null)
+  rows.push({
+    key: 'gaps',
+    what: t('Days between shifts'),
+    setting: (st.minGap ?? 0) > 0 ? t('At least {n}', { n: st.minGap! }) : t('Each student’s own answer'),
+    result: `${t('{r} on average', { r: range(gaps.map((g) => Math.round(g * 10) / 10)) })}, ${t('shortest {n}', { n: Math.min(...details.map((d) => d.gap.shortest ?? 99)) })}`,
+    ok: null,
+  })
+  return rows
 }

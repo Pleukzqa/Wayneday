@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from 'react'
 import { api } from '../api.ts'
 import { googleClientId } from '../google.ts'
 import { t } from '../shared/i18n.ts'
@@ -17,10 +17,12 @@ import {
   studentRuleReport,
   studentDetails,
   typeSpread,
+  fairnessReport,
+  shareGroups,
   studentTargets,
   type StudentOption,
 } from '../shared/students.ts'
-import { dutyOf, isOneDay, STUDENT_SLOT, type MemberResponse, type Roster, type SavedArrangement, type Schedule, type SessionConfig, type StudentAssignment } from '../shared/types.ts'
+import { dutyOf, isOneDay, personHue, STUDENT_SLOT, type MemberResponse, type Roster, type SavedArrangement, type Schedule, type SessionConfig, type StudentAssignment } from '../shared/types.ts'
 import { MOST_SAVED } from '../shared/ops.ts'
 import CalendarExport from './CalendarExport.tsx'
 import ConfirmButton from './ConfirmButton.tsx'
@@ -697,7 +699,20 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
             />
           </section>
           {config.presentations.length > 0 && <p className="muted small">{t("● = presenting after being on the previous night’s shift.")}</p>}
+          {hasStudents && <FairnessTable config={config} responses={responses} roster={shown} />}
           {hasStudents && <RulesCheck config={config} responses={responses} roster={shown} />}
+          {hasStudents && me.isHost && (
+            <Compare
+              config={config}
+              responses={responses}
+              sources={[
+                { id: 'shown', label: t('On screen'), roster: shown },
+                ...(schedule && (preview || edit) ? [{ id: 'published', label: t('Published roster'), roster: rosterOf(schedule) }] : []),
+                ...(session.saved ?? []).map((x) => ({ id: `saved-${x.id}`, label: `📁 ${x.name}`, roster: x.roster })),
+                ...(options ?? []).map((o, i) => ({ id: o.id, label: t('Option {n}', { n: i + 1 }), roster: o.roster })),
+              ]}
+            />
+          )}
           <Exports {...{ code, session, me, mutate }} roster={shown} tableRef={tableRef} />
           {hasStudents && <StudentSummary config={config} roster={shown} myId={me.memberId} />}
           {!hospital && <Stats {...{ code, session, me, mutate }} roster={shown} />}
@@ -1037,6 +1052,104 @@ function ShowingLine({ preview, edit, schedule, options }: { preview: Preview | 
   )
 }
 
+const mark = (ok: boolean | null) => (ok === true ? '✅' : ok === false ? '⚠️' : '')
+
+/** Every fairness rule, its setting and this roster's result. */
+function FairnessTable({ config, responses, roster }: { config: SessionConfig; responses: Record<string, MemberResponse>; roster: Roster }) {
+  const rows = fairnessReport(config, responses, roster)
+  return (
+    <section className="card">
+      <h2>⚖️ {t('Fairness')}</h2>
+      <div className="scroll-x">
+        <table className="mini fairness">
+          <thead>
+            <tr>
+              <th>{t('What')}</th>
+              <th>{t('Rule')}</th>
+              <th>{t('Result')}</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.key} className={r.ok === false ? 'bad' : ''}>
+                <td>{r.what}</td>
+                <td className="muted">{r.setting}</td>
+                <td>{r.result}</td>
+                <td>{mark(r.ok)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {shareGroups(config).length > 1 && <p className="muted small">{t('“a–b / c–d”: one range per group of students who take the same places (e.g. each rotation).')}</p>}
+    </section>
+  )
+}
+
+/** Two arrangements side by side: every fairness rule for each, and how many shifts differ. */
+function Compare({
+  config,
+  responses,
+  sources,
+}: {
+  config: SessionConfig
+  responses: Record<string, MemberResponse>
+  sources: { id: string; label: string; roster: Roster }[]
+}) {
+  const [aId, setA] = useState<string>(sources[0]?.id ?? '')
+  const [bId, setB] = useState<string>(sources[1]?.id ?? '')
+  if (sources.length < 2) return null
+  const a = sources.find((x) => x.id === aId) ?? sources[0]
+  const b = sources.find((x) => x.id === bId) ?? sources.find((x) => x.id !== a.id)!
+  const [ra, rb] = [fairnessReport(config, responses, a.roster), fairnessReport(config, responses, b.roster)]
+  const pick = (value: string, set: (v: string) => void, label: string) => (
+    <select value={value} onChange={(e) => set(e.target.value)} aria-label={label}>
+      {sources.map((x) => (
+        <option key={x.id} value={x.id}>
+          {x.label}
+        </option>
+      ))}
+    </select>
+  )
+  return (
+    <section className="card">
+      <h2>🔀 {t('Compare two arrangements')}</h2>
+      <div className="row wrap">
+        {pick(a.id, setA, 'A')} <span className="muted">{t('with')}</span> {pick(b.id, setB, 'B')}
+      </div>
+      <p className="small">{t('{n} shift(s) differ.', { n: differs(a.roster, b.roster) })}</p>
+      <div className="scroll-x">
+        <table className="mini fairness">
+          <thead>
+            <tr>
+              <th>{t('What')}</th>
+              <th>{a.label}</th>
+              <th>{b.label}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {ra.map((r) => {
+              const o = rb.find((x) => x.key === r.key)
+              return (
+                <tr key={r.key} className={o && o.result !== r.result ? 'differs' : ''}>
+                  <td>{r.what}</td>
+                  <td>
+                    {r.result} {mark(r.ok)}
+                  </td>
+                  <td>
+                    {o?.result ?? '—'} {o && mark(o.ok)}
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  )
+}
+
 /** "Save for later": keep the arrangement on screen under a name, to open again from Saved arrangements. */
 function SaveForLater({ count, save }: { count: number; save: (name: string) => Promise<unknown> }) {
   const [open, setOpen] = useState(false)
@@ -1206,7 +1319,10 @@ function StudentSummary({ config, roster, myId }: { config: SessionConfig; roste
               <li key={d.member.id} className={`${isOpen ? 'open' : ''} ${d.member.id === myId ? 'me' : ''}`}>
                 <button type="button" className="ps-head" aria-expanded={isOpen} onClick={() => setOpen(isOpen ? null : d.member.id)}>
                   <span className="ps-name">
-                    <span aria-hidden>{isOpen ? '▾' : '▸'}</span> {d.member.name}
+                    <span aria-hidden>{isOpen ? '▾' : '▸'}</span>{' '}
+                    <span className="who-chip" style={{ '--h': personHue(config, d.member.id) ?? 0 } as CSSProperties}>
+                      {d.member.name}
+                    </span>
                   </span>
                   <span className="ps-stats small">
                     {t('{n} shifts', { n: d.shifts.length })}
@@ -1215,6 +1331,13 @@ function StudentSummary({ config, roster, myId }: { config: SessionConfig; roste
                     {config.presentations.length > 0 && ` · 🎤 ${d.presents.length}${talks.length ? ` (${talks.join(', ')})` : ''}`}
                   </span>
                 </button>
+                <div className="ps-types small">
+                  {d.gap.bySlot.map((x) => (
+                    <span key={x.shift} className="type-count">
+                      {x.shift} <b>{x.count}</b>
+                    </span>
+                  ))}
+                </div>
                 {!isOpen && (
                   <div className="ps-dates">
                     {d.shifts.map((s) => (

@@ -3,10 +3,10 @@ import { test } from 'node:test'
 import { addDays, dateRange, dayDiff } from './dates.ts'
 import { shiftHours, shiftPoints, shiftTimes } from './calendar.ts'
 import { countArrangements, solve, solveMany, validate } from './solver.ts'
-import { arrangeStudents, countStudentArrangements, equalShare, shareGroups, shiftsNeeded, pickPresenters, placeKey, studentCellIssues, studentExposure, studentOptions, presentationLoad, repairRoster, studentDetails, studentRuleReport, studentSummaryTable, studentTargets, typeSpread } from './students.ts'
+import { arrangeStudents, countStudentArrangements, equalShare, shareGroups, shiftsNeeded, pickPresenters, placeKey, studentCellIssues, studentExposure, studentOptions, fairnessReport, presentationLoad, repairRoster, studentDetails, studentRuleReport, studentSummaryTable, studentTargets, typeSpread } from './students.ts'
 import { buildAiPrompt, importAiResult } from './ai.ts'
 import { explainNoArrangement } from './explain.ts'
-import { ANY_SHIFT, DEFAULT_RESPONSE, DEFAULT_STUDENTS, dutyOf, presentationPoints, type MemberResponse, type SessionConfig, type StudentAssignment } from './types.ts'
+import { ANY_SHIFT, DEFAULT_RESPONSE, DEFAULT_STUDENTS, dutyOf, personHue, presentationPoints, type MemberResponse, type SessionConfig, type StudentAssignment } from './types.ts'
 
 function config(residents: number, staff = 0): SessionConfig {
   return {
@@ -639,6 +639,23 @@ test('fix with fewest changes: trades places to even out shift types, keeping ev
   assert.deepEqual([...studentCellIssues(c, {}, fixed.students).values()].flat(), [], 'no rule broken')
   const count = (st: StudentAssignment[]) => c.members.map((m) => st.filter((x) => x.memberId === m.id).length)
   assert.deepEqual(count(fixed.students), count(students), 'everyone keeps their number of shifts')
+})
+
+test('fairness table: every rule with its setting and result; colours differ per person', () => {
+  const c = equalRotation()
+  c.students.points = { on: true, weekday: 1, weekend: 2, maxDiff: 25 }
+  c.presentations = [{ id: 'mr', name: 'Morning report', days: [1, 2, 3, 4, 5], count: 1, fromShiftId: 'night', fromCount: 1, types: ['student'] }]
+  const r = studentOptions(c, {}, c.duty, { count: 1 })
+  assert.ok(r.ok)
+  if (!r.ok) return
+  const rows = fairnessReport(c, {}, r.alternatives[0].roster)
+  const keys = rows.map((x) => x.key)
+  for (const k of ['shifts', 'type-night', 'type-day', 'points', 'talks', 'talk-mr', 'twice', 'avoid', 'hard', 'gaps']) assert.ok(keys.includes(k), k)
+  assert.equal(rows.find((x) => x.key === 'shifts')!.ok, true)
+  assert.equal(rows.find((x) => x.key === 'hard')!.result, 'all kept')
+  assert.equal(rows.find((x) => x.key === 'talk-mr')!.ok, true, 'everyone at morning report')
+  const hues = c.members.map((m) => personHue(c, m.id))
+  assert.equal(new Set(hues).size, hues.length)
 })
 
 test('sharing equally fills every place and splits them within one shift', () => {
