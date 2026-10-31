@@ -179,6 +179,7 @@ function cleanConfig(raw: unknown): SessionConfig {
     avoidRepeatPartner: Boolean(st.avoidRepeatPartner),
     wantPartner: Boolean(st.wantPartner),
     minGap: int(st.minGap, 0, 60, 0),
+    ...(Array.isArray(st.evenSlots) && st.evenSlots.length ? { evenSlots: arr(st.evenSlots, 12).map((x) => str(x, 40)).filter((x) => shiftIds.has(x)) } : {}),
     perSlot: Object.fromEntries(
       Object.entries((st.perSlot ?? {}) as Record<string, unknown>)
         .filter(([k]) => shiftIds.has(k))
@@ -282,6 +283,8 @@ function cleanResponse(raw: unknown): MemberResponse {
       .filter((a) => isDate(a.date))
       .map((a) => ({ date: a.date as string, level: int(a.level, 1, 3, 1) as 1 | 2 | 3 })),
     ...(Number(r.ready) > 0 ? { ready: Math.min(Math.floor(Number(r.ready)), Date.now()) } : {}),
+    ...(Array.isArray(r.avoidWeekdays) && r.avoidWeekdays.length ? { avoidWeekdays: [...new Set(arr(r.avoidWeekdays, 7).map((d) => int(d, 0, 6, 0)))].sort() } : {}),
+    ...(Array.isArray(r.noPresentWeekdays) && r.noPresentWeekdays.length ? { noPresentWeekdays: [...new Set(arr(r.noPresentWeekdays, 7).map((d) => int(d, 0, 6, 0)))].sort() } : {}),
     updatedAt: Date.now(),
   }
 }

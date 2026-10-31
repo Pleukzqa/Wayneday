@@ -371,8 +371,11 @@ test('a presenter source can count another shift the same, e.g. the weekend nigh
   const s = arrangeStudents(c, {}, [])
   assert.ok(s.ok)
   if (!s.ok) return
-  // Only the weekday night: Mondays have nobody from "last night".
-  assert.match(pickPresenters(c, {}, [], s.students).warnings.join(' '), /not enough/)
+  // Only the weekday night: Mondays have nobody from it last night, so the same ward's student on duty then
+  // (the weekend night) presents instead.
+  const plain = pickPresenters(c, {}, [], s.students)
+  assert.deepEqual(plain.warnings, [])
+  assert.equal(plain.presenters.find((x) => x.date === '2026-11-09')?.memberId, s.students.find((x) => x.date === '2026-11-08')!.memberId)
   // Counting the weekend night the same: every Monday takes Sunday night's 19C student.
   c.presentations = [{ ...rule, sources: [{ shiftId: 'wk', placeId: 'wk19', count: 1, orShiftIds: ['we'] }] }]
   const p = pickPresenters(c, {}, [], s.students)

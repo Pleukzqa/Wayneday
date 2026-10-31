@@ -651,6 +651,24 @@ export function StudentsCard({ draft, edit, ro, responses }: { draft: SessionCon
         <PointsBox draft={draft} ro={ro} set={set} count={count} />
         <label className="inline">{t("A student’s shifts at least")} <input type="number" min={0} max={60} disabled={ro} value={st.minGap ?? 0} onChange={(e) => set({ minGap: Math.max(0, Number(e.target.value) || 0) })} /> {t("days apart")} <span className="muted small">{t("(0 = each student’s own answer)")}</span>
         </label>
+        {slots.length > 1 && (
+          <div className="rules">
+            <span className="small" title={t('Everyone gets about as many of these (at most 1 apart in a group); points can’t make up for fewer.')}>
+              {t('Always even (at most 1 apart):')}
+            </span>
+            {slots.map((x) => (
+              <label key={x.id} className="check">
+                <input
+                  type="checkbox"
+                  disabled={ro}
+                  checked={Boolean(st.evenSlots?.includes(x.id))}
+                  onChange={(e) => set({ evenSlots: e.target.checked ? [...(st.evenSlots ?? []), x.id] : (st.evenSlots ?? []).filter((y) => y !== x.id) })}
+                />
+                {x.name}
+              </label>
+            ))}
+          </div>
+        )}
         <div className="rules">
           <span className="small">{t("Try to avoid:")}</span>
           {check('avoidRepeatResident', 'the same resident twice for a student')}
@@ -731,7 +749,7 @@ function newPresentation(c: SessionConfig, date?: string): PresentationRule {
   const base = { id: uid(), fromShiftId: c.shifts[0]?.id ?? ANY_SHIFT, fromCount: 1, types: [c.rosterMode === 'hospital' ? ('student' as const) : ('resident' as const)] }
   return date
     ? { ...base, name: t('Case discussion'), days: [], dates: [date], count: 1 }
-    : { ...base, name: 'Morning report', days: [1, 2, 3, 4, 5], count: 2 }
+    : { ...base, name: t('Morning round'), days: [1, 2, 3, 4, 5], count: 2 }
 }
 
 /**

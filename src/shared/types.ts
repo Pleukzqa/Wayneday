@@ -99,6 +99,8 @@ export interface StudentSettings {
   perSlot?: Record<string, number>
   /** Fewest days between two shifts of the same student, whatever they asked for themselves. */
   minGap?: number
+  /** Shift slots that must be shared evenly (at most 1 apart in a group) — points can't make up for fewer of them. */
+  evenSlots?: string[]
 }
 
 /** `fromShiftId` meaning "on any shift the day before". */
@@ -243,6 +245,10 @@ export interface MemberResponse {
   avoid?: AvoidDate[]
   /** When they pressed "I'm ready!" (finished filling in); missing = not yet. */
   ready?: number
+  /** Weekdays (0 = Sunday) they'd rather not be on duty, e.g. Mon/Wed/Fri; treated like !! on those dates. */
+  avoidWeekdays?: number[]
+  /** Weekdays they'd rather not present on. */
+  noPresentWeekdays?: number[]
 }
 
 export type AvoidLevel = 1 | 2 | 3

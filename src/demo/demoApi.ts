@@ -309,7 +309,7 @@ function sample(): PublicSession {
       presentations: [
         {
           id: 'morning-report',
-          name: 'Morning report',
+          name: 'Morning round',
           days: [1, 2, 3, 4, 5],
           count: 2,
           fromShiftId: 'night',

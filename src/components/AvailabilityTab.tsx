@@ -1,7 +1,7 @@
 import { Fragment, useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { api } from '../api.ts'
 import { shiftRuns, shiftsForType, shiftsOn } from '../shared/calendar.ts'
-import { t, typeName } from '../shared/i18n.ts'
+import { t, typeName, weekdayShort } from '../shared/i18n.ts'
 import { dateRange, shortDate, weekday } from '../shared/dates.ts'
 import { responseFor } from '../shared/solver.ts'
 import { DEFAULT_RESPONSE, type AnswerChange, type AvoidLevel, type HostNote, type MemberResponse } from '../shared/types.ts'
@@ -311,6 +311,41 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
             {mine.minInterval === 1 ? t("Consecutive days are OK.") : `e.g. a shift on the 1st means the next is the ${mine.minInterval + 1}th at the earliest.`}{' '} {t(
               "Spread-out preferences are given priority; grouped shifts are packed as close as your interval allows."
             )}</p>
+          {(
+            [
+              ['avoidWeekdays', 'Rather not be on duty on:', 'e.g. Mon, Wed and Fri — counted like !! on every one of those days'],
+              ...(config.presentations.length ? ([['noPresentWeekdays', 'Rather not present on:', 'Presentations go to someone else on those weekdays when possible']] as const) : []),
+            ] as const
+          ).map(([field, label, hint]) => (
+            <div key={field} className="row wrap weekday-pref">
+              <span className="small" title={t(hint)}>
+                {t(label)}
+              </span>
+              <div className="weekdays" role="group" aria-label={t(label)}>
+                {[1, 2, 3, 4, 5, 6, 0].map((d) => {
+                  const on = (mine[field] ?? []).includes(d)
+                  return (
+                    <button
+                      key={d}
+                      type="button"
+                      aria-pressed={on}
+                      className={on ? 'day on' : 'day'}
+                      disabled={!canEdit(me.memberId!)}
+                      onClick={() =>
+                        setPref((r) => {
+                          const cur = r[field] ?? []
+                          const next = on ? cur.filter((x) => x !== d) : [...cur, d].sort()
+                          return { ...r, [field]: next.length ? next : undefined }
+                        })
+                      }
+                    >
+                      {weekdayShort()[d]}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
           <label>{t("Note for the host")} <input
               value={mine.note}
               disabled={!canEdit(me.memberId)}
