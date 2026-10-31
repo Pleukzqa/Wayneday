@@ -16,7 +16,7 @@ export const TH: Record<string, string> = {
   "Consecutive days are OK.": "อยู่เวรวันติดกันได้",
   "Spread-out preferences are given priority; grouped shifts are packed as close as your interval allows.": "คนที่อยากกระจายเวรจะได้จัดก่อน ส่วนคนที่อยากให้เวรอยู่ใกล้กันจะได้เวรชิดกันที่สุดเท่าที่ระยะห่างที่ตั้งไว้อนุญาต",
   "Note for the host": "ข้อความถึงผู้จัด",
-  "e.g. exam on the 14th, prefer no Fridays": "เช่น สอบวันที่ 14, ไม่อยากอยู่วันศุกร์",
+  "e.g. exam on the 14th": "เช่น สอบวันที่ 14",
   "🗓️ Availability": "🗓️ วันว่าง",
   "Saving…": "กำลังบันทึก…",
   "Couldn’t save — retrying on next change": "บันทึกไม่สำเร็จ — จะลองใหม่เมื่อแก้ไขครั้งถัดไป",

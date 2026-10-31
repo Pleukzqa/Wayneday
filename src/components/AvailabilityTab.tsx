@@ -292,7 +292,7 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
           <label>{t("Note for the host")} <input
               value={mine.note}
               disabled={!canEdit(me.memberId)}
-              placeholder={t("e.g. exam on the 14th, prefer no Fridays")}
+              placeholder={t("e.g. exam on the 14th")}
               onChange={(e) => update(me.memberId!, (r) => ({ ...r, note: e.target.value }))}
             />
           </label>
