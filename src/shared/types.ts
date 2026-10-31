@@ -112,6 +112,11 @@ export interface PresenterSource {
   placeId?: string
   /** A place by name (job), e.g. ward 17C, on whichever shift has it (with ANY_SHIFT). */
   jobId?: string
+  /**
+   * Other shifts that count the same, e.g. the weekend version of a weekday night: someone on any of them
+   * qualifies. A place picked on the main shift means the same place (job) on these.
+   */
+  orShiftIds?: string[]
   count: number
   /** 'before' (default): on that shift the day before, e.g. post-call. 'same': on it that same day. */
   when?: 'before' | 'same'

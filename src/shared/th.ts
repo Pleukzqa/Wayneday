@@ -730,4 +730,9 @@ export const TH: Record<string, string> = {
   "Even if nobody had marked any day, there would be no arrangement — the setup itself doesn’t fit (places, minimums, shifts each or gaps).": "ถึงจะไม่มีใครทำเครื่องหมายวันไหนเลย ก็ยังจัดไม่ได้ — การตั้งค่าเองไม่ลงตัว (จำนวนที่ ขั้นต่ำ เวรต่อคน หรือระยะห่าง)",
   "With nobody’s days marked it would work — so it’s the ✕ unavailable days or locked shifts that make it impossible.": "ถ้าไม่มีใครทำเครื่องหมายวันไว้ จะจัดได้ — สิ่งที่ทำให้จัดไม่ได้คือวันที่ ✕ ไม่ว่าง หรือเวรที่ล็อกไว้",
   "{p} student places, shared within {g} groups of students who take different places (e.g. two rotations) → {a}–{b} shifts each.": "ที่สำหรับนิสิต {p} ที่ แบ่งกันภายใน {g} กลุ่มที่อยู่คนละจุดงาน (เช่น สองสาย) → คนละ {a}–{b} เวร",
+  "or {shift}": "หรือ {shift}",
+  "{shift} doesn’t run before {dates}": "{shift} ไม่มีเวรก่อนวันที่ {dates}",
+  "or {shift} (runs before {days})": "หรือ {shift} (มีเวรก่อนวัน{days})",
+  "Also counts: another shift": "นับเวรอื่นด้วย",
+  "or another shift…": "หรือเวรอื่น…",
 }

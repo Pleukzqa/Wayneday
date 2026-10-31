@@ -356,6 +356,35 @@ test('sharing equally within rotations of different sizes', () => {
   assert.equal(shiftsNeeded(c), 15)
 })
 
+test('a presenter source can count another shift the same, e.g. the weekend night before a Monday', () => {
+  const c = hospital()
+  c.jobs = [{ id: 'w', name: '19C' }]
+  c.shifts = [
+    { ...c.shifts[0], id: 'wk', name: 'Night', days: [1, 2, 3, 4, 5], requirements: [{ id: 'wk19', jobId: 'w', memberType: 'any', count: 1 }] },
+    { ...c.shifts[0], id: 'we', name: 'Night (weekend)', start: '08:00', end: '08:00', days: [0, 6], requirements: [{ id: 'we19', jobId: 'w', memberType: 'any', count: 1 }] },
+  ]
+  c.duty = []
+  c.noDuty = true
+  c.students = { ...c.students, auto: true }
+  const rule = { id: 'mr', name: 'Morning report', days: [1, 2, 3, 4], count: 1, fromShiftId: 'wk', fromCount: 1, types: ['student' as const] }
+  c.presentations = [{ ...rule, sources: [{ shiftId: 'wk', placeId: 'wk19', count: 1 }] }]
+  const s = arrangeStudents(c, {}, [])
+  assert.ok(s.ok)
+  if (!s.ok) return
+  // Only the weekday night: Mondays have nobody from "last night".
+  assert.match(pickPresenters(c, {}, [], s.students).warnings.join(' '), /not enough/)
+  // Counting the weekend night the same: every Monday takes Sunday night's 19C student.
+  c.presentations = [{ ...rule, sources: [{ shiftId: 'wk', placeId: 'wk19', count: 1, orShiftIds: ['we'] }] }]
+  const p = pickPresenters(c, {}, [], s.students)
+  assert.deepEqual(p.warnings, [])
+  for (const monday of ['2026-11-09', '2026-11-16', '2026-11-23']) {
+    const sunday: StudentAssignment = s.students.find((x) => x.date === addDays(monday, -1))!
+    assert.equal(sunday.shiftId, 'we')
+    assert.equal(p.presenters.find((x) => x.date === monday)?.memberId, sunday.memberId)
+  }
+  assert.match(buildAiPrompt(c, {}), /who worked "Night" or "Night \(weekend\)" \(19C\) the day before/)
+})
+
 test('someone away on a presentation day isn’t put on the night it takes presenters from', () => {
   // One student a night; a case discussion on the 17th needs last night's student, and Student A is ✕ that day.
   const c = hospital()

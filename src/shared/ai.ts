@@ -44,7 +44,7 @@ export function buildAiPrompt(config: SessionConfig, responses: Record<string, M
   const job = (id: string) => config.jobs.find((j) => j.id === id)?.name ?? id
   const back = (d: DaysBack) => (d[0] === 1 && d[1] === 1 ? 'the day before' : d[0] === d[1] ? `${d[0]} days before` : `${d[0]}–${d[1]} days before`)
   const describeSource = (src: PresenterSource, daysBack: DaysBack = LAST_NIGHT) => {
-    const shift = src.shiftId === ANY_SHIFT ? 'any shift' : `"${shiftName(src.shiftId)}"`
+    const shift = src.shiftId === ANY_SHIFT ? 'any shift' : [src.shiftId, ...(src.orShiftIds ?? [])].map((id) => `"${shiftName(id)}"`).join(' or ')
     const req = config.shifts.find((x) => x.id === src.shiftId)?.requirements.find((r) => r.id === src.placeId)
     const place = src.jobId ? ` in ${job(src.jobId)}` : req ? ` (${req.jobId ? job(req.jobId) : 'that place'})` : ''
     return `at least ${src.count} who worked ${shift}${place} ${src.when === 'same' ? 'that same day' : back(daysBack)}`

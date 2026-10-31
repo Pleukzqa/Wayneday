@@ -51,10 +51,16 @@ export function sourceOffsets(src: PresenterSource, daysBack: DaysBack): number[
 
 /** Was someone on this shift (and place) one of the people a source draws from? */
 export function sourceMatches(config: SessionConfig, src: PresenterSource, shiftId: string, placeId?: string) {
-  if (src.shiftId !== ANY_SHIFT && src.shiftId !== shiftId) return false
+  const jobOf = (sid: string, pid?: string) => config.shifts.find((s) => s.id === sid)?.requirements.find((r) => r.id === pid)?.jobId
+  if (src.shiftId !== ANY_SHIFT && src.shiftId !== shiftId) {
+    // One of the shifts that count the same: the same place there is the one with the same job.
+    if (!src.orShiftIds?.includes(shiftId)) return false
+    if (src.placeId) return Boolean(jobOf(src.shiftId, src.placeId)) && jobOf(shiftId, placeId) === jobOf(src.shiftId, src.placeId)
+    return !src.jobId || jobOf(shiftId, placeId) === src.jobId
+  }
   if (src.placeId && src.placeId !== placeId) return false
   if (!src.jobId) return true
-  return config.shifts.find((s) => s.id === shiftId)?.requirements.find((r) => r.id === placeId)?.jobId === src.jobId
+  return jobOf(shiftId, placeId) === src.jobId
 }
 
 /**

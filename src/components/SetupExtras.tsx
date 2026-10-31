@@ -1,11 +1,11 @@
 // Setup sections: date exceptions calendar, students, presentation rules, join requests.
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import { api } from '../api.ts'
 import { equalShareFor, studentOccs } from '../shared/students.ts'
 import { t, typeName, weekdayLetter, weekdayLong, weekdayShort } from '../shared/i18n.ts'
 import { dayPoints, fixedKey, fmtPoints, overrideFor, presentationOn, presentationUsually, reqCount, ruleSources, shiftHours, shiftPoints, shiftRuns, shiftTimes, sourceOffsets } from '../shared/calendar.ts'
 import { addDays, dateRange, shortDate, weekday } from '../shared/dates.ts'
-import { ANY_SHIFT, DEFAULT_POINTS, DUTY_ROLES, isOneDay, LAST_NIGHT, type DateOverride, type DaysBack, type DutyRole, type MemberResponse, type MemberType, type PresentationOverride, type PresentationRule, type PresenterSource, type SessionConfig } from '../shared/types.ts'
+import { ANY_SHIFT, DEFAULT_POINTS, DUTY_ROLES, isOneDay, LAST_NIGHT, type DateOverride, type DaysBack, type DutyRole, type MemberResponse, type MemberType, type PresentationOverride, type PresentationRule, type PresenterSource, type SessionConfig, type ShiftSlot } from '../shared/types.ts'
 import { uid, type SessionProps } from './props.ts'
 
 type Edit = (fn: (c: SessionConfig) => SessionConfig) => void
@@ -659,6 +659,9 @@ export function StudentsCard({ draft, edit, ro, responses }: { draft: SessionCon
 const TYPES: MemberType[] = ['resident', 'staff', 'student']
 
 type SourceOption = { value: string; label: string }
+/** A source's label with the other shifts that count the same: "Night · 19C, or Weekend night". */
+const withOr = (label: string, s: PresenterSource, name: (id: string) => string) =>
+  s.orShiftIds?.length ? `${label}, ${s.orShiftIds.map((id) => t('or {shift}', { shift: name(id) })).join(', ')}` : label
 /** How the diagram names a source: "shift|place|job". */
 const srcValue = (s: Pick<PresenterSource, 'shiftId' | 'placeId' | 'jobId'>) => `${s.shiftId}|${s.placeId ?? ''}|${s.jobId ?? ''}`
 
@@ -703,9 +706,14 @@ function PresenterFlow({
   ro,
   setSources,
   setDaysBack,
+  shifts,
+  suggestOr,
 }: {
   rule: PresentationRule
   options: SourceOption[]
+  shifts: ShiftSlot[]
+  /** For a linked shift that doesn't run before some of the presentation's days: the shift that does, and those days. */
+  suggestOr: (src: PresenterSource) => { shift: ShiftSlot; dates: string[] } | null
   /** Shift ids that run the day before / the same day as the presentation; null = don't filter. */
   running: Record<'before' | 'same', Set<string> | null>
   ro: boolean
@@ -718,7 +726,17 @@ function PresenterFlow({
   const keyOf = (s: Pick<PresenterSource, 'shiftId' | 'placeId' | 'jobId' | 'when'>) => `${s.when ?? 'before'}|${srcValue(s)}`
   const countOf = (key: string) => sources.find((s) => keyOf(s) === key)?.count ?? 0
   const linked = sources.reduce((n, s) => n + s.count, 0)
-  const labelOf = (s: PresenterSource) => options.find((o) => o.value === srcValue(s))?.label ?? '?'
+  const shiftName = (id: string) => shifts.find((x) => x.id === id)?.name ?? '?'
+  const labelOf = (s: PresenterSource) => withOr(options.find((o) => o.value === srcValue(s))?.label ?? '?', s, shiftName)
+  const setOr = (src: PresenterSource, ids: string[]) =>
+    setSources(
+      rule,
+      sources.map((s) => {
+        if (s !== src) return s
+        const { orShiftIds: _o, ...rest } = s
+        return ids.length ? { ...rest, orShiftIds: ids } : rest
+      }),
+    )
 
   const setCount = (when: 'before' | 'same', value: string, n: number) => {
     const [shiftId, placeId, jobId] = value.split('|')
@@ -727,7 +745,8 @@ function PresenterFlow({
     // Linking more than there are seats adds seats (up to 20 presenters).
     const taken = others.reduce((x, s) => x + s.count, 0)
     const count = Math.max(0, Math.min(n, 20 - taken))
-    const next = count > 0 ? [...others, { shiftId, ...(placeId ? { placeId } : {}), ...(jobId ? { jobId } : {}), count, when }] : others
+    const existing = sources.find((s) => keyOf(s) === key)
+    const next = count > 0 ? [...others, { ...existing, shiftId, ...(placeId ? { placeId } : {}), ...(jobId ? { jobId } : {}), count, when }] : others
     // Same order as the diagram, so the first source is stable.
     const order = (s: PresenterSource) => (s.when === 'same' ? 1000 : 0) + options.findIndex((o) => o.value === srcValue(s))
     setSources(rule, next.sort((a, b) => order(a) - order(b)), taken + count > rule.count ? { count: taken + count } : {})
@@ -753,7 +772,8 @@ function PresenterFlow({
         const off = !runs(when, o.value)
         if (off && n === 0) return null
         return (
-          <div key={key} className={`flow-row ${n > 0 ? 'on' : ''} ${isPlace ? 'place' : ''} ${off ? 'off' : ''}`}>
+          <Fragment key={key}>
+          <div className={`flow-row ${n > 0 ? 'on' : ''} ${isPlace ? 'place' : ''} ${off ? 'off' : ''}`}>
             <button
               type="button"
               className="flow-node"
@@ -780,6 +800,46 @@ function PresenterFlow({
             </span>
             <span className="flow-wire" aria-hidden />
           </div>
+          {n > 0 && o.value.split('|')[0] !== ANY_SHIFT && (() => {
+            const src = sources.find((s) => keyOf(s) === key)!
+            const alts = src.orShiftIds ?? []
+            const tip = suggestOr(src)
+            const more = shifts.filter((x) => x.id !== src.shiftId && !alts.includes(x.id))
+            if (!alts.length && !tip && (ro || !more.length)) return null
+            return (
+              <div className="flow-or small">
+                {alts.map((id) => (
+                  <span key={id} className="chip">
+                    {t('or {shift}', { shift: shiftName(id) })}
+                    {!ro && (
+                      <button type="button" className="x" aria-label={t('Remove')} onClick={() => setOr(src, alts.filter((x) => x !== id))}>
+                        ×
+                      </button>
+                    )}
+                  </span>
+                ))}
+                {tip && !ro && (
+                  <button
+                    type="button"
+                    className="link"
+                    title={t('{shift} doesn’t run before {dates}', { shift: shiftName(src.shiftId), dates: tip.dates.slice(0, 4).map(shortDate).join(', ') })}
+                    onClick={() => setOr(src, [...alts, tip.shift.id])}
+                  >
+                    ➕ {t('or {shift} (runs before {days})', { shift: tip.shift.name, days: [...new Set(tip.dates.map((d) => weekdayShort()[weekday(d)]))].join(', ') })}
+                  </button>
+                )}
+                {!ro && more.length > 0 && (
+                  <select aria-label={t('Also counts: another shift')} value="" onChange={(e) => e.target.value && setOr(src, [...alts, e.target.value])}>
+                    <option value="">{t('or another shift…')}</option>
+                    {more.map((x) => (
+                      <option key={x.id} value={x.id}>{x.name}</option>
+                    ))}
+                  </select>
+                )}
+              </div>
+            )
+          })()}
+          </Fragment>
         )
       })}
     </div>
@@ -873,6 +933,26 @@ export function PresentationsCard({ draft, edit, ro }: { draft: SessionConfig; e
     const back = (d: string) => sourceOffsets({ shiftId: ANY_SHIFT, count: 1 }, presentationOn(draft, p, d)?.daysBack ?? p.daysBack ?? LAST_NIGHT)
     return { before: on(back), same: on(() => [0]) }
   }
+  // A linked shift that doesn't run before some of the presentation's days: the shift that does, with the same place.
+  const suggestOr = (p: PresentationRule) => (src: PresenterSource) => {
+    if (src.shiftId === ANY_SHIFT) return null
+    const dates = isOneDay(p) ? (p.dates ?? []) : dateRange(draft.startDate, draft.endDate).filter((d) => presentationOn(draft, p, d))
+    const before = (d: string) => sourceOffsets(src, presentationOn(draft, p, d)?.daysBack ?? p.daysBack ?? LAST_NIGHT).map((n) => addDays(d, -n))
+    const linked = [src.shiftId, ...(src.orShiftIds ?? [])].map((id) => draft.shifts.find((x) => x.id === id)).filter((x): x is ShiftSlot => Boolean(x))
+    const missing = dates.filter((d) => !before(d).some((day) => linked.some((sh) => shiftRuns(draft, sh, day))))
+    if (!missing.length) return null
+    const main = draft.shifts.find((x) => x.id === src.shiftId)
+    const job = src.placeId ? main?.requirements.find((r) => r.id === src.placeId)?.jobId : src.jobId
+    const fits = draft.shifts.filter(
+      (sh) =>
+        !linked.includes(sh) &&
+        missing.some((d) => before(d).some((day) => shiftRuns(draft, sh, day))) &&
+        (!job || sh.requirements.some((r) => r.jobId === job)),
+    )
+    // Prefer the one ending when the main one does: the same night, another version of it.
+    const shift = [...fits].sort((a, b) => Number(b.end === main?.end) - Number(a.end === main?.end))[0]
+    return shift ? { shift, dates: missing } : null
+  }
   const sourcesText = (p: PresentationRule) => {
     const list = ruleSources(p)
     if (!list.length) return t('anyone')
@@ -880,7 +960,7 @@ export function PresentationsCard({ draft, edit, ro }: { draft: SessionConfig; e
       .map((s) =>
         t('{n} from {place}, {when}', {
           n: s.count,
-          place: sourceOptions.find((o) => o.value === srcValue(s))?.label ?? '?',
+          place: withOr(sourceOptions.find((o) => o.value === srcValue(s))?.label ?? '?', s, (id) => draft.shifts.find((x) => x.id === id)?.name ?? '?'),
           when: whenText(s, p.daysBack ?? LAST_NIGHT),
         }),
       )
@@ -915,7 +995,7 @@ export function PresentationsCard({ draft, edit, ro }: { draft: SessionConfig; e
               <button type="button" className="link danger" onClick={() => edit((c) => ({ ...c, presentations: c.presentations.filter((x) => x.id !== p.id) }))}>{t("Remove")}</button>
             )}
           </div>
-          <PresenterFlow rule={p} options={sourceOptions} running={runningFor(p)} ro={ro} setSources={setSources} setDaysBack={(r, daysBack) => set(r.id, { daysBack: isLastNight(daysBack) ? undefined : daysBack })} />
+          <PresenterFlow rule={p} options={sourceOptions} running={runningFor(p)} ro={ro} setSources={setSources} setDaysBack={(r, daysBack) => set(r.id, { daysBack: isLastNight(daysBack) ? undefined : daysBack })} shifts={draft.shifts} suggestOr={suggestOr(p)} />
           {draft.rosterMode !== 'hospital' && (
             <div className="row wrap">
               <span className="small">{t("Who can present:")}</span>
@@ -960,7 +1040,7 @@ export function PresentationsCard({ draft, edit, ro }: { draft: SessionConfig; e
                 <summary className="small">
                   🎤 {t('{n} presenter(s)', { n: p.count })} · {sourcesText(p)}
                 </summary>
-                <PresenterFlow rule={p} options={sourceOptions} running={runningFor(p)} ro={ro} setSources={setSources} setDaysBack={(r, daysBack) => set(r.id, { daysBack: isLastNight(daysBack) ? undefined : daysBack })} />
+                <PresenterFlow rule={p} options={sourceOptions} running={runningFor(p)} ro={ro} setSources={setSources} setDaysBack={(r, daysBack) => set(r.id, { daysBack: isLastNight(daysBack) ? undefined : daysBack })} shifts={draft.shifts} suggestOr={suggestOr(p)} />
               </details>
             </div>
           ))}

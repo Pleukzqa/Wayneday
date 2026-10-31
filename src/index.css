@@ -1731,3 +1731,14 @@ button.big {
 .hints li {
   margin-bottom: 0.4rem;
 }
+.flow-or {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.5rem;
+  margin: -0.15rem 0 0.35rem 1.2rem;
+}
+.flow-or select {
+  font-size: 0.8rem;
+  padding: 0.1rem 0.3rem;
+}
