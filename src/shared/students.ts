@@ -1790,6 +1790,19 @@ export interface FairnessRow {
   ok: boolean | null
 }
 
+/**
+ * Whether someone's shift days (days from the start, sorted) fit the pattern they asked for, over an n-day period.
+ * Spread out: no gap longer than twice the even spacing. Grouped: at least half their shifts sit next to another
+ * at their shortest allowed gap.
+ */
+export function fitsPattern(days: number[], n: number, r: MemberResponse): boolean {
+  if (days.length < 2) return true
+  const gaps = days.slice(1).map((d, i) => d - days[i])
+  if (r.preference === 'distributed') return Math.max(...gaps) <= (2 * n) / days.length
+  const paired = days.filter((_, i) => gaps[i - 1] === r.minInterval || gaps[i] === r.minInterval).length
+  return paired * 2 >= days.length
+}
+
 /** Every fairness rule Wayneday accounts for, with this roster's result: for the fairness table and comparing two. */
 export function fairnessReport(
   config: SessionConfig,
@@ -1895,6 +1908,24 @@ export function fairnessReport(
   }
   const runs = details.reduce((n, d) => n + everyOtherDay(d.shifts.map((x) => dayDiff(config.startDate, x.date))), 0)
   rows.push({ key: 'alt', what: t('On duty every other day'), setting: t('Not three times running (e.g. Mon–Wed–Fri)'), result: String(runs), ok: runs === 0 ? true : null })
+  // Each student's own answer, spread out or grouped (only those who answered).
+  const period = dayDiff(config.startDate, config.endDate) + 1
+  for (const pref of ['distributed', 'dense'] as const) {
+    const who = studs.filter((m) => responses[m.id]?.preference === pref)
+    if (!who.length) continue
+    const misses = who.filter((m) => {
+      const days = [...new Set(roster.students.filter((x) => x.memberId === m.id).map((x) => dayDiff(config.startDate, x.date)))].sort((a, b) => a - b)
+      return !fitsPattern(days, period, studentResponse(config, responses, m.id))
+    })
+    const names = misses.map((m) => m.name)
+    rows.push({
+      key: `pattern-${pref}`,
+      what: pref === 'distributed' ? t('Asked for spread out') : t('Asked for grouped'),
+      setting: pref === 'distributed' ? t('No gap longer than twice the even spacing') : t('At least half their shifts next to another, at their shortest gap'),
+      result: `${t('{n} of {total}', { n: who.length - misses.length, total: who.length })}${names.length ? ` (${t('not: {names}', { names: names.length > 3 ? `${names.slice(0, 3).join(', ')} +${names.length - 3}` : names.join(', ') })})` : ''}`,
+      ok: misses.length === 0 ? true : null,
+    })
+  }
   const gaps = details.map((d) => d.gap.avg).filter((x): x is number => x != null)
   rows.push({
     key: 'gaps',

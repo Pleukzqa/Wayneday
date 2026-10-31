@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import { addDays, dateRange, dayDiff } from './dates.ts'
 import { shiftHours, shiftPoints, shiftTimes } from './calendar.ts'
 import { countArrangements, solve, solveMany, validate } from './solver.ts'
-import { arrangeStudents, countStudentArrangements, equalShare, shareGroups, shiftsNeeded, pickPresenters, placeKey, studentCellIssues, studentExposure, studentOptions, everyOtherDay, fairnessReport, presentationLoad, presentsInARow, repairRoster, studentDetails, studentRuleReport, studentSummaryTable, studentTargets, typeSpread } from './students.ts'
+import { arrangeStudents, countStudentArrangements, equalShare, shareGroups, shiftsNeeded, pickPresenters, placeKey, studentCellIssues, studentExposure, studentOptions, everyOtherDay, fairnessReport, fitsPattern, presentationLoad, presentsInARow, repairRoster, studentDetails, studentRuleReport, studentSummaryTable, studentTargets, typeSpread } from './students.ts'
 import { buildAiPrompt, importAiResult } from './ai.ts'
 import { explainNoArrangement } from './explain.ts'
 import { ANY_SHIFT, DEFAULT_RESPONSE, DEFAULT_STUDENTS, dutyOf, personHue, presentationPoints, type MemberResponse, type SessionConfig, type StudentAssignment } from './types.ts'
@@ -676,8 +676,27 @@ test('fairness table: every rule with its setting and result; colours differ per
   assert.equal(rows.find((x) => x.key === 'shifts')!.ok, true)
   assert.equal(rows.find((x) => x.key === 'hard')!.result, 'all kept')
   assert.equal(rows.find((x) => x.key === 'talk-mr')!.ok, true, 'everyone at morning report')
+  // Each student's spread-out / grouped answer gets a row; only answers given count.
+  const roster = r.alternatives[0].roster
+  const stA = roster.students.filter((x) => x.memberId === 'stA')
+  const asked = fairnessReport(c, { stA: { ...DEFAULT_RESPONSE, preference: 'dense' } }, roster)
+  assert.match(asked.find((x) => x.key === 'pattern-dense')!.result, /of 1/)
+  assert.ok(!asked.some((x) => x.key === 'pattern-distributed'), 'nobody else answered')
+  assert.ok(stA.length > 2)
   const hues = c.members.map((m) => personHue(c, m.id))
   assert.equal(new Set(hues).size, hues.length)
+})
+
+test('shift pattern: spread out has no long gap; grouped has half its shifts in pairs at the shortest gap', () => {
+  const spread = { ...DEFAULT_RESPONSE, preference: 'distributed' as const }
+  const grouped = { ...DEFAULT_RESPONSE, preference: 'dense' as const, minInterval: 2 }
+  // 28 days, 7 shifts: even spacing 4, so a 9-day gap is too long and 8 is fine.
+  assert.equal(fitsPattern([0, 4, 8, 12, 16, 20, 24], 28, spread), true)
+  assert.equal(fitsPattern([0, 3, 12, 15, 18, 21, 24], 28, spread), false)
+  assert.equal(fitsPattern([0, 3, 11, 14, 18, 21, 24], 28, spread), true)
+  // Pairs two days apart with breaks between: grouped. Evenly every 4 days: not.
+  assert.equal(fitsPattern([2, 6, 8, 12, 14, 18, 24, 26], 28, grouped), true)
+  assert.equal(fitsPattern([4, 9, 13, 16, 20, 22, 25], 28, grouped), false)
 })
 
 test('sharing equally fills every place and splits them within one shift', () => {
