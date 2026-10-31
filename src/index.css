@@ -1610,3 +1610,13 @@ h2[id] {
   cursor: pointer;
   color: var(--muted);
 }
+.periods {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.25rem;
+  margin-top: 0.3rem;
+}
+.periods input[type='date'] {
+  width: auto;
+}

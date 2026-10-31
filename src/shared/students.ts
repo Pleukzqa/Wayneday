@@ -8,7 +8,7 @@ import { fmtPoints, presentationOn, reqCount, reqMin, shiftPoints, shiftRuns, sh
 import { t, weekdayShort } from './i18n.ts'
 import { addDays, dateRange, dayDiff, weekday } from './dates.ts'
 import { preferenceCost, responseFor, rng, shuffled, sortedBy, variance } from './scoring.ts'
-import { presenterTypes, type Assignment, type Member, type MemberResponse, type PresenterAssignment, type SessionConfig, type StudentAssignment } from './types.ts'
+import { coversJob, presenterTypes, type Assignment, type Member, type MemberResponse, type PresenterAssignment, type SessionConfig, type StudentAssignment } from './types.ts'
 
 /** A place students can take: one shift on one date (and, in hospital mode, one job within it). */
 export interface Occ {
@@ -67,7 +67,7 @@ export function studentOccs(config: SessionConfig, assignments: Assignment[]): O
 /** Do two shifts overlap in time (only possible when one lasts into a later day)? */
 const overlaps = (a: Occ, b: Occ) => a.startMin < b.endMin && b.startMin < a.endMin
 
-const canDo = (m: Member, o: Occ) => !o.jobId || m.jobs.length === 0 || m.jobs.includes(o.jobId)
+const canDo = (m: Member, o: Occ) => coversJob(m, o.jobId, o.date)
 
 /** Penalty for working a date someone asked to avoid, by level (mirrors "try 20% / 40% / 60%"). */
 export const AVOID_PENALTY = [0, 100, 200, 300]
@@ -730,7 +730,11 @@ export function studentCellIssues(
       if (r.unavailable.includes(s.date)) add(placeKey(s), t('{name} is unavailable this day.', { name: m.name }))
       const o = occs.find((x) => x.date === s.date && x.shiftId === s.shiftId && (x.requirementId ?? '') === (s.requirementId ?? ''))
       if (!o) add(placeKey(s), t('{name}: there’s no student place here.', { name: m.name }))
-      else if (!canDo(m, o)) add(placeKey(s), t('{name} doesn’t cover this job.', { name: m.name }))
+      else if (!canDo(m, o)) {
+        const dated = (m.periods ?? []).find((p) => p.from <= s.date && s.date <= p.to)
+        const place = config.jobs.find((j) => j.id === dated?.jobId)?.name
+        add(placeKey(s), place ? t('{name} is in {place} on this date.', { name: m.name, place }) : t('{name} doesn’t cover this job.', { name: m.name }))
+      }
     }
     const occOf = (s: StudentAssignment) => occs.find((x) => x.date === s.date && x.shiftId === s.shiftId && (x.requirementId ?? '') === (s.requirementId ?? ''))
     for (let i = 1; i < mine.length; i++) {

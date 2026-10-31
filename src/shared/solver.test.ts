@@ -225,6 +225,32 @@ test('student places need no job (place) in hospital mode', () => {
   assert.match(buildAiPrompt(c, {}), /up to \d+ student\(s\)[,\n]/, 'the AI prompt doesn’t mention a job')
 })
 
+test('dated places: a student covers Ward A until the 15th, then Ward B', () => {
+  const c = hospital()
+  c.jobs = [{ id: 'a', name: 'Ward A' }, { id: 'b', name: 'Ward B' }]
+  c.shifts = [{ ...c.shifts[0], requirements: [{ id: 'wa', jobId: 'a', memberType: 'any', count: 1 }, { id: 'wb', jobId: 'b', memberType: 'any', count: 1 }] }]
+  c.members.push({ id: 'stD', name: 'Student D', type: 'student', jobs: [] })
+  const stA = c.members.find((m) => m.id === 'stA')!
+  stA.jobs = ['b']
+  stA.periods = [{ jobId: 'a', from: '2026-11-01', to: '2026-11-15' }, { jobId: 'b', from: '2026-11-16', to: '2026-11-30' }]
+  // Student B: only Ward A for the first week, any place afterwards.
+  c.members.find((m) => m.id === 'stB')!.periods = [{ jobId: 'a', from: '2026-11-01', to: '2026-11-07' }]
+  const where = (date: string) => (date <= '2026-11-15' ? 'wa' : 'wb')
+  for (let seed = 1; seed <= 5; seed++) {
+    const s = arrangeStudents(c, {}, c.duty, seed)
+    assert.ok(s.ok)
+    if (!s.ok) return
+    const a = s.students.filter((x) => x.memberId === 'stA')
+    assert.ok(a.length > 0)
+    for (const x of a) assert.equal(x.requirementId, where(x.date), `${x.date}: Student A should be in ${where(x.date)}`)
+    for (const x of s.students.filter((y) => y.memberId === 'stB' && y.date <= '2026-11-07')) assert.equal(x.requirementId, 'wa')
+    assert.deepEqual([...studentCellIssues(c, {}, s.students).values()].flat(), [])
+  }
+  const wrong = [{ date: '2026-11-03', shiftId: 'night', requirementId: 'wb', memberId: 'stA' }]
+  assert.match([...studentCellIssues(c, {}, wrong).values()].flat().join(' '), /Student A is in Ward A on this date/)
+  assert.match(buildAiPrompt(c, {}), /only in Ward A from 2026-11-01 to 2026-11-15/)
+})
+
 /** Like a real rotation: a night shift taking 2 students and a 24-hour shift taking 1, shared equally by 7. */
 function equalRotation(): SessionConfig {
   const c = hospital()

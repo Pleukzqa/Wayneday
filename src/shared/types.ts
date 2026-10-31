@@ -12,6 +12,28 @@ export interface Member {
   jobs: string[]
   /** Optional hard cap on the number of shifts for this member. */
   maxShifts?: number
+  /** Dated places, e.g. Ward A 1–15 Nov then Ward B 16–30 Nov; on those dates they replace `jobs`. */
+  periods?: PlacePeriod[]
+}
+
+/** "Covers this place (job) only, from `from` to `to`" (both dates included). */
+export interface PlacePeriod {
+  jobId: string
+  from: string
+  to: string
+}
+
+/** Job ids a member may cover on a date: their dated places if one covers it, else `jobs` (empty = any). */
+export function jobsOn(m: Member, date: string): string[] {
+  const dated = (m.periods ?? []).filter((p) => p.from <= date && date <= p.to)
+  return dated.length ? dated.map((p) => p.jobId) : m.jobs
+}
+
+/** May this member cover a place with this job on this date? A place with no job takes anyone. */
+export function coversJob(m: Member, jobId: string | undefined, date: string) {
+  if (!jobId) return true
+  const jobs = jobsOn(m, date)
+  return jobs.length === 0 || jobs.includes(jobId)
 }
 
 export interface Job {

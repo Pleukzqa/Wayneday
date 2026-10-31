@@ -153,6 +153,25 @@ for (const [kind, makeStore] of stores) {
       assert.deepEqual(r.sources, [{ shiftId: 'n', placeId: 'wa', count: 1, when: 'before' }, { shiftId: 'n', count: 1, when: 'same' }])
     })
 
+    test('dated places are kept (and cleaned)', async () => {
+      const alice = await signIn('alice@example.com')
+      const { code } = (await call('POST', '/sessions', { body: {}, account: alice })).body
+      const jobs = [{ id: 'a', name: 'Ward A' }, { id: 'b', name: 'Ward B' }]
+      const periods = [
+        { jobId: 'a', from: '2026-11-01', to: '2026-11-15' },
+        { jobId: 'b', from: '2026-11-30', to: '2026-11-16' },
+        { jobId: 'gone', from: '2026-11-01', to: '2026-11-02' },
+        { jobId: 'a', from: 'bad', to: '2026-11-02' },
+      ]
+      const members = [{ id: 'm', name: 'M', type: 'student', jobs: [], periods }, { id: 'n', name: 'N', type: 'student', jobs: [], periods: [] }]
+      const v = (await call('PUT', `/sessions/${code}/config`, { account: alice, body: { jobs, members } })).body
+      assert.deepEqual(v.session.config.members[0].periods, [
+        { jobId: 'a', from: '2026-11-01', to: '2026-11-15' },
+        { jobId: 'b', from: '2026-11-16', to: '2026-11-30' },
+      ])
+      assert.equal(v.session.config.members[1].periods, undefined)
+    })
+
     test('PIN guessing is slowed down per name', async () => {
       const alice = await signIn('alice@example.com')
       const { code } = (await call('POST', '/sessions', { body: {}, account: alice })).body

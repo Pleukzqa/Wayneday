@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { api } from '../api.ts'
 import { addDays, dateRange } from '../shared/dates.ts'
-import type { Member, MemberType, Requirement, SessionConfig, ShiftSlot } from '../shared/types.ts'
+import type { Member, MemberType, PlacePeriod, Requirement, SessionConfig, ShiftSlot } from '../shared/types.ts'
 import { IS_DEMO, sessionHash } from '../routes.ts'
 import { endDays, fmtPoints, reqCount, shiftHours } from '../shared/calendar.ts'
 import { t, weekdayLetter } from '../shared/i18n.ts'
@@ -170,7 +170,11 @@ export default function SetupTab({ code, session, me, mutate }: SessionProps) {
                         ...c,
                         jobs: c.jobs.filter((x) => x.id !== j.id),
                         shifts: c.shifts.map((s) => ({ ...s, requirements: s.requirements.map((r) => (r.jobId === j.id ? { ...r, jobId: '' } : r)) })),
-                        members: c.members.map((m) => ({ ...m, jobs: m.jobs.filter((x) => x !== j.id) })),
+                        members: c.members.map((m) => ({
+                          ...m,
+                          jobs: m.jobs.filter((x) => x !== j.id),
+                          ...(m.periods ? { periods: m.periods.filter((p) => p.jobId !== j.id) } : {}),
+                        })),
                       }))
                     }
                   >
@@ -438,6 +442,7 @@ export default function SetupTab({ code, session, me, mutate }: SessionProps) {
                               {j.name}
                             </label>
                           ))}
+                          <PlacePeriods draft={draft} member={m} ro={ro} set={(periods) => setMember(m.id, { periods: periods.length ? periods : undefined })} />
                         </td>
                       )}
                       {draft.rosterMode === 'generate' && (
@@ -519,6 +524,47 @@ export default function SetupTab({ code, session, me, mutate }: SessionProps) {
       )}
     </div>
   );
+}
+
+/** Dated places: "Ward A from the 1st to the 15th, then Ward B". On those dates they replace the ticks. */
+function PlacePeriods({ draft, member, ro, set }: { draft: SessionConfig; member: Member; ro: boolean; set: (p: PlacePeriod[]) => void }) {
+  const periods = member.periods ?? []
+  const change = (i: number, patch: Partial<PlacePeriod>) => set(periods.map((p, k) => (k === i ? { ...p, ...patch } : p)))
+  const add = () => {
+    // Carry on from the last one: the next place, starting the day after it ends.
+    const last = periods[periods.length - 1]
+    const next = draft.jobs[(draft.jobs.findIndex((j) => j.id === last?.jobId) + 1) % draft.jobs.length]
+    const from = last && last.to < draft.endDate ? addDays(last.to, 1) : draft.startDate
+    set([...periods, { jobId: next.id, from, to: draft.endDate }])
+  }
+  return (
+    <div className="periods">
+      {periods.map((p, i) => (
+        <div key={i} className="row small nowrap">
+          <select value={p.jobId} onChange={(e) => change(i, { jobId: e.target.value })} aria-label={t('Place')}>
+            {draft.jobs.map((j) => (
+              <option key={j.id} value={j.id}>{j.name}</option>
+            ))}
+          </select>
+          <input type="date" value={p.from} min={draft.startDate} max={draft.endDate} aria-label={t('From')} onChange={(e) => e.target.value && change(i, { from: e.target.value })} />
+          –
+          <input type="date" value={p.to} min={draft.startDate} max={draft.endDate} aria-label={t('To')} onChange={(e) => e.target.value && change(i, { to: e.target.value })} />
+          {p.from > p.to && <span className="error">{t('ends before it starts')}</span>}
+          {!ro && (
+            <button type="button" className="x" onClick={() => set(periods.filter((_, k) => k !== i))}>
+              ×
+            </button>
+          )}
+        </div>
+      ))}
+      {periods.length > 0 && <span className="muted small">{t('Other dates: the ticked places.')}</span>}
+      {!ro && (
+        <button type="button" className="link small" title={t('Only this place between two dates, e.g. Ward A for two weeks, then Ward B')} onClick={add}>
+          {periods.length ? t('➕ then another place') : t('➕ Place by dates')}
+        </button>
+      )}
+    </div>
+  )
 }
 
 function PersonalLink({ code, memberId, name }: { code: string; memberId: string; name: string }) {

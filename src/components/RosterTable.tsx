@@ -4,7 +4,7 @@ import { cellIds, cellNames, columnsFor } from '../export.ts'
 import { reqCount } from '../shared/calendar.ts'
 import { dateRange, shortDate, weekday } from '../shared/dates.ts'
 import { placeKey } from '../shared/students.ts'
-import { STUDENT_SLOT, type Concern, type Roster, type SessionConfig, type StudentAssignment, type SwapRequest } from '../shared/types.ts'
+import { coversJob, STUDENT_SLOT, type Concern, type Roster, type SessionConfig, type StudentAssignment, type SwapRequest } from '../shared/types.ts'
 
 interface Props {
   config: SessionConfig
@@ -170,7 +170,7 @@ export default function RosterTable({ config, roster, myId, onEdit, onEditStuden
                     (m) =>
                       m.type !== 'student' &&
                       (req.memberType === 'any' || m.type === req.memberType) &&
-                      (!req.jobId || m.jobs.length === 0 || m.jobs.includes(req.jobId)),
+                      coversJob(m, req.jobId, date),
                   )
                   return (
                     <td

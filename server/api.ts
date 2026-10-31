@@ -14,6 +14,7 @@ import {
   type Member,
   type MemberResponse,
   type MemberType,
+  type PlacePeriod,
   type PresentationOverride,
   type PresentationRule,
   type PresenterAssignment,
@@ -109,12 +110,20 @@ function cleanConfig(raw: unknown): SessionConfig {
   const members: Member[] = arr(c.members, 100).map((m) => {
     const o = m as Record<string, unknown>
     const max = o.maxShifts === undefined || o.maxShifts === null || o.maxShifts === '' ? undefined : int(o.maxShifts, 0, 400, 0)
+    const periods: PlacePeriod[] = arr(o.periods, 30)
+      .map((x) => x as Record<string, unknown>)
+      .filter((p) => isDate(p.from) && isDate(p.to) && jobIds.has(str(p.jobId, 40)))
+      .map((p) => {
+        const [from, to] = [p.from as string, p.to as string].sort()
+        return { jobId: str(p.jobId, 40), from, to }
+      })
     return {
       id: str(o.id, 40) || id(),
       name: str(o.name, 60) || 'Member',
       type: memberType(o.type),
       jobs: arr(o.jobs, 30).map((j) => str(j, 40)).filter((j) => jobIds.has(j)),
       ...(max === undefined ? {} : { maxShifts: max }),
+      ...(periods.length ? { periods } : {}),
     }
   })
   const shiftIds = new Set(shifts.map((s) => s.id))

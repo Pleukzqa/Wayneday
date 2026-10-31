@@ -599,4 +599,10 @@ export const TH: Record<string, string> = {
   "☁️ Google Sheets (Drive)": "☁️ Google Sheets (Drive)",
   "amber-otter-river": "amber-otter-river",
   "PIN": "PIN",
+  "{name} is in {place} on this date.": "{name} อยู่ที่ {place} ในวันนั้น",
+  "ends before it starts": "วันสิ้นสุดอยู่ก่อนวันเริ่ม",
+  "Other dates: the ticked places.": "วันอื่น: ตามจุดงานที่ติ๊กไว้",
+  "Only this place between two dates, e.g. Ward A for two weeks, then Ward B": "อยู่จุดงานนี้อย่างเดียวในช่วงวันที่กำหนด เช่น Ward A สองสัปดาห์ แล้วไป Ward B",
+  "➕ then another place": "➕ แล้วย้ายไปจุดงานอื่น",
+  "➕ Place by dates": "➕ จุดงานตามช่วงวัน",
 }

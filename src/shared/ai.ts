@@ -6,7 +6,7 @@ import { endDays, presentationOn, reqCount, ruleSources, shiftRuns, sourceMatche
 import { dateRange, WEEKDAYS } from './dates.ts'
 import { responseFor } from './scoring.ts'
 import { equalShare } from './students.ts'
-import { ANY_SHIFT, presenterTypes, type Assignment, type PresenterSource, type MemberResponse, type PresenterAssignment, type Roster, type SessionConfig, type StudentAssignment } from './types.ts'
+import { ANY_SHIFT, coversJob, presenterTypes, type Assignment, type PresenterSource, type MemberResponse, type PresenterAssignment, type Roster, type SessionConfig, type StudentAssignment } from './types.ts'
 
 export const AI_FORMAT_TAG = 'wayneday-roster'
 
@@ -216,7 +216,8 @@ function personLine(
   const r = responseFor(responses, m.id)
   const parts = [
     m.type,
-    ...(m.type === 'student' ? [] : [m.jobs.length ? `can only do: ${m.jobs.map(job).join(', ')}` : 'can do any job']),
+    ...(m.type === 'student' ? (m.jobs.length ? [`only in: ${m.jobs.map(job).join(', ')}`] : []) : [m.jobs.length ? `can only do: ${m.jobs.map(job).join(', ')}` : 'can do any job']),
+    ...(m.periods ?? []).map((p) => `only in ${job(p.jobId)} from ${p.from} to ${p.to}`),
     `prefers ${r.preference === 'distributed' ? 'shifts spread evenly across the period' : 'shifts grouped close together'}`,
     `at least ${r.minInterval} day(s) between shift dates`,
   ]
@@ -300,7 +301,9 @@ export function importAiResult(text: string, config: SessionConfig): ImportResul
       // Pick the student place (job) on that shift, preferring the job named, then any with room.
       const date = String(row.date)
       const named = config.jobs.find((j) => norm(j.name) === norm(row.job))
-      const reqs = shift.requirements.filter((r) => !named || r.jobId === named.id)
+      const reqs = shift.requirements
+        .filter((r) => !named || r.jobId === named.id)
+        .sort((a, b) => Number(coversJob(member, b.jobId, date)) - Number(coversJob(member, a.jobId, date)))
       const req =
         reqs.find((r) => students.filter((x) => x.date === date && x.requirementId === r.id).length < reqCount(config, shift, r, date)) ?? reqs[0]
       students.push({ date, shiftId: shift.id, ...(req ? { requirementId: req.id } : {}), memberId: member.id })

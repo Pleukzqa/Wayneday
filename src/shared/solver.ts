@@ -11,6 +11,7 @@ import { dateRange, dayDiff, weekday } from './dates.ts'
 import { preferenceCost, responseFor, rng, variance } from './scoring.ts'
 import { arrangeStudents, pickPresenters, validateStudents } from './students.ts'
 import {
+  coversJob,
   type Assignment,
   type Member,
   type MemberResponse,
@@ -107,7 +108,7 @@ export function buildProblem(config: SessionConfig, responses: Record<string, Me
     members.flatMap((m, mi) =>
       m.type !== 'student' &&
       (s.type === 'any' || s.type === m.type) &&
-      (!s.jobId || m.jobs.length === 0 || m.jobs.includes(s.jobId)) &&
+      coversJob(m, s.jobId, s.date) &&
       !unavailable[mi].has(s.day)
         ? [mi]
         : [],
