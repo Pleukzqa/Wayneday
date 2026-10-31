@@ -1047,8 +1047,8 @@ function StudentSummary({ config, roster, myId }: { config: SessionConfig; roste
             {table.rows.map((r, i) => (
               <tr key={students[i].id} className={students[i].id === myId ? 'me' : ''}>
                 {r.map((v, j) => (
-                  <td key={j} className={j >= table.lead && (j - table.lead) % 6 === 0 ? 'nowrap' : ''}>
-                    {j >= table.lead && (j - table.lead) % 6 === 0 && v ? shortDate(v) : v}
+                  <td key={j} className={j >= table.lead && (j - table.lead) % table.per === 0 ? 'nowrap' : ''}>
+                    {j >= table.lead && (j - table.lead) % table.per === 0 && v ? shortDate(v) : v}
                   </td>
                 ))}
               </tr>

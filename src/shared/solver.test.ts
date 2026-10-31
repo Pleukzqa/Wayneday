@@ -456,6 +456,31 @@ test('presentation points: one-day ones count double by default; presenting can 
   assert.ok(table.header.includes('Points (shifts + presentations)'))
 })
 
+test('per student table: "with" is the same ward (another shift marked →), then the other ward; no empty doctor columns', () => {
+  const c = hospital()
+  c.jobs = [{ id: 'a', name: '19C' }, { id: 'b', name: '26A' }]
+  c.shifts = [
+    { ...c.shifts[0], id: 'mid', name: 'Midnight', end: '00:00', requirements: [{ id: 'ma', jobId: 'a', memberType: 'any', count: 2 }, { id: 'mb', jobId: 'b', memberType: 'any', count: 2 }] },
+    { ...c.shifts[0], id: 'ovn', name: 'Overnight', requirements: [{ id: 'oa', jobId: 'a', memberType: 'any', count: 1 }] },
+  ]
+  c.presentations = []
+  const day = '2026-11-03'
+  const students = [
+    { date: day, shiftId: 'mid', requirementId: 'ma', memberId: 'stA' },
+    { date: day, shiftId: 'mid', requirementId: 'ma', memberId: 'stB' },
+    { date: day, shiftId: 'ovn', requirementId: 'oa', memberId: 'stC' },
+    { date: day, shiftId: 'mid', requirementId: 'mb', memberId: 'stD' },
+  ]
+  c.members.push({ id: 'stD', name: 'Student D', type: 'student', jobs: [] })
+  const table = studentSummaryTable(c, { assignments: [], students })
+  assert.equal(table.per, 4)
+  assert.deepEqual(table.header.slice(table.lead, table.lead + table.per), ['Shift 1 date', 'Day', 'Shift', 'With'])
+  const rowA = table.rows[c.members.filter((m) => m.type === 'student').findIndex((m) => m.id === 'stA')]
+  assert.match(rowA[table.lead + 2], /^Midnight · 19C/)
+  assert.equal(rowA[table.lead + 3], 'Student B, Student C → Overnight, Student D · 26A')
+  assert.equal(studentSummaryTable(c, { assignments: c.duty, students }).per, 6, 'with a hospital roster, residents and staff are shown')
+})
+
 test('nobody presents twice in a day', () => {
   // A morning report and a case discussion on the same mornings, both from last night's two students.
   const c = hospital()
