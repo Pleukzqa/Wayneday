@@ -2014,3 +2014,6 @@ body.no-scroll {
 .per-student {
   overflow-x: hidden;
 }
+.per-student .gaps {
+  margin: 0.3rem 0 0;
+}

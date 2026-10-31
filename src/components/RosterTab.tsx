@@ -1051,6 +1051,7 @@ function StudentSummary({ config, roster, myId }: { config: SessionConfig; roste
   const weekly = config.presentations.filter((r) => !isOneDay(r))
   const anyOneDay = config.presentations.some(isOneDay)
   const label = (s: (typeof details)[number]['shifts'][number]) => `${s.shift}${s.ward ? ` · ${s.ward}` : ''}`
+  const days = (n: number | null) => (n == null ? '-' : fmtPoints(Math.round(n * 10) / 10))
   // One compact block per student (a table gets too wide on a phone); tap to see every shift and who's there.
   return (
     <section className="card">
@@ -1072,6 +1073,7 @@ function StudentSummary({ config, roster, myId }: { config: SessionConfig; roste
                   </span>
                   <span className="ps-stats small">
                     {t('{n} shifts', { n: d.shifts.length })}
+                    {d.gap.avg != null && ` · ${t('every {n} days', { n: days(d.gap.avg) })}`}
                     {pointsOn && ` · ${t('{p} pts', { p: fmtPoints(d.points) })}`}
                     {config.presentations.length > 0 && ` · 🎤 ${d.presents.length}${talks.length ? ` (${talks.join(', ')})` : ''}`}
                   </span>
@@ -1085,6 +1087,15 @@ function StudentSummary({ config, roster, myId }: { config: SessionConfig; roste
                       </span>
                     ))}
                   </div>
+                )}
+                {isOpen && d.gap.avg != null && (
+                  <p className="small gaps">
+                    ⏱️ {t('Days between shifts: {avg} on average, {short} at the shortest.', { avg: days(d.gap.avg), short: d.gap.shortest ?? '-' })}{' '}
+                    {d.gap.bySlot
+                      .filter((x) => x.avg != null)
+                      .map((x) => t('{shift}: every {n} days', { shift: x.shift, n: days(x.avg) }))
+                      .join(' · ')}
+                  </p>
                 )}
                 {isOpen && (
                   <ul className="shift-list small">

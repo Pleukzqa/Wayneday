@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import { addDays, dateRange, dayDiff } from './dates.ts'
 import { shiftHours, shiftPoints, shiftTimes } from './calendar.ts'
 import { countArrangements, solve, solveMany, validate } from './solver.ts'
-import { arrangeStudents, countStudentArrangements, equalShare, shareGroups, shiftsNeeded, pickPresenters, placeKey, studentCellIssues, studentExposure, studentOptions, presentationLoad, studentRuleReport, studentSummaryTable, studentTargets } from './students.ts'
+import { arrangeStudents, countStudentArrangements, equalShare, shareGroups, shiftsNeeded, pickPresenters, placeKey, studentCellIssues, studentExposure, studentOptions, presentationLoad, studentDetails, studentRuleReport, studentSummaryTable, studentTargets } from './students.ts'
 import { buildAiPrompt, importAiResult } from './ai.ts'
 import { explainNoArrangement } from './explain.ts'
 import { ANY_SHIFT, DEFAULT_RESPONSE, DEFAULT_STUDENTS, dutyOf, presentationPoints, type MemberResponse, type SessionConfig, type StudentAssignment } from './types.ts'
@@ -408,7 +408,7 @@ test('presentations are shared out evenly, in all and by type', () => {
     assert.ok(spread(count((x) => x.ruleId.startsWith('cc'))) <= 1, `seed ${seed}: one-day ${count((x) => x.ruleId.startsWith('cc'))}`)
   }
   const table = studentSummaryTable(c, { assignments: c.duty, students: [], presenters: [] })
-  assert.deepEqual(table.header.slice(0, table.lead), ['Student', 'Shifts', 'Presentations', 'Morning report', 'One-day presentations'])
+  assert.deepEqual(table.header.slice(0, table.lead), ['Student', 'Shifts', 'Average days between shifts', 'Presentations', 'Morning report', 'One-day presentations'])
 })
 
 test('roster table: one column for all one-day presentations, each labelled', async () => {
@@ -501,6 +501,22 @@ test('first day: presenters from each ward even though nobody was on duty the ni
     assert.equal(first.length, 2)
     assert.ok(['stA', 'stB', 'stC'].includes(first[0]) && ['stD', 'stE', 'stF'].includes(first[1]), `seed ${seed}: ${first}`)
   }
+})
+
+test('per student: average days between shifts, overall and per type of shift', () => {
+  const c = hospital()
+  c.shifts = [c.shifts[0], { ...c.shifts[0], id: 'day', name: 'Day', start: '08:00', end: '16:00' }]
+  c.presentations = []
+  const at = (date: string, shiftId: string) => ({ date, shiftId, memberId: 'stA' })
+  // Nights on the 2nd, 6th and 14th; days on the 9th and 19th.
+  const students = [at('2026-11-02', 'night'), at('2026-11-06', 'night'), at('2026-11-09', 'day'), at('2026-11-14', 'night'), at('2026-11-19', 'day')]
+  const a = studentDetails(c, { assignments: [], students }).find((d) => d.member.id === 'stA')!
+  assert.equal(a.gap.avg, (4 + 3 + 5 + 5) / 4)
+  assert.equal(a.gap.shortest, 3)
+  assert.deepEqual(a.gap.bySlot.map((x) => [x.shift, x.avg]), [['Night', 6], ['Day', 10]])
+  const table = studentSummaryTable(c, { assignments: [], students })
+  assert.deepEqual(table.header.slice(2, 5), ['Average days between shifts', 'Average days between Night', 'Average days between Day'])
+  assert.deepEqual(table.rows[0].slice(2, 5), ['4.3', '6', '10'])
 })
 
 test('nobody presents twice in a day', () => {

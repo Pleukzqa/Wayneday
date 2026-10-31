@@ -1317,9 +1317,20 @@ export function studentDetails(config: SessionConfig, roster: { assignments: Ass
           staff: on.filter((w) => type(w) === 'staff').map(name),
         }
       })
+      // Days between one shift and the next: on average, the shortest, and per type of shift (slot).
+      const gaps = (xs: StudentAssignment[]) => xs.slice(1).map((x, i) => dayDiff(xs[i].date, x.date))
+      const avg = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null)
+      const all = gaps(mine)
+      const bySlot = config.shifts
+        .map((sh) => {
+          const g = gaps(mine.filter((x) => x.shiftId === sh.id))
+          return { shift: sh.name, count: mine.filter((x) => x.shiftId === sh.id).length, avg: avg(g), shortest: g.length ? Math.min(...g) : null }
+        })
+        .filter((x) => x.count > 0)
       return {
         member: m,
         shifts,
+        gap: { avg: avg(all), shortest: all.length ? Math.min(...all) : null, bySlot },
         points: mine.reduce((n, s) => n + shiftPoints(config, s.shiftId, s.date), fromTalks[m.id] ?? 0),
         presents: gives.map((p) => ({ ...p, name: config.presentations.find((r) => r.id === p.ruleId)?.name ?? '' })),
         byRule: (ruleId: string) => gives.filter((p) => p.ruleId === ruleId).length,
@@ -1341,9 +1352,12 @@ export function studentSummaryTable(config: SessionConfig, roster: { assignments
   const weekly = config.presentations.filter((r) => !isOneDay(r))
   const anyOneDay = config.presentations.some(isOneDay)
   const presents = config.presentations.length > 0 && roster.presenters !== undefined
+  const slotsUsed = config.shifts.filter((sh) => details.some((d) => d.gap.bySlot.some((x) => x.shift === sh.name)))
   const header = [
     t('Student'),
     t('Shifts'),
+    t('Average days between shifts'),
+    ...slotsUsed.map((sh) => t('Average days between {shift}', { shift: sh.name })),
     ...(pointsOn ? [presentationsCount(config) ? t('Points (shifts + presentations)') : t('Points')] : []),
     ...(presents ? [t('Presentations'), ...(weekly.length > 1 || anyOneDay ? weekly.map((r) => r.name) : []), ...(anyOneDay ? [t('One-day presentations')] : [])] : []),
   ]
@@ -1353,9 +1367,12 @@ export function studentSummaryTable(config: SessionConfig, roster: { assignments
   const per = doctors ? 6 : 4
   for (let i = 1; i <= most; i++) header.push(t('Shift {i} date', { i }), t('Day'), t('Shift'), t('With'), ...(doctors ? [t('Resident'), t('Staff')] : []))
   const rows = details.map((d) => {
+    const days = (n: number | null | undefined) => (n == null ? '-' : fmtPoints(Math.round(n * 10) / 10))
     const row = [
       d.member.name,
       String(d.shifts.length),
+      days(d.gap.avg),
+      ...slotsUsed.map((sh) => days(d.gap.bySlot.find((x) => x.shift === sh.name)?.avg)),
       ...(pointsOn ? [fmtPoints(d.points)] : []),
       ...(presents
         ? [String(d.presents.length), ...(weekly.length > 1 || anyOneDay ? weekly.map((r) => String(d.byRule(r.id))) : []), ...(anyOneDay ? [String(d.oneDay)] : [])]

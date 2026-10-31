@@ -822,4 +822,9 @@ export const TH: Record<string, string> = {
   "{n} shifts": "{n} เวร",
   "{p} pts": "{p} แต้ม",
   "Edit students & presenters": "แก้นิสิตและผู้นำเสนอ",
+  "Average days between shifts": "ระยะห่างเฉลี่ยระหว่างเวร (วัน)",
+  "Average days between {shift}": "ระยะห่างเฉลี่ยระหว่าง{shift} (วัน)",
+  "every {n} days": "ทุก {n} วัน",
+  "Days between shifts: {avg} on average, {short} at the shortest.": "ระยะห่างระหว่างเวร: เฉลี่ย {avg} วัน สั้นสุด {short} วัน",
+  "{shift}: every {n} days": "{shift}: ทุก {n} วัน",
 }
