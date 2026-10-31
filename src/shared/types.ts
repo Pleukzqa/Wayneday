@@ -398,11 +398,10 @@ export interface HostNote {
 
 /** After the roster is final, everyone rates how it went (1–5 stars) and can write a comment. */
 export const FEEDBACK_QUESTIONS = [
+  { id: 'vsUsual', text: 'How satisfied are you with arranging duty through Wayneday, compared with the usual way?' },
   { id: 'fair', text: 'How fair was your share of shifts?' },
-  { id: 'days', text: 'How well were your days off and avoid requests respected?' },
-  { id: 'pattern', text: 'How well did your shifts fit your pattern (spread out or grouped)?' },
-  { id: 'easy', text: 'How easy was Wayneday to use?' },
   { id: 'overall', text: 'Overall, how happy are you with the final roster?' },
+  { id: 'easy', text: 'How easy was Wayneday to use?' },
 ] as const
 
 export interface Feedback {

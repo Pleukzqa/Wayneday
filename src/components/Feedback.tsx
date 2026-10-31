@@ -76,7 +76,7 @@ function MyFeedback({ mine, save }: { mine?: Feedback; save: (f: { ratings: Reco
         ))}
       </ul>
       <label>
-        {t('Anything else? What went well, what should change next time')}
+        {t('Any other recommendations? What went well, what should change next time')}
         <textarea rows={3} maxLength={2000} value={text} onChange={(e) => setText(e.target.value)} />
       </label>
       <label className="check small">
@@ -138,7 +138,7 @@ function Results({ session }: { session: SessionProps['session'] }) {
           </ul>
           {all.some((f) => f.text) && (
             <>
-              <h3>{t('Comments')}</h3>
+              <h3>{t('Recommendations')}</h3>
               <ul className="comments">
                 {[...all]
                   .filter((f) => f.text)
