@@ -410,6 +410,22 @@ test('presentations are shared out evenly, in all and by type', () => {
   assert.deepEqual(table.header.slice(0, table.lead), ['Student', 'Shifts', 'Presentations', 'Morning report', 'One-day presentations'])
 })
 
+test('roster table: one column for all one-day presentations, each labelled', async () => {
+  const { columnsFor, cellNames } = await import('./columns.ts')
+  const c = hospital()
+  const base = { fromShiftId: 'night', fromCount: 1, types: ['student' as const] }
+  c.presentations = [
+    { ...base, id: 'mr', name: 'Morning report', days: [1, 2, 3, 4, 5], count: 1 },
+    { ...base, id: 'chest', name: 'CCR Chest', days: [], dates: ['2026-11-06'], count: 1 },
+    { ...base, id: 'neuro', name: 'CCR Neurology', days: [], dates: ['2026-11-10'], count: 1 },
+  ]
+  const cols = columnsFor(c).filter((x) => x.kind === 'presenters')
+  assert.deepEqual(cols.map((x) => x.title), ['Morning report', 'One-day presentations'])
+  const roster = { assignments: c.duty, students: [], presenters: [{ date: '2026-11-06', ruleId: 'chest', memberId: 'stA', postCall: true }] }
+  assert.deepEqual(cellNames(c, roster, cols[1], '2026-11-06'), ['CCR Chest: Student A ●'])
+  assert.equal(cellNames(c, roster, cols[1], '2026-11-07'), null, 'no one-day presentation that day')
+})
+
 test('nobody presents twice in a day', () => {
   // A morning report and a case discussion on the same mornings, both from last night's two students.
   const c = hospital()

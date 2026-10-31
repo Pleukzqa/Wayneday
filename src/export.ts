@@ -1,84 +1,13 @@
 // Roster exports: CSV, Excel, PNG, Google Sheets (Drive) and calendars (Google Calendar, .ics, Google CSV).
-import { t } from './shared/i18n.ts'
 import { googleToken } from './google.ts'
-import { endDays, presentationOn, reqCount, shiftRuns, shiftTimes } from './shared/calendar.ts'
+import { endDays } from './shared/calendar.ts'
 import { addDays, dateRange, shortDate, weekday } from './shared/dates.ts'
 import { buildProblem, statsFor } from './shared/solver.ts'
 import { studentExposure, studentSummaryTable } from './shared/students.ts'
-import { DUTY_ROLES, type Assignment, type DutyRole, type MemberResponse, type Roster, type SessionConfig } from './shared/types.ts'
+import type { Assignment, MemberResponse, Roster, SessionConfig } from './shared/types.ts'
 
-export type Column =
-  | { kind: 'position'; key: string; shiftId: string; requirementId: string; title: string }
-  | { kind: 'students'; key: string; shiftId: string; title: string }
-  | { kind: 'duty'; key: string; shiftId: string; role: DutyRole; title: string }
-  | { kind: 'place'; key: string; shiftId: string; requirementId: string; title: string }
-  | { kind: 'presenters'; key: string; ruleId: string; title: string }
-
-export function columnsFor(config: SessionConfig): Column[] {
-  const job = (id: string) => config.jobs.find((j) => j.id === id)?.name ?? ''
-  const presenters = config.presentations.map((r): Column => ({ kind: 'presenters', key: `pr-${r.id}`, ruleId: r.id, title: r.name }))
-  if (config.rosterMode === 'hospital') {
-    // The hospital's people per shift, then each student place.
-    return [
-      ...config.shifts.flatMap((s): Column[] => [
-        ...(config.noDuty ? [] : DUTY_ROLES).map((role): Column => ({ kind: 'duty', key: `d-${s.id}-${role}`, shiftId: s.id, role, title: `${s.name} · ${t(role === 'resident' ? 'residents' : 'staff')}` })),
-        ...s.requirements.map(
-          (r): Column => ({ kind: 'place', key: r.id, shiftId: s.id, requirementId: r.id, title: r.jobId ? `${s.name} · ${t(r.count > 1 ? '{job} students' : '{job} student', { job: job(r.jobId) })}` : `${s.name} · ${t('students')}` }),
-        ),
-      ]),
-      ...presenters,
-    ]
-  }
-  const hasStudents = config.members.some((m) => m.type === 'student')
-  return [
-    ...config.shifts.flatMap((s): Column[] => [
-      ...s.requirements.map(
-        (r): Column => ({
-          kind: 'position',
-          key: r.id,
-          shiftId: s.id,
-          requirementId: r.id,
-          title:
-            s.requirements.length === 1 && config.jobs.length <= 1
-              ? `${s.name} (${shiftTimes(s)})`
-              : `${s.name}${r.jobId ? ` · ${job(r.jobId)}` : ''}${r.memberType === 'any' ? '' : ` (${r.memberType})`}`,
-        }),
-      ),
-      ...(hasStudents && config.students.shiftIds.includes(s.id)
-        ? [{ kind: 'students' as const, key: `st-${s.id}`, shiftId: s.id, title: `${s.name} · ${t('students')}` }]
-        : []),
-    ]),
-    ...presenters,
-  ]
-}
-
-/** Member ids in one cell of the roster table, or null when that column doesn't apply that day. */
-export function cellIds(config: SessionConfig, roster: Roster, c: Column, date: string): string[] | null {
-  if (c.kind === 'presenters') {
-    const rule = config.presentations.find((r) => r.id === c.ruleId)
-    if (!rule || !presentationOn(config, rule, date)) return null
-    return roster.presenters.filter((p) => p.date === date && p.ruleId === c.ruleId).map((p) => p.memberId)
-  }
-  const shift = config.shifts.find((s) => s.id === c.shiftId)
-  if (!shift || !shiftRuns(config, shift, date)) return null
-  if (c.kind === 'duty') return roster.assignments.filter((a) => a.date === date && a.shiftId === c.shiftId && a.requirementId === c.role).map((a) => a.memberId)
-  if (c.kind === 'students') return roster.students.filter((s) => s.date === date && s.shiftId === c.shiftId).map((s) => s.memberId)
-  const req = shift.requirements.find((r) => r.id === c.requirementId)
-  if (!req || reqCount(config, shift, req, date) === 0) return null
-  if (c.kind === 'place') return roster.students.filter((s) => s.date === date && s.shiftId === c.shiftId && s.requirementId === c.requirementId).map((s) => s.memberId)
-  return roster.assignments.filter((a) => a.date === date && a.shiftId === c.shiftId && a.requirementId === c.requirementId).map((a) => a.memberId)
-}
-
-/** Names in one cell of the roster table, or null when that column doesn't apply that day. */
-export function cellNames(config: SessionConfig, roster: Roster, c: Column, date: string): string[] | null {
-  const ids = cellIds(config, roster, c, date)
-  if (!ids) return null
-  const name = (id: string) => config.members.find((m) => m.id === id)?.name ?? '?'
-  if (c.kind === 'presenters') {
-    return ids.map((id) => name(id) + (roster.presenters.find((p) => p.date === date && p.ruleId === c.ruleId && p.memberId === id)?.postCall ? ' ●' : ''))
-  }
-  return ids.map(name)
-}
+export { cellIds, cellNames, columnsFor, presenterParts, type Column } from './shared/columns.ts'
+import { cellNames, columnsFor } from './shared/columns.ts'
 
 /** Date rows × columns, names joined in each cell. */
 export function rosterTable(config: SessionConfig, roster: Roster) {

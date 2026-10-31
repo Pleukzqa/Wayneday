@@ -1,6 +1,6 @@
 import type { Ref } from 'react'
 import { t } from '../shared/i18n.ts'
-import { cellIds, cellNames, columnsFor } from '../export.ts'
+import { cellIds, cellNames, columnsFor, presenterParts } from '../shared/columns.ts'
 import { reqCount } from '../shared/calendar.ts'
 import { dateRange, shortDate, weekday } from '../shared/dates.ts'
 import { placeKey } from '../shared/students.ts'
@@ -150,6 +150,27 @@ export default function RosterTable({ config, roster, myId, avoidOf, onEdit, onE
                       </td>
                     );
                   }
+                  if (c.kind === 'presenters') {
+                    // Each presentation that day; in the combined one-day column, labelled with its name.
+                    return (
+                      <td key={c.key} className="extra-col">
+                        {presenterParts(config, roster, c, date)!.map(({ rule, ids: who }) => (
+                          <div key={rule.id} className="present-part">
+                            {c.ruleIds.length > 1 && <span className="present-label">{rule.name}</span>}
+                            {who.length === 0 && <span className="muted tiny">—</span>}
+                            {who.map((id) => (
+                              <span key={id} className={`who-chip small-chip ${id === myId ? 'mine' : ''}`}>
+                                {nameOf(id)}
+                                {roster.presenters.find((p) => p.date === date && p.ruleId === rule.id && p.memberId === id)?.postCall && (
+                                  <span title={t("Was on last night’s shift")}> ●</span>
+                                )}
+                              </span>
+                            ))}
+                          </div>
+                        ))}
+                      </td>
+                    )
+                  }
                   if (c.kind !== 'position') {
                     return (
                       <td
@@ -167,10 +188,6 @@ export default function RosterTable({ config, roster, myId, avoidOf, onEdit, onE
                           >
                             {nameOf(id)}
                             {studentCol && avoidMark(id, date)}
-                            {c.kind === 'presenters' &&
-                              roster.presenters.find((p) => p.date === date && p.ruleId === c.ruleId && p.memberId === id)?.postCall && (
-                                <span title={t("Was on last night’s shift")}> ●</span>
-                              )}
                           </span>
                         ))}
                       </td>

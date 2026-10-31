@@ -1816,3 +1816,12 @@ button.big {
 .unmet-list li {
   margin-bottom: 0.2rem;
 }
+.present-part + .present-part {
+  margin-top: 0.25rem;
+}
+.present-label {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--muted);
+}
