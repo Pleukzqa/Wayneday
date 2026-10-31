@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { actOnSwap, createJoin, decideJoin, requestSwap, saveResponse } from './ops.ts'
+import { actOnSwap, addNote, createJoin, decideJoin, readNote, removeNote, requestSwap, saveResponse, visibleNotes } from './ops.ts'
 import { DEFAULT_RESPONSE, DEFAULT_STUDENTS, type PublicSession } from './types.ts'
 
 function session(): PublicSession {
@@ -43,6 +43,7 @@ function session(): PublicSession {
     swaps: [],
     joinRequests: [],
     changes: [],
+    notes: [],
   }
 }
 
@@ -109,4 +110,51 @@ test('students can swap their places too', () => {
       ['2026-11-03', 'stu1'],
     ],
   )
+})
+
+test('host notes: only hosts write them, only that member (and hosts) see them, only they mark them read', () => {
+  const s = session()
+  const by = { by: 'Dr. Host', role: 'owner' as const }
+  assert.throws(() => addNote(s, as('ann'), 'ben', 'hi', by), /Only hosts/)
+  assert.throws(() => addNote(s, host, 'nobody', 'hi', by), /No such member/)
+  assert.throws(() => addNote(s, host, 'ann', '   ', by), /Write something/)
+  addNote(s, host, 'ann', 'Please add your exam dates', by)
+  addNote(s, host, 'ben', 'Thanks!', by)
+  assert.deepEqual(visibleNotes(s, as('ann')).map((n) => n.text), ['Please add your exam dates'])
+  assert.deepEqual(visibleNotes(s, { isHost: false, memberId: null }), [])
+  assert.equal(visibleNotes(s, host).length, 2)
+  const id = s.notes[0].id
+  assert.throws(() => readNote(s, as('ben'), id), /someone else/)
+  readNote(s, as('ann'), id)
+  assert.ok(s.notes[0].readAt)
+  assert.throws(() => removeNote(s, as('ann'), id), /Only hosts/)
+  removeNote(s, host, id)
+  assert.equal(s.notes.length, 1)
+})
+
+test('a host changing someone’s answers with a reason sends them one message, kept up to date', () => {
+  const s = session()
+  const edit = { reason: 'Too many asked for the 14th off', by: 'Dr. Host', role: 'owner' as const }
+  saveResponse(s, as('ann'), 'ann', { ...DEFAULT_RESPONSE, unavailable: ['2026-11-14'] })
+  saveResponse(s, host, 'ann', { ...DEFAULT_RESPONSE, unavailable: [] }, edit)
+  assert.equal(s.changes.at(-1)!.reason, edit.reason)
+  assert.equal(s.notes.length, 1)
+  const note = s.notes[0]
+  assert.equal(note.memberId, 'ann')
+  assert.equal(note.text, edit.reason)
+  assert.equal(note.change?.id, s.changes.at(-1)!.id)
+  assert.match(note.change!.summary, /cleared 1 unavailable/)
+  readNote(s, as('ann'), note.id)
+  // More edits a moment later: the same message, updated and shown again.
+  saveResponse(s, host, 'ann', { ...DEFAULT_RESPONSE, unavailable: [], minInterval: 3 }, { ...edit, reason: 'Also needed a shorter gap' })
+  assert.equal(s.notes.length, 1)
+  assert.equal(s.notes[0].text, 'Also needed a shorter gap')
+  assert.equal(s.notes[0].readAt, undefined)
+  assert.match(s.notes[0].change!.summary, /interval 2→3/)
+  // Someone who never answered: compared with the defaults.
+  saveResponse(s, host, 'cat', { ...DEFAULT_RESPONSE, minInterval: 4 }, edit)
+  assert.match(s.notes.at(-1)!.change!.summary, /interval 2→4/)
+  // Without a reason (e.g. undoing), no message.
+  saveResponse(s, host, 'ben', { ...DEFAULT_RESPONSE, minInterval: 4 })
+  assert.equal(s.notes.length, 2)
 })

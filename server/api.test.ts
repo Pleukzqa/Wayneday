@@ -226,6 +226,28 @@ for (const [kind, makeStore] of stores) {
       assert.equal(v.session.config.noDuty, undefined)
     })
 
+    test('host notes reach only their member; a reasoned edit becomes one', async () => {
+      const alice = await signIn('alice@example.com')
+      const { code } = (await call('POST', '/sessions', { body: {}, account: alice })).body
+      const members = [{ id: 'm', name: 'M', type: 'student' }, { id: 'n', name: 'N', type: 'student' }]
+      await call('PUT', `/sessions/${code}/config`, { body: { members }, account: alice })
+      const claim = async (id: string) => (await call('POST', `/sessions/${code}/claim`, { body: { memberId: id, pin: '1234' } })).body.memberToken as string
+      const [m, n] = [await claim('m'), await claim('n')]
+      assert.equal((await call('POST', `/sessions/${code}/notes`, { body: { memberId: 'm', text: 'x' }, bearer: n })).status, 403)
+      await call('POST', `/sessions/${code}/notes`, { body: { memberId: 'm', text: 'Please add your exam dates' }, account: alice })
+      await call('PUT', `/sessions/${code}/responses/n`, { body: { minInterval: 4, hostReason: 'Needed for the roster' }, account: alice })
+      const asM = (await call('GET', `/sessions/${code}`, { bearer: m })).body.session.notes
+      const asN = (await call('GET', `/sessions/${code}`, { bearer: n })).body.session.notes
+      const anon = (await call('GET', `/sessions/${code}`)).body.session.notes
+      assert.deepEqual(asM.map((x: { text: string; by: string }) => [x.text, x.by]), [['Please add your exam dates', 'alice']])
+      assert.deepEqual(asN.map((x: { text: string; change?: object }) => [x.text, Boolean(x.change)]), [['Needed for the roster', true]])
+      assert.deepEqual(anon, [])
+      assert.equal((await call('GET', `/sessions/${code}`, { account: alice })).body.session.notes.length, 2)
+      assert.equal((await call('POST', `/sessions/${code}/notes/${asM[0].id}/read`, { bearer: n })).status, 403)
+      const read = (await call('POST', `/sessions/${code}/notes/${asM[0].id}/read`, { bearer: m })).body
+      assert.ok(read.session.notes[0].readAt)
+    })
+
     test('PIN guessing is slowed down per name', async () => {
       const alice = await signIn('alice@example.com')
       const { code } = (await call('POST', '/sessions', { body: {}, account: alice })).body

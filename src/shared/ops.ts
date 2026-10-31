@@ -1,5 +1,5 @@
 // Session changes shared by the API server and the in-browser demo, so both enforce the same rules.
-import { STUDENT_SLOT, type AnswerChange, type JoinRequest, type MemberResponse, type MemberType, type PublicSession, type Roster, type SwapRequest } from './types.ts'
+import { DEFAULT_RESPONSE, STUDENT_SLOT, type AnswerChange, type HostNote, type JoinRequest, type MemberResponse, type MemberType, type PublicSession, type Roster, type SwapRequest } from './types.ts'
 
 export interface Actor {
   isHost: boolean
@@ -20,13 +20,8 @@ const newId = () => Math.random().toString(36).slice(2, 10)
 
 function summarize(before: MemberResponse | null, after: MemberResponse): string {
   const parts: string[] = []
-  const b: Pick<MemberResponse, 'unavailable' | 'locks' | 'minInterval' | 'preference' | 'note'> = before ?? {
-    unavailable: [],
-    locks: [],
-    minInterval: after.minInterval,
-    preference: after.preference,
-    note: '',
-  }
+  // No answers yet = the defaults everyone starts with.
+  const b: Pick<MemberResponse, 'unavailable' | 'locks' | 'minInterval' | 'preference' | 'note'> = before ?? DEFAULT_RESPONSE
   const added = after.unavailable.filter((d) => !b.unavailable.includes(d))
   const removed = b.unavailable.filter((d) => !after.unavailable.includes(d))
   if (added.length) parts.push(`marked ${added.length} day(s) unavailable`)
@@ -43,7 +38,10 @@ function summarize(before: MemberResponse | null, after: MemberResponse): string
   return parts.join(', ') || 'no visible change'
 }
 
-export function saveResponse(s: PublicSession, actor: Actor, memberId: string, r: MemberResponse) {
+/** A host changing someone else's answers says why, and who they are (for the note the member gets). */
+export type HostEdit = { reason: string } & Pick<HostNote, 'by' | 'role'>
+
+export function saveResponse(s: PublicSession, actor: Actor, memberId: string, r: MemberResponse, hostEdit?: HostEdit) {
   if (!actor.isHost && actor.memberId !== memberId) throw new OpError(403, 'You can only edit your own answers')
   if (!s.config.members.some((m) => m.id === memberId)) throw new OpError(404, 'No such member')
   if (s.schedule?.status === 'final' && !actor.isHost) throw new OpError(409, 'The roster is final')
@@ -52,17 +50,55 @@ export function saveResponse(s: PublicSession, actor: Actor, memberId: string, r
   const next: MemberResponse = { ...r, updatedAt: Date.now(), editedByHost: byHostForOther ? Date.now() : before?.editedByHost }
   if (byHostForOther) {
     // Host edits to the same person within 2 minutes merge into one entry, keeping the original "before".
-    const last = s.changes[s.changes.length - 1]
-    if (last && last.memberId === memberId && Date.now() - last.at < 120_000) {
-      last.at = Date.now()
-      last.summary = summarize(last.before, next)
+    const reason = hostEdit?.reason.trim().slice(0, 500) || undefined
+    let change: AnswerChange | undefined = s.changes[s.changes.length - 1]
+    if (change && change.memberId === memberId && Date.now() - change.at < 120_000) {
+      change.at = Date.now()
+      change.summary = summarize(change.before, next)
+      if (reason) change.reason = reason
     } else {
-      const change: AnswerChange = { id: newId(), memberId, at: Date.now(), before, summary: summarize(before, next) }
+      change = { id: newId(), memberId, at: Date.now(), before, summary: summarize(before, next), ...(reason ? { reason } : {}) }
       s.changes = [...s.changes.slice(-199), change]
+    }
+    // With a reason, the member gets a note on every page (one per change, kept up to date as the host goes on editing).
+    if (change.reason && hostEdit) {
+      const note = (s.notes ?? []).find((n) => n.change?.id === change.id)
+      const text = change.reason
+      if (note) Object.assign(note, { text, at: Date.now(), readAt: undefined, change: { id: change.id, summary: change.summary } })
+      else addNote(s, actor, memberId, text, { by: hostEdit.by, role: hostEdit.role })
+      const added = note ?? s.notes[s.notes.length - 1]
+      added.change = { id: change.id, summary: change.summary }
     }
   }
   s.responses[memberId] = next
 }
+
+// ---------- host notes ----------
+
+/** A host's message to one member. Only that member and the hosts ever see it (see visibleNotes). */
+export function addNote(s: PublicSession, actor: Actor, memberId: string, text: string, by: Pick<HostNote, 'by' | 'role'>) {
+  if (!actor.isHost) throw new OpError(403, 'Only hosts can leave notes')
+  if (!s.config.members.some((m) => m.id === memberId)) throw new OpError(404, 'No such member')
+  const clean = text.trim().slice(0, 1000)
+  if (!clean) throw new OpError(400, 'Write something first')
+  s.notes = [...(s.notes ?? []).slice(-499), { id: newId(), memberId, text: clean, ...by, at: Date.now() }]
+}
+
+export function removeNote(s: PublicSession, actor: Actor, id: string) {
+  if (!actor.isHost) throw new OpError(403, 'Only hosts can delete notes')
+  s.notes = (s.notes ?? []).filter((n) => n.id !== id)
+}
+
+/** The member says they've seen it. */
+export function readNote(s: PublicSession, actor: Actor, id: string) {
+  const note = (s.notes ?? []).find((n) => n.id === id)
+  if (!note) throw new OpError(404, 'No such note')
+  if (actor.memberId !== note.memberId) throw new OpError(403, 'This note is for someone else')
+  note.readAt ??= Date.now()
+}
+
+/** The notes a viewer may see: all for hosts, their own for a member, none for anyone else. */
+export const visibleNotes = (s: PublicSession, actor: Actor) => (s.notes ?? []).filter((n) => actor.isHost || n.memberId === actor.memberId)
 
 // ---------- swaps ----------
 

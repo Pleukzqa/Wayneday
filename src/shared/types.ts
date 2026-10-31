@@ -342,6 +342,23 @@ export interface AnswerChange {
   at: number
   before: MemberResponse | null
   summary: string
+  /** Why the host changed them (e.g. it can't be fitted into the roster); the member sees it. */
+  reason?: string
+}
+
+/** A host's private message to one member, shown on that member's page until they read it. */
+export interface HostNote {
+  id: string
+  memberId: string
+  text: string
+  /** The host's name as everyone sees it ('' if unknown), and whether they're the host or a co-host. */
+  by: string
+  role: 'owner' | 'cohost'
+  at: number
+  /** When the member pressed "Got it". */
+  readAt?: number
+  /** Set when the note explains a host change to the member's answers: that change's id and what changed. */
+  change?: { id: string; summary: string }
 }
 
 /** What the API returns to every participant (no secrets). */
@@ -358,6 +375,8 @@ export interface PublicSession {
   swaps: SwapRequest[]
   joinRequests: JoinRequest[]
   changes: AnswerChange[]
+  /** Host notes this viewer may see: all of them for hosts, their own for a member. */
+  notes: HostNote[]
 }
 
 export const DEFAULT_RESPONSE: MemberResponse = {
@@ -388,5 +407,6 @@ export function normalizeSession(s: PublicSession): PublicSession {
     swaps: s.swaps ?? [],
     joinRequests: s.joinRequests ?? [],
     changes: s.changes ?? [],
+    notes: s.notes ?? [],
   }
 }

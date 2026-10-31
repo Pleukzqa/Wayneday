@@ -3,7 +3,7 @@
 import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto'
 import express, { type Request, type Response, type NextFunction } from 'express'
 import { isDate } from '../src/shared/dates.ts'
-import { actOnSwap, createJoin, decideJoin, OpError, requestSwap, saveResponse, type SwapAction } from '../src/shared/ops.ts'
+import { actOnSwap, addNote, createJoin, decideJoin, OpError, readNote, removeNote, requestSwap, saveResponse, visibleNotes, type SwapAction } from '../src/shared/ops.ts'
 import {
   ANY_SHIFT,
   DEFAULT_STUDENTS,
@@ -411,13 +411,19 @@ export function createApi(opts: ApiOptions) {
     return { isHost: hostRole !== null, hostRole, memberId, pendingJoinId, byToken, account: acct }
   }
   type Who = ReturnType<typeof who>
+  /** How a host signs a note: their name as everyone sees it (never an email) and their role. */
+  function signature(s: StoredSession, me: Who) {
+    const name = me.account ? (s.hosts.find((h) => h.email === me.account!.email)?.name ?? me.account.name) : ''
+    return { by: name.includes('@') ? '' : name, role: me.hostRole ?? ('owner' as const) }
+  }
   type View = ReturnType<typeof view>
 
   function view(req: Request, s: StoredSession) {
     const { byToken: _b, account: _a, ...me } = who(req, s)
     // Host emails are only shown to hosts; everyone sees hosts' names, so members know who runs it.
     const organizers = s.hosts.map((h) => ({ name: h.name.includes('@') ? '' : h.name, role: h.role }))
-    return { session: toPublic(s), me, organizers, ...(me.isHost ? { hosts: s.hosts } : {}) }
+    // Notes are private: each member only gets their own.
+    return { session: { ...toPublic(s), notes: visibleNotes(s, me) }, me, organizers, ...(me.isHost ? { hosts: s.hosts } : {}) }
   }
 
   const router = express.Router()
@@ -516,6 +522,7 @@ export function createApi(opts: ApiOptions) {
           responses: {},
           schedule: null,
           concerns: [],
+          notes: [],
         }
         // Saving version 1 only succeeds if the code is unused.
         if (await write(s)) return { code: s.code, hostToken: s.hostToken }
@@ -629,8 +636,9 @@ export function createApi(opts: ApiOptions) {
     '/sessions/:code/responses/:memberId',
     handle((req) => {
       const response = cleanResponse(req.body)
+      const reason = str((req.body as { hostReason?: unknown })?.hostReason, 500).trim()
       return mutate(req, code(req), (s, me) => {
-        saveResponse(s, me, String(req.params.memberId), response)
+        saveResponse(s, me, String(req.params.memberId), response, reason && me.isHost ? { reason, ...signature(s, me) } : undefined)
       })
     }),
   )
@@ -644,6 +652,26 @@ export function createApi(opts: ApiOptions) {
         s.schedule = schedule
       })
     }),
+  )
+
+  router.post(
+    '/sessions/:code/notes',
+    handle((req) => {
+      const b = (req.body ?? {}) as Record<string, unknown>
+      return mutate(req, code(req), (s, me) => {
+        addNote(s, me, str(b.memberId, 40), str(b.text, 1000), signature(s, me))
+      })
+    }),
+  )
+
+  router.delete(
+    '/sessions/:code/notes/:id',
+    handle((req) => mutate(req, code(req), (s, me) => removeNote(s, me, String(req.params.id)))),
+  )
+
+  router.post(
+    '/sessions/:code/notes/:id/read',
+    handle((req) => mutate(req, code(req), (s, me) => readNote(s, me, String(req.params.id)))),
   )
 
   router.post(

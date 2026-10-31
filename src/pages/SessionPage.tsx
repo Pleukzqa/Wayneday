@@ -4,6 +4,7 @@ import { invitedMemberFromHash, IS_DEMO, sessionHash } from '../routes.ts'
 import { shortDate } from '../shared/dates.ts'
 import { t } from '../shared/i18n.ts'
 import type { Organizer } from '../apiTypes.ts'
+import type { HostNote } from '../shared/types.ts'
 import type { MemberType } from '../shared/types.ts'
 import { useSession } from '../useSession.ts'
 import SetupTab from '../components/SetupTab.tsx'
@@ -68,6 +69,7 @@ export default function SessionPage({ code }: { code: string }) {
         ))}
       {error && <p className="error small">{t("Connection problem:")} {error}</p>}
       <Announcements session={session} me={me} go={setTab} />
+      {me.memberId && <MemberNotes notes={session.notes.filter((n) => n.memberId === me.memberId)} read={(id) => void mutate(() => api.readNote(code, id))} />}
       <nav className="tabs" role="tablist">
         {(
           [
@@ -140,6 +142,46 @@ function statusText(s: SessionProps['session']) {
   if (!s.schedule) return `📝 ${t('collecting answers')}`
   if (s.schedule.status === 'final') return `✅ ${t('roster final')}`
   return Date.now() < s.schedule.reviewUntil ? `👀 ${t('roster in review')}` : `⏰ ${t('review period ended')}`
+}
+
+/** Notes the hosts left for me: unread ones stand out until I press "Got it"; earlier ones fold away. */
+function MemberNotes({ notes, read }: { notes: HostNote[]; read: (id: string) => void }) {
+  const unread = notes.filter((n) => !n.readAt)
+  const seen = notes.filter((n) => n.readAt)
+  if (!notes.length) return null
+  const from = (n: HostNote) => `${n.role === 'owner' ? t('Host') : t('Co-host')}${n.by ? ` ${n.by}` : ''}`
+  return (
+    <div className="member-notes stack-tight">
+      {unread.map((n) => (
+        <div key={n.id} className="member-note" role="status">
+          <div>
+            <strong>{n.change ? `✏️ ${t('{who} changed your answers', { who: from(n) })}` : `💬 ${t('Message from {who}', { who: from(n) })}`}</strong>{' '}
+            <span className="muted small">· {new Date(n.at).toLocaleString()}</span>
+            {n.change && <p className="small">{n.change.summary}.</p>}
+            <p className="note-text">
+              {n.change && <b>{t('Why:')} </b>}
+              {n.text}
+            </p>
+          </div>
+          <button type="button" className="primary" onClick={() => read(n.id)}>
+            {t('Got it')}
+          </button>
+        </div>
+      ))}
+      {seen.length > 0 && (
+        <details className="small">
+          <summary className="muted">{t('Earlier messages from the hosts ({n})', { n: seen.length })}</summary>
+          <ul>
+            {[...seen].reverse().map((n) => (
+              <li key={n.id}>
+                <span className="muted">{new Date(n.at).toLocaleString()} · {from(n)}:</span> {n.change ? `${n.change.summary} — ${n.text}` : n.text}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </div>
+  )
 }
 
 /** Who runs this roster, for everyone: the host (owner) and co-hosts, by name. */

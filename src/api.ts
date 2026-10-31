@@ -69,11 +69,15 @@ export const api = {
   claim: (code: string, memberId: string, pin: string) =>
     call<{ memberToken: string }>(code, 'POST', `/sessions/${code}/claim`, { memberId, pin }),
   resetClaim: (code: string, memberId: string) => call<SessionView>(code, 'DELETE', `/sessions/${code}/claim/${memberId}`),
-  saveResponse: (code: string, memberId: string, r: MemberResponse) =>
-    call<SessionView>(code, 'PUT', `/sessions/${code}/responses/${memberId}`, r),
+  /** `hostReason`: why a host changed someone else's answers; they're sent it as a note. */
+  saveResponse: (code: string, memberId: string, r: MemberResponse, hostReason?: string) =>
+    call<SessionView>(code, 'PUT', `/sessions/${code}/responses/${memberId}`, hostReason ? { ...r, hostReason } : r),
   saveSchedule: (code: string, s: Schedule | null) => call<SessionView>(code, 'PUT', `/sessions/${code}/schedule`, s),
   addConcern: (code: string, text: string, date?: string, shiftId?: string) =>
     call<SessionView>(code, 'POST', `/sessions/${code}/concerns`, { text, date, shiftId }),
+  addNote: (code: string, memberId: string, text: string) => call<SessionView>(code, 'POST', `/sessions/${code}/notes`, { memberId, text }),
+  removeNote: (code: string, id: string) => call<SessionView>(code, 'DELETE', `/sessions/${code}/notes/${id}`),
+  readNote: (code: string, id: string) => call<SessionView>(code, 'POST', `/sessions/${code}/notes/${id}/read`),
   resolveConcern: (code: string, id: string, resolved: boolean) =>
     call<SessionView>(code, 'PATCH', `/sessions/${code}/concerns/${id}`, { resolved }),
   requestSwap: (code: string, body: { date: string; shiftId: string; requirementId: string; note: string }) =>

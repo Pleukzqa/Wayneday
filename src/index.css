@@ -1686,3 +1686,38 @@ button.big {
   gap: 0.2rem 1rem;
   margin: 0.2rem 0 0;
 }
+.member-note {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem 1rem;
+  border: 1px solid var(--accent);
+  background: var(--accent-soft);
+  border-radius: var(--radius);
+  padding: 0.6rem 0.8rem;
+}
+.member-note p {
+  margin: 0.2rem 0 0;
+}
+.note-text {
+  white-space: pre-wrap;
+}
+.host-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.2rem;
+}
+.notes-row td {
+  background: var(--surface-2);
+}
+.host-reason {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.9rem;
+}
+.host-reason input.needs {
+  border-color: var(--warn);
+}

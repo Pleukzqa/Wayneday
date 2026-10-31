@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import { Fragment, useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { api } from '../api.ts'
 import { shiftRuns, shiftsForType, shiftsOn } from '../shared/calendar.ts'
 import { t, typeName } from '../shared/i18n.ts'
 import { dateRange, shortDate, weekday } from '../shared/dates.ts'
 import { responseFor } from '../shared/solver.ts'
-import { DEFAULT_RESPONSE, type AnswerChange, type AvoidLevel, type MemberResponse } from '../shared/types.ts'
+import { DEFAULT_RESPONSE, type AnswerChange, type AvoidLevel, type HostNote, type MemberResponse } from '../shared/types.ts'
 import type { SessionProps } from './props.ts'
 
 // 'mark' = can't work / would rather not, at the chosen level (0 = can't at all).
@@ -26,6 +26,14 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'error'>('idle')
   const [tool, setTool] = useState<Tool>('mark')
   const [editOthers, setEditOthers] = useState(false)
+  // Host editing someone else's answers says why; they're sent it as a note.
+  const [reason, setReason] = useState('')
+  const reasonRef = useRef('')
+  useEffect(() => {
+    reasonRef.current = editOthers ? reason.trim() : ''
+  })
+  // Host: whose notes are open in Everyone's answers.
+  const [notesFor, setNotesFor] = useState<string | null>(null)
   const [markLvl, setMarkLvl] = useState<MarkLevel>(0)
   const [notice, setNotice] = useState<string | null>(null)
   const myType = config.members.find((m) => m.id === me.memberId)?.type
@@ -68,7 +76,8 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
         if (!r) return
         setSaveState('saving')
         try {
-          await mutate(() => api.saveResponse(code, memberId, r))
+          const why = me.isHost && memberId !== me.memberId ? reasonRef.current : ''
+          await mutate(() => api.saveResponse(code, memberId, r, why || undefined))
           setPending((p) => {
             if (p[memberId] !== r) return p // edited again meanwhile
             const { [memberId]: _done, ...rest } = p
@@ -80,7 +89,7 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
         }
       }, 700)
     },
-    [code, mutate, session.responses],
+    [code, mutate, session.responses, me.isHost, me.memberId],
   )
 
   // ---- painting ----
@@ -94,8 +103,13 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
     return avoid ? { kind: 'avoid' as const, level: avoid.level } : { kind: 'free' as const }
   }
 
+  /** A host changing someone else's answers must give a reason first. */
+  const needsReason = (memberId: string) => me.isHost && memberId !== me.memberId && !reason.trim()
+  const reasonFirst = () => setNotice(t('Write why you’re changing their answers first — they’ll see it.'))
+
   function apply(memberId: string, date: string, mode: Tool) {
     if (!canEdit(memberId)) return
+    if (needsReason(memberId)) return reasonFirst()
     const shift = config.shifts.find((s) => s.id === lockShift)
     if (mode === 'lock') {
       const member = config.members.find((m) => m.id === memberId)!
@@ -193,6 +207,13 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
     if (!step) return
     for (const [memberId, before] of step) update(memberId, () => before)
   }
+  const hostEditing = (memberId: string) => me.isHost && editOthers && memberId !== me.memberId
+  /** Host changing someone else's pattern or interval in Everyone's answers. */
+  const editAnswer = (memberId: string, fn: (r: MemberResponse) => MemberResponse) => {
+    if (needsReason(memberId)) return reasonFirst()
+    remember(memberId)
+    update(memberId, fn)
+  }
   const setPref = (fn: (r: MemberResponse) => MemberResponse) => {
     remember(me.memberId!)
     update(me.memberId!, fn)
@@ -216,7 +237,7 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
     }
   }
   const hostChange = me.memberId
-    ? [...session.changes].reverse().find((c) => c.memberId === me.memberId && c.at > ack && !me.isHost)
+    ? [...session.changes].reverse().find((c) => c.memberId === me.memberId && c.at > ack && !me.isHost && !c.reason)
     : undefined
   const nameOf = (id: string) => config.members.find((m) => m.id === id)?.name ?? '?'
 
@@ -318,7 +339,22 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
         </ul>
         {me.isHost && (
           <label className="check host-toggle">
-            <input type="checkbox" checked={editOthers} onChange={(e) => setEditOthers(e.target.checked)} /> {t("Let me edit other people’s columns")} <span className="muted small">{t("(they’ll be told, and can restore their answers)")}</span>
+            <input type="checkbox" checked={editOthers} onChange={(e) => setEditOthers(e.target.checked)} /> {t("Let me edit other people’s columns")} <span className="muted small">{t('(they’ll get a message with your reason)')}</span>
+          </label>
+        )}
+        {me.isHost && editOthers && (
+          <label className="host-reason">
+            {t('Why are you changing their answers? (they’ll see this)')}
+            <input
+              value={reason}
+              maxLength={500}
+              onChange={(e) => {
+                setReason(e.target.value)
+                setNotice(null)
+              }}
+              placeholder={t('e.g. Too many people asked for the 14th off — I had to give you that night')}
+              className={reason.trim() ? '' : 'needs'}
+            />
           </label>
         )}
         <div className="row wrap toolbar">
@@ -451,6 +487,7 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
             ))}
           </span>
         </div>
+        {me.isHost && editOthers && !reason.trim() && <p className="small warn-text">{t('To change someone’s pattern or interval here, write your reason above the calendar first.')}</p>}
         <div className="scroll-x">
           <table className="mini">
             <thead>
@@ -463,22 +500,52 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
                 <th>{t("Locked")}</th>
                 <th>{t("Note")}</th>
                 <th>{t("Updated")}</th>
+                {me.isHost && <th>{t('Notes')}</th>}
               </tr>
             </thead>
             <tbody>
               {answering.map((m) => {
                 const answered = Boolean(session.responses[m.id])
                 const r = respOf(m.id)
+                const notes = session.notes.filter((n) => n.memberId === m.id)
                 return (
-                  <tr key={m.id} className={m.id === me.memberId ? 'me' : ''}>
+                  <Fragment key={m.id}>
+                  <tr className={m.id === me.memberId ? 'me' : ''}>
                     <td className="nowrap">
                       {statusIcon(m.id)}
                       {m.name} <span className="muted tiny">{typeName(m.type)}</span>
                     </td>
-                    {answered || pending[m.id] ? (
+                    {answered || pending[m.id] || hostEditing(m.id) ? (
                       <>
-                        <td>{r.preference === 'distributed' ? t("Spread out") : t("Grouped")}</td>
-                        <td>{t("{n} d", { n: r.minInterval })}</td>
+                        {hostEditing(m.id) ? (
+                          <>
+                            <td>
+                              <select
+                                aria-label={t('Shift pattern')}
+                                value={r.preference}
+                                onChange={(e) => editAnswer(m.id, (x) => ({ ...x, preference: e.target.value as MemberResponse['preference'] }))}
+                              >
+                                <option value="distributed">{t('Spread out')}</option>
+                                <option value="dense">{t('Grouped')}</option>
+                              </select>
+                            </td>
+                            <td>
+                              <input
+                                type="number"
+                                min={1}
+                                max={60}
+                                aria-label={t('Min interval')}
+                                value={r.minInterval}
+                                onChange={(e) => editAnswer(m.id, (x) => ({ ...x, minInterval: Math.max(1, Number(e.target.value) || 1) }))}
+                              />
+                            </td>
+                          </>
+                        ) : (
+                          <>
+                            <td>{r.preference === 'distributed' ? t("Spread out") : t("Grouped")}</td>
+                            <td>{t("{n} d", { n: r.minInterval })}</td>
+                          </>
+                        )}
                         <td>{r.unavailable.length}</td>
                         <td>{r.avoid?.length ?? 0}</td>
                         <td>{r.locks.length}</td>
@@ -488,7 +555,34 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
                     ) : (
                       <td colSpan={7} className="muted small">{t("No answer yet — defaults: spread out,")} {r.minInterval}{t("-day interval")}</td>
                     )}
+                    {me.isHost && (
+                      <td>
+                        <button
+                          type="button"
+                          className="link nowrap"
+                          aria-expanded={notesFor === m.id}
+                          title={t('Leave {name} a note — only they and the hosts can see it', { name: m.name })}
+                          onClick={() => setNotesFor(notesFor === m.id ? null : m.id)}
+                        >
+                          💬 {notes.length || ''}
+                          {notes.some((n) => !n.readAt) && <span className="muted small"> {t('({n} unseen)', { n: notes.filter((n) => !n.readAt).length })}</span>}
+                        </button>
+                      </td>
+                    )}
                   </tr>
+                  {me.isHost && notesFor === m.id && (
+                    <tr className="notes-row">
+                      <td colSpan={10}>
+                        <HostNotes
+                          name={m.name}
+                          notes={notes}
+                          send={(text) => mutate(() => api.addNote(code, m.id, text))}
+                          remove={(id) => void mutate(() => api.removeNote(code, id))}
+                        />
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
                 );
               })}
             </tbody>
@@ -498,6 +592,49 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
       </section>
     </div>
   );
+}
+
+/** A host's notes to one member: what was sent and whether they've seen it, and a box for a new one. */
+function HostNotes({ name, notes, send, remove }: { name: string; notes: HostNote[]; send: (text: string) => Promise<unknown>; remove: (id: string) => void }) {
+  const [text, setText] = useState('')
+  const [busy, setBusy] = useState(false)
+  return (
+    <div className="host-notes stack-tight">
+      {notes.map((n) => (
+        <div key={n.id} className="host-note small">
+          <span className="note-text">{n.text}</span>{' '}
+          <span className="muted">
+            · {new Date(n.at).toLocaleString()} · {n.readAt ? t('✓ seen') : t('not seen yet')}
+          </span>{' '}
+          <button type="button" className="x" aria-label={t('Delete')} onClick={() => remove(n.id)}>
+            ×
+          </button>
+        </div>
+      ))}
+      <div className="row wrap align-end">
+        <label className="grow small">
+          {t('Note to {name} (only they and the hosts see it)', { name })}
+          <textarea rows={2} value={text} maxLength={1000} onChange={(e) => setText(e.target.value)} placeholder={t('e.g. Please mark your exam dates too')} />
+        </label>
+        <button
+          type="button"
+          className="primary"
+          disabled={!text.trim() || busy}
+          onClick={async () => {
+            setBusy(true)
+            try {
+              await send(text)
+              setText('')
+            } finally {
+              setBusy(false)
+            }
+          }}
+        >
+          {t('Send')}
+        </button>
+      </div>
+    </div>
+  )
 }
 
 function ChangeLog({
@@ -517,7 +654,8 @@ function ChangeLog({
       <ul>
         {[...changes].reverse().slice(0, 30).map((c) => (
           <li key={c.id} className="small">
-            <span className="muted">{new Date(c.at).toLocaleString()}</span> · {nameOf(c.memberId)}: {c.summary}{' '}
+            <span className="muted">{new Date(c.at).toLocaleString()}</span> · {nameOf(c.memberId)}: {c.summary}
+            {c.reason && <span className="muted"> — “{c.reason}”</span>}{' '}
             {canRevert && (
               <button className="link" onClick={() => revert(c)}>{t("revert")}</button>
             )}
