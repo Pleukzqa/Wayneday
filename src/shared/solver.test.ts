@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import { addDays, dateRange, dayDiff } from './dates.ts'
 import { shiftHours, shiftPoints, shiftTimes } from './calendar.ts'
 import { countArrangements, solve, solveMany, validate } from './solver.ts'
-import { arrangeStudents, countStudentArrangements, equalShare, shareGroups, shiftsNeeded, pickPresenters, placeKey, studentCellIssues, studentExposure, studentOptions, presentationLoad, studentDetails, studentRuleReport, studentSummaryTable, studentTargets } from './students.ts'
+import { arrangeStudents, countStudentArrangements, equalShare, shareGroups, shiftsNeeded, pickPresenters, placeKey, studentCellIssues, studentExposure, studentOptions, presentationLoad, studentDetails, studentRuleReport, studentSummaryTable, studentTargets, typeSpread } from './students.ts'
 import { buildAiPrompt, importAiResult } from './ai.ts'
 import { explainNoArrangement } from './explain.ts'
 import { ANY_SHIFT, DEFAULT_RESPONSE, DEFAULT_STUDENTS, dutyOf, presentationPoints, type MemberResponse, type SessionConfig, type StudentAssignment } from './types.ts'
@@ -598,6 +598,19 @@ function equalRotation(): SessionConfig {
   c.students = { ...c.students, auto: true }
   return c
 }
+
+test('each type of shift is shared evenly: the long 24h shifts at most one apart', () => {
+  const c = equalRotation()
+  c.students.points = { on: true, weekday: 1, weekend: 2, shifts: { day: 3 } }
+  for (let seed = 1; seed <= 3; seed++) {
+    const r = arrangeStudents(c, {}, c.duty, seed)
+    assert.ok(r.ok)
+    if (!r.ok) return
+    assert.equal(typeSpread(c, r.students), 0, `seed ${seed}`)
+    const long = c.members.filter((m) => m.type === 'student').map((m) => r.students.filter((x) => x.memberId === m.id && x.shiftId === 'day').length)
+    assert.ok(Math.max(...long) - Math.min(...long) <= 1, `seed ${seed}: 24h shifts ${long}`)
+  }
+})
 
 test('sharing equally fills every place and splits them within one shift', () => {
   const c = equalRotation()

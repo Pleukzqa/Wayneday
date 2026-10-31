@@ -76,6 +76,9 @@ const REPEAT_RESIDENT_PENALTY = 400
 const REPEAT_STAFF_PENALTY = 300
 const REPEAT_PARTNER_PENALTY = 350
 const ALONE_PENALTY = 150
+/** Per shift more than one apart between two students of a group, in one type of shift. */
+const SLOT_SPREAD_PENALTY = 8000
+
 /** Per point above the host's limit on how far apart students' points may be. */
 const POINTS_OVER_PENALTY = 5000
 
@@ -483,7 +486,16 @@ export function arrangeStudents(
       // Everyone gets at least one chance at each type, when there are enough to go round.
       if (places.size >= students.length) sc += 400 * n.filter((k) => k === 0).length
     }
-    if (auto) for (const id of slotIds) sc += 40 * variance(mine.map((m) => m.filter((oi) => occs[oi].shiftId === id).length))
+    // Each type of shift (slot) shared evenly within each group of students who take the same places: everyone
+    // gets about as many of the long shifts (e.g. overnight) as the others, at most one apart.
+    for (const id of slotIds) {
+      const n = mine.map((m) => m.filter((oi) => occs[oi].shiftId === id).length)
+      sc += 40 * variance(n)
+      for (const g of groups) {
+        const k = g.members.map((si) => n[si])
+        sc += SLOT_SPREAD_PENALTY * Math.max(0, Math.max(...k) - Math.min(...k) - 1)
+      }
+    }
     mine.forEach((m, si) => {
       sc += preferenceCost(m.map((oi) => occs[oi].day).sort((a, b) => a - b), days.length, resp[si])
       for (const oi of m) sc += AVOID_PENALTY[avoidLevel(resp[si], occs[oi].date)]
@@ -808,11 +820,21 @@ export function studentOptions(
     let p = pickPresenters(config, responses, assignments, r.students, seed)
     let placed = r
     if (presentationsCount(config)) {
-      // Presenting counts towards points: arrange again knowing who presents how much, then pick presenters again.
+      // Presenting counts towards points: arrange again knowing who presents how much, pick presenters again, and
+      // keep that only if it's no worse — each type of shift as even, then points fairer.
       const again = arrangeStudents(config, responses, assignments, seed, undefined, presentationLoad(config, p.presenters))
       if (again.ok) {
-        placed = again
-        p = pickPresenters(config, responses, assignments, again.students, seed)
+        const p2 = pickPresenters(config, responses, assignments, again.students, seed)
+        const rank = (st: StudentAssignment[], pr: PresenterAssignment[]) => {
+          const r = studentRuleReport(config, responses, { assignments, students: st, presenters: pr })
+          return [typeSpread(config, st), r.pointsOk ? 0 : 1, r.pointsSpread]
+        }
+        const [a, b] = [rank(placed.students, p.presenters), rank(again.students, p2.presenters)]
+        const i = a.findIndex((x, k) => x !== b[k])
+        if (i >= 0 && b[i] < a[i]) {
+          placed = again
+          p = p2
+        }
       }
     }
     out.push({ id: `st-${seed}`, score: placed.score, roster: { assignments, students: placed.students, presenters: p.presenters }, warnings: [...placed.warnings, ...p.warnings] })
@@ -825,8 +847,9 @@ export function studentOptions(
       const r = studentRuleReport(config, responses, o.roster)
       const missed = r.avoidHits[1] + r.avoidHits[2] + r.avoidHits[3]
       const both = r.pointsOk && missed === 0 ? 0 : r.pointsOk && r.avoidHits[3] === 0 ? 1 : 2
-      // Everyone at morning report (each weekly presentation) at least once comes before all else.
-      return [o, [r.missingWeekly.length, both, r.pointsOk ? 0 : 1, r.pointsSpread, r.avoidHits[3], r.avoidHits[2], r.avoidHits[1], o.score]] as const
+      // Everyone at morning report (each weekly presentation) at least once comes before all else, then each type of
+      // shift shared out evenly (at most one apart within a group).
+      return [o, [r.missingWeekly.length, typeSpread(config, o.roster.students), both, r.pointsOk ? 0 : 1, r.pointsSpread, r.avoidHits[3], r.avoidHits[2], r.avoidHits[1], o.score]] as const
     }),
   )
   out.sort((a, b) => {
@@ -842,6 +865,19 @@ export function sourceJob(config: SessionConfig, src: PresenterSource): string |
   if (src.jobId) return src.jobId
   if (!src.placeId) return undefined
   return config.shifts.find((x) => x.id === src.shiftId)?.requirements.find((r) => r.id === src.placeId)?.jobId || undefined
+}
+
+/** How unevenly each type of shift is shared: in each group, for each shift slot, shifts beyond one apart. */
+export function typeSpread(config: SessionConfig, students: StudentAssignment[]) {
+  const studs = config.members.filter((m) => m.type === 'student')
+  let over = 0
+  for (const g of shareGroups(config)) {
+    for (const sh of config.shifts) {
+      const n = g.members.map((si) => students.filter((x) => x.memberId === studs[si].id && x.shiftId === sh.id).length)
+      over += Math.max(0, Math.max(...n) - Math.min(...n) - 1)
+    }
+  }
+  return over
 }
 
 /** Do presentations count towards points (points on, and the host chose so)? */
