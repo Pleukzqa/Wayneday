@@ -410,6 +410,32 @@ test('presentations are shared out evenly, in all and by type', () => {
   assert.deepEqual(table.header.slice(0, table.lead), ['Student', 'Shifts', 'Presentations', 'Morning report', 'One-day presentations'])
 })
 
+test('nobody presents twice in a day', () => {
+  // A morning report and a case discussion on the same mornings, both from last night's two students.
+  const c = hospital()
+  c.shifts[0].requirements = [{ id: 'p1', jobId: 'er', memberType: 'any', count: 2 }]
+  c.members.push(...['D', 'E', 'F'].map((n) => ({ id: `st${n}`, name: `Student ${n}`, type: 'student' as const, jobs: [] })))
+  c.students = { ...c.students, auto: true }
+  const base = { fromShiftId: 'night', fromCount: 1, types: ['student' as const] }
+  c.presentations = [
+    { ...base, id: 'mr', name: 'Morning report', days: [1, 2, 3, 4, 5], count: 1 },
+    ...['2026-11-10', '2026-11-17', '2026-11-24'].map((d, i) => ({ ...base, id: `cc${i}`, name: `CCR ${i}`, days: [], dates: [d], count: 1 })),
+  ]
+  const s = arrangeStudents(c, {}, c.duty)
+  assert.ok(s.ok)
+  if (!s.ok) return
+  const p = pickPresenters(c, {}, c.duty, s.students)
+  for (const date of ['2026-11-10', '2026-11-17', '2026-11-24']) {
+    const ids = p.presenters.filter((x) => x.date === date).map((x) => x.memberId)
+    assert.equal(ids.length, 2)
+    assert.notEqual(ids[0], ids[1], date)
+  }
+  assert.deepEqual(p.warnings, [])
+  // Made twice by hand: the rules check says so.
+  const twice = [...p.presenters.filter((x) => x.date !== '2026-11-10'), ...p.presenters.filter((x) => x.date === '2026-11-10').map((x, _i, all) => ({ ...x, memberId: all[0].memberId }))]
+  assert.match(studentRuleReport(c, {}, { assignments: c.duty, students: s.students, presenters: twice }).summary.join(' '), /presents twice in a day/)
+})
+
 test('someone away on a presentation day isn’t put on the night it takes presenters from', () => {
   // One student a night; a case discussion on the 17th needs last night's student, and Student A is ✕ that day.
   const c = hospital()

@@ -775,4 +775,7 @@ export const TH: Record<string, string> = {
   "{p}% apart, above your {limit}% limit": "ต่างกัน {p}% เกินที่กำหนด {limit}%",
   "{p}% apart, within {limit}%": "ต่างกัน {p}% อยู่ในเกณฑ์ {limit}%",
   "Points are {p}% apart ({a}–{b}); your limit is {limit}%.": "แต้มต่างกัน {p}% ({a}–{b}) เกินที่กำหนด {limit}%",
+  "{date}: {name} presents twice — nobody else could.": "{date}: {name} นำเสนอสองครั้งในวันเดียว — ไม่มีคนอื่นที่ทำได้",
+  "{n} time(s) someone presents twice in a day": "มีคนนำเสนอสองครั้งในวันเดียว {n} ครั้ง",
+  "{name} presents twice on {date}.": "{name} นำเสนอสองครั้งในวันที่ {date}",
 }

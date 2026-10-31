@@ -595,6 +595,22 @@ export function pickPresenters(
   students: StudentAssignment[],
   seed = 1,
 ): { presenters: PresenterAssignment[]; warnings: string[] } {
+  // A few tries from different random starts; the most even one wins (fewest people short or twice in a day first).
+  let best: { presenters: PresenterAssignment[]; warnings: string[]; cost: number } | null = null
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const r = pickPresentersOnce(config, responses, assignments, students, seed + attempt * 1000)
+    if (!best || r.cost < best.cost) best = r
+  }
+  return { presenters: best!.presenters, warnings: best!.warnings }
+}
+
+function pickPresentersOnce(
+  config: SessionConfig,
+  responses: Record<string, MemberResponse>,
+  assignments: Assignment[],
+  students: StudentAssignment[],
+  seed: number,
+): { presenters: PresenterAssignment[]; warnings: string[]; cost: number } {
   const rand = rng(seed * 31 + 7)
   const warnings: string[] = []
   const days = dateRange(config.startDate, config.endDate)
@@ -629,8 +645,11 @@ export function pickPresenters(
       const types = presenterTypes(config, rule)
       const eligible = config.members.filter((m) => types.includes(m.type) && available(m.id, date)).map((m) => m.id)
       const chosen: string[] = []
+      // Nobody presents twice in a day: people already presenting today come last, only when nobody else can.
+      const busy = new Set(slots.filter((x) => x.date === date).map((x) => x.who))
       const take = (pool: string[], lastNight: string[], n: number) => {
-        for (const id of byFewest(pool.filter((x) => !chosen.includes(x)), k).slice(0, n)) {
+        const free = pool.filter((x) => !chosen.includes(x))
+        for (const id of [...byFewest(free.filter((x) => !busy.has(x)), k), ...byFewest(free.filter((x) => busy.has(x)), k)].slice(0, n)) {
           chosen.push(id)
           bump(id, k, 1)
           slots.push({ date, ruleId: rule.id, kind: k, pool, lastNight, who: id })
@@ -658,7 +677,8 @@ export function pickPresenters(
   for (let pass = 0; pass < 20; pass++) {
     let better = false
     for (const slot of slots) {
-      const taken = new Set(slots.filter((x) => x.date === slot.date && x.ruleId === slot.ruleId).map((x) => x.who))
+      // Not someone already in this presentation, or presenting anything else that day.
+      const taken = new Set(slots.filter((x) => x.date === slot.date).map((x) => x.who))
       let best: string | null = null
       let gain = 0
       for (const id of slot.pool) {
@@ -685,6 +705,13 @@ export function pickPresenters(
     if (!better) break
   }
 
+  // Anyone who still presents twice in a day (nobody else could): say so.
+  for (const date of days) {
+    const ids = slots.filter((x) => x.date === date).map((x) => x.who)
+    for (const id of new Set(ids.filter((x, i) => ids.indexOf(x) !== i))) {
+      warnings.push(t('{date}: {name} presents twice — nobody else could.', { date, name: config.members.find((m) => m.id === id)?.name ?? '?' }))
+    }
+  }
   const presenters: PresenterAssignment[] = sortedBy(slots, (x) => days.indexOf(x.date)).map((x) => ({
     date: x.date,
     ruleId: x.ruleId,
@@ -699,7 +726,8 @@ export function pickPresenters(
       )
     }
   }
-  return { presenters, warnings }
+  const spread = [...total.values()].reduce((n, v) => n + 3 * v * v, 0) + [...byKind.values()].reduce((n, v) => n + v * v, 0)
+  return { presenters, warnings, cost: 1000 * warnings.length + spread }
 }
 
 /** Hard-rule checks for students in an edited roster. */
@@ -1139,6 +1167,11 @@ export function studentRuleReport(
     summary.push(
       `🎤 ${t('{n} presentations each', { n: range(() => true) })}${kinds.length > 1 ? ` (${kinds.map((k) => `${k.name} ${range(k.f)}`).join(', ')})` : ''}`,
     )
+    // Nobody should present twice in a day.
+    const p = roster.presenters
+    const twice = p.filter((x, i) => p.findIndex((y) => y.date === x.date && y.memberId === x.memberId) !== i)
+    if (twice.length) summary.push(`⚠️ ${t('{n} time(s) someone presents twice in a day', { n: twice.length })}`)
+    for (const x of twice) notes.push(t('{name} presents twice on {date}.', { name: name(x.memberId), date: x.date }))
   }
   const asked = avoidAsked[1] + avoidAsked[2] + avoidAsked[3]
   if (asked) {
