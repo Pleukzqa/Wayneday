@@ -2,10 +2,10 @@ import { useState, type Ref } from 'react'
 import Expandable from './Expandable.tsx'
 import { t } from '../shared/i18n.ts'
 import { cellIds, cellNames, columnsFor, presenterParts } from '../shared/columns.ts'
-import { reqCount } from '../shared/calendar.ts'
+import { presentationOn, reqCount } from '../shared/calendar.ts'
 import { dateRange, shortDate, weekday } from '../shared/dates.ts'
 import { placeKey } from '../shared/students.ts'
-import { coversJob, STUDENT_SLOT, type Concern, type Roster, type SessionConfig, type StudentAssignment, type SwapRequest } from '../shared/types.ts'
+import { coversJob, presenterTypes, STUDENT_SLOT, type Concern, type Roster, type SessionConfig, type StudentAssignment, type SwapRequest } from '../shared/types.ts'
 
 interface Props {
   config: SessionConfig
@@ -17,6 +17,8 @@ interface Props {
   onEdit?: (date: string, shiftId: string, requirementId: string, slot: number, memberId: string) => void
   /** Host manual editing of students on a shift. */
   onEditStudent?: (date: string, shiftId: string, slot: number, memberId: string, requirementId?: string) => void
+  /** Host editing who presents: the `slot`-th presenter of a presentation on a date ('' = nobody). */
+  onEditPresenter?: (date: string, ruleId: string, slot: number, memberId: string) => void
   /** Tap on a cell (to raise a concern or ask for a swap). requirementId is STUDENT_SLOT for the students column. */
   onPick?: (date: string, shiftId: string, requirementId: string | null) => void
   concerns?: Concern[]
@@ -40,7 +42,7 @@ export interface Arrange {
   onPlace: (date: string, shiftId: string, requirementId?: string) => void
 }
 
-export default function RosterTable({ config, roster, myId, avoidOf, onEdit, onEditStudent, onPick, concerns = [], swaps = [], tableRef, arrange }: Props) {
+export default function RosterTable({ config, roster, myId, avoidOf, onEdit, onEditStudent, onEditPresenter, onPick, concerns = [], swaps = [], tableRef, arrange }: Props) {
   const studentList = config.members.filter((m) => m.type === 'student')
   const cols = columnsFor(config)
   const holidays = new Set(config.holidays)
@@ -171,6 +173,37 @@ export default function RosterTable({ config, roster, myId, avoidOf, onEdit, onE
                         {problems && <span className="issue-text">{problems[0]}</span>}
                       </td>
                     );
+                  }
+                  if (c.kind === 'presenters' && onEditPresenter) {
+                    // Editing: a picker per presenter place.
+                    return (
+                      <td key={c.key} className="extra-col">
+                        {presenterParts(config, roster, c, date)!.map(({ rule, ids: who }) => {
+                          const need = Math.max(who.length, presentationOn(config, rule, date)?.count ?? 0)
+                          const can = config.members.filter((m) => presenterTypes(config, rule).includes(m.type))
+                          return (
+                            <div key={rule.id} className="present-part">
+                              {c.ruleIds.length > 1 && <span className="present-label">{rule.name}</span>}
+                              {Array.from({ length: need }, (_, k) => (
+                                <select
+                                  key={k}
+                                  aria-label={`${shortDate(date)} ${rule.name} ${k + 1}`}
+                                  value={who[k] ?? ''}
+                                  onChange={(e) => onEditPresenter(date, rule.id, k, e.target.value)}
+                                >
+                                  <option value="">—</option>
+                                  {can.map((m) => (
+                                    <option key={m.id} value={m.id}>
+                                      {m.name}
+                                    </option>
+                                  ))}
+                                </select>
+                              ))}
+                            </div>
+                          )
+                        })}
+                      </td>
+                    )
                   }
                   if (c.kind === 'presenters') {
                     // Each presentation that day; in the combined one-day column, labelled with its name.

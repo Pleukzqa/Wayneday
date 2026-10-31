@@ -8,7 +8,7 @@ import { fmtPoints, presentationOn, reqCount, reqMin, shiftPoints, shiftRuns, sh
 import { t, weekdayShort } from './i18n.ts'
 import { addDays, dateRange, dayDiff, weekday } from './dates.ts'
 import { preferenceCost, responseFor, rng, shuffled, sortedBy, variance } from './scoring.ts'
-import { coversJob, dutyOf, isOneDay, presentationPoints, presenterTypes, type Assignment, type Member, type MemberResponse, type PresenterAssignment, type SessionConfig, type StudentAssignment } from './types.ts'
+import { coversJob, dutyOf, isOneDay, presentationPoints, presenterTypes, type PresenterSource, type Assignment, type Member, type MemberResponse, type PresenterAssignment, type SessionConfig, type StudentAssignment } from './types.ts'
 
 /** A place students can take: one shift on one date (and, in hospital mode, one job within it). */
 export interface Occ {
@@ -669,7 +669,17 @@ function pickPresentersOnce(
       // Each source first: e.g. one presenter from each ward of last night's shift (or of 2–3 days before).
       for (const src of today.sources) {
         const back = sourceOffsets(src, today.daysBack).map((n) => addDays(date, -n))
-        if (back.every((d) => d < config.startDate) || src.count === 0) continue
+        if (src.count === 0) continue
+        if (back.every((d) => d < config.startDate)) {
+          // Nobody was on duty before the roster starts (e.g. the morning of its first day): a source for one
+          // ward still takes someone covering that ward that day, so each ward gets its presenter.
+          const ward = sourceJob(config, src)
+          if (ward) {
+            const members = config.members.filter((m) => eligible.includes(m.id) && coversJob(m, ward, date))
+            take(members.map((m) => m.id), [], src.count)
+          }
+          continue
+        }
         const on = (d: string) =>
           [...assignments, ...students].filter((x) => x.date === d && sourceMatches(config, src, x.shiftId, x.requirementId)).map((x) => x.memberId)
         const pool = [...new Set(back.flatMap(on))].filter((id) => eligible.includes(id))
@@ -825,6 +835,13 @@ export function studentOptions(
     return 0
   })
   return { ok: true, alternatives: out.slice(0, want) }
+}
+
+/** The ward (job) a presenter source is about, if any: its place's job, or the job it names. */
+export function sourceJob(config: SessionConfig, src: PresenterSource): string | undefined {
+  if (src.jobId) return src.jobId
+  if (!src.placeId) return undefined
+  return config.shifts.find((x) => x.id === src.shiftId)?.requirements.find((r) => r.id === src.placeId)?.jobId || undefined
 }
 
 /** Do presentations count towards points (points on, and the host chose so)? */

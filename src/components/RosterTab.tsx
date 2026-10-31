@@ -5,8 +5,8 @@ import { t } from '../shared/i18n.ts'
 import { exportCsv, exportPng, exportToDrive, exportXlsx, personTable } from '../export.ts'
 import { findArrangements, rearrangeStudents } from '../runSolver.ts'
 import { buildAiPrompt, importAiResult } from '../shared/ai.ts'
-import { shortDate } from '../shared/dates.ts'
-import { fmtPoints, reqCount } from '../shared/calendar.ts'
+import { addDays, shortDate } from '../shared/dates.ts'
+import { fmtPoints, reqCount, ruleSources, sourceMatches } from '../shared/calendar.ts'
 import { responseFor, validate, type CountResult } from '../shared/solver.ts'
 import {
   avoidLevel,
@@ -533,7 +533,7 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
                 <button onClick={() => void setStatus({ status: 'review', reviewUntil: now + 24 * 3_600_000 })}>{t("Reopen for review")}</button>
               )}
               {!edit ? (
-                <button onClick={() => setEdit(rosterOf(schedule))}>{hospital ? t("Edit students") : t("Edit cells")}</button>
+                <button onClick={() => setEdit(rosterOf(schedule))}>{hospital ? (config.presentations.length ? t('Edit students & presenters') : t('Edit students')) : t('Edit cells')}</button>
               ) : (
                 <>
                   <button className="primary" onClick={() => void publish(edit, 'manual', schedule.status, true)}>{t("💾 Save edits")}</button>
@@ -630,6 +630,21 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
                         const target = here[slot]
                         const rest = list.filter((x) => x !== target)
                         return { ...cur!, students: memberId ? [...rest, { date, shiftId, ...(requirementId ? { requirementId } : {}), memberId }] : rest }
+                      })
+                  : undefined
+              }
+              onEditPresenter={
+                edit && config.presentations.length
+                  ? (date, ruleId, slot, memberId) =>
+                      setEdit((cur) => {
+                        const list = cur?.presenters ?? []
+                        const target = list.filter((p) => p.date === date && p.ruleId === ruleId)[slot]
+                        const rest = list.filter((p) => p !== target)
+                        // ● when they were on the shift it draws from last night.
+                        const rule = config.presentations.find((r) => r.id === ruleId)!
+                        const yesterday = (cur?.students ?? []).filter((x) => x.date === addDays(date, -1) && x.memberId === memberId)
+                        const postCall = yesterday.some((x) => ruleSources(rule).some((src) => src.when !== 'same' && sourceMatches(config, src, x.shiftId, x.requirementId)))
+                        return { ...cur!, presenters: memberId ? [...rest, { date, ruleId, memberId, postCall }] : rest }
                       })
                   : undefined
               }

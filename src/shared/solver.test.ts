@@ -481,6 +481,28 @@ test('per student table: "with" is the same ward (another shift marked →), the
   assert.equal(studentSummaryTable(c, { assignments: c.duty, students }).per, 6, 'with a hospital roster, residents and staff are shown')
 })
 
+test('first day: presenters from each ward even though nobody was on duty the night before', () => {
+  const c = hospital()
+  c.jobs = [{ id: 'a', name: '19C' }, { id: 'b', name: '26A' }]
+  c.shifts = [{ ...c.shifts[0], requirements: [{ id: 'wa', jobId: 'a', memberType: 'any', count: 1 }, { id: 'wb', jobId: 'b', memberType: 'any', count: 1 }] }]
+  c.members = c.members.filter((m) => m.type !== 'student')
+  const plan = (first: string, then: string) => [{ jobId: first, from: '2026-11-01', to: '2026-11-15' }, { jobId: then, from: '2026-11-16', to: '2026-11-30' }]
+  for (const n of ['A', 'B', 'C']) c.members.push({ id: `st${n}`, name: `Student ${n}`, type: 'student', jobs: [], periods: plan('a', 'b') })
+  for (const n of ['D', 'E', 'F']) c.members.push({ id: `st${n}`, name: `Student ${n}`, type: 'student', jobs: [], periods: plan('b', 'a') })
+  c.students = { ...c.students, auto: true }
+  c.startDate = '2026-11-02' // a Monday: its "last night" is before the roster
+  c.presentations = [{ id: 'mr', name: 'Morning report', days: [1, 2, 3, 4], count: 2, fromShiftId: 'night', fromCount: 1, types: ['student'],
+    sources: [{ shiftId: 'night', placeId: 'wa', count: 1 }, { shiftId: 'night', placeId: 'wb', count: 1 }] }]
+  for (let seed = 1; seed <= 4; seed++) {
+    const s = arrangeStudents(c, {}, c.duty, seed)
+    assert.ok(s.ok)
+    if (!s.ok) return
+    const first = pickPresenters(c, {}, c.duty, s.students, seed).presenters.filter((x) => x.date === '2026-11-02').map((x) => x.memberId).sort()
+    assert.equal(first.length, 2)
+    assert.ok(['stA', 'stB', 'stC'].includes(first[0]) && ['stD', 'stE', 'stF'].includes(first[1]), `seed ${seed}: ${first}`)
+  }
+})
+
 test('nobody presents twice in a day', () => {
   // A morning report and a case discussion on the same mornings, both from last night's two students.
   const c = hospital()

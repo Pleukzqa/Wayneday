@@ -821,4 +821,5 @@ export const TH: Record<string, string> = {
   "with": "อยู่กับ",
   "{n} shifts": "{n} เวร",
   "{p} pts": "{p} แต้ม",
+  "Edit students & presenters": "แก้นิสิตและผู้นำเสนอ",
 }
