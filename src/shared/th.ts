@@ -656,4 +656,11 @@ export const TH: Record<string, string> = {
   "Logged in, not ready yet": "เข้าระบบแล้ว ยังไม่กดพร้อม",
   "Hasn’t logged in yet": "ยังไม่ได้เข้าระบบ",
   "+{n} more": "+ อีก {n} คน",
+  "The hospital roster is left blank, so students are arranged on their own.": "ไม่ได้กรอกตารางเวรของโรงพยาบาล จึงจัดเวรนิสิตอย่างเดียว",
+  "Enter the hospital roster in Setup first, or mark it as left blank there.": "กรอกตารางเวรของโรงพยาบาลในหน้าตั้งค่าก่อน หรือเลือกว่าเว้นว่างไว้",
+  "Hospital roster: left blank": "ตารางเวรโรงพยาบาล: เว้นว่างไว้",
+  "left blank": "เว้นว่าง",
+  "Leave it blank — we don’t know the hospital roster (yet)": "เว้นว่างไว้ — ยังไม่รู้ตารางเวรของโรงพยาบาล",
+  "Students are arranged on their own. Rules about meeting the same resident or staff member, and spreading students between them, don’t apply. Untick this when you have the roster.": "จะจัดเวรนิสิตอย่างเดียว กฎเรื่องไม่เจอแพทย์ประจำบ้านหรืออาจารย์คนเดิมซ้ำ และการกระจายนิสิตให้แต่ละคนเท่า ๆ กันจะไม่ถูกใช้ เอาเครื่องหมายออกเมื่อได้ตารางเวรแล้ว",
+  "What you’ve already entered ({n} entries) is kept, but not used.": "ข้อมูลที่กรอกไว้แล้ว ({n} รายการ) ยังเก็บไว้ แต่จะไม่ถูกใช้",
 }

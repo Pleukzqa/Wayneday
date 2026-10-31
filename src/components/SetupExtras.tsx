@@ -1243,8 +1243,20 @@ export function DutyRosterCard({ draft, edit, ro }: { draft: SessionConfig; edit
 
   return (
     <section className="card">
-      <h2 id="sec-duty">{t("🩺 Hospital roster")} <span className="badge">{daysFilled}/{days.length} {t("days")}</span>
+      <h2 id="sec-duty">
+        {t("🩺 Hospital roster")} <span className="badge">{draft.noDuty ? t('left blank') : `${daysFilled}/${days.length} ${t('days')}`}</span>
       </h2>
+      <label className="check">
+        <input type="checkbox" disabled={ro} checked={Boolean(draft.noDuty)} onChange={(e) => edit((c) => ({ ...c, noDuty: e.target.checked || undefined }))} />
+        {t('Leave it blank — we don’t know the hospital roster (yet)')}
+      </label>
+      {draft.noDuty ? (
+        <p className="muted small">
+          {t('Students are arranged on their own. Rules about meeting the same resident or staff member, and spreading students between them, don’t apply. Untick this when you have the roster.')}
+          {draft.duty.length > 0 && ` ${t('What you’ve already entered ({n} entries) is kept, but not used.', { n: draft.duty.length })}`}
+        </p>
+      ) : (
+      <>
       <p className="muted small">
         {t(
           'Who the hospital put on duty. Type names — Wayneday suggests names you’ve already used — or paste the hospital’s table from Excel or Google Sheets (first column = date, then {cols}). Separate several names with commas.',
@@ -1336,6 +1348,8 @@ export function DutyRosterCard({ draft, edit, ro }: { draft: SessionConfig; edit
           </tbody>
         </table>
       </div>
+      </>
+      )}
     </section>
   );
 }

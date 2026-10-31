@@ -6,7 +6,7 @@ import { endDays, presentationOn, reqCount, ruleSources, shiftRuns, sourceMatche
 import { dateRange, WEEKDAYS } from './dates.ts'
 import { responseFor } from './scoring.ts'
 import { equalShare } from './students.ts'
-import { ANY_SHIFT, coversJob, LAST_NIGHT, presenterTypes, type DaysBack, type Assignment, type PresenterSource, type MemberResponse, type PresenterAssignment, type Roster, type SessionConfig, type StudentAssignment } from './types.ts'
+import { ANY_SHIFT, coversJob, dutyOf, LAST_NIGHT, presenterTypes, type DaysBack, type Assignment, type PresenterSource, type MemberResponse, type PresenterAssignment, type Roster, type SessionConfig, type StudentAssignment } from './types.ts'
 
 export const AI_FORMAT_TAG = 'wayneday-roster'
 
@@ -90,7 +90,10 @@ export function buildAiPrompt(config: SessionConfig, responses: Record<string, M
     }
   }
   lines.push('')
-  if (hospital) {
+  if (hospital && config.noDuty) {
+    lines.push('## Hospital roster')
+    lines.push('Not known yet: arrange the students without residents or staff, and leave "assignments" empty.')
+  } else if (hospital) {
     lines.push('## Fixed roster from the hospital (do not change)')
     lines.push('date | shift | role | person')
     for (const a of [...config.duty].sort((x, y) => x.date.localeCompare(y.date))) {
@@ -277,7 +280,7 @@ export function importAiResult(text: string, config: SessionConfig): ImportResul
   const filled = new Map<string, number>()
   // Hospital mode: the residents/staff roster is the hospital's; ignore whatever the AI said about it.
   const rows = config.rosterMode === 'hospital' ? [] : ((Array.isArray(data.assignments) ? data.assignments : []) as Record<string, unknown>[])
-  if (config.rosterMode === 'hospital') assignments.push(...config.duty)
+  if (config.rosterMode === 'hospital') assignments.push(...dutyOf(config))
   for (const row of rows) {
     const shift = findShift(row.shift)
     const member = findMember(row.member)

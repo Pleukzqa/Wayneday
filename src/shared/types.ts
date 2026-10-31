@@ -192,6 +192,8 @@ export interface SessionConfig {
   rosterMode: RosterMode
   /** The hospital's resident/staff roster (hospital mode). */
   duty: Assignment[]
+  /** Hospital mode: the hospital roster is left blank (not known); students are arranged without it. */
+  noDuty?: boolean
   startDate: string // YYYY-MM-DD
   endDate: string // YYYY-MM-DD
   /** Dates treated like weekends for fairness (public holidays). */
@@ -266,6 +268,9 @@ export interface PresenterAssignment {
   /** Was on the rule's shift the day before. */
   postCall: boolean
 }
+
+/** The hospital roster students are arranged around: none when it's left blank. */
+export const dutyOf = (config: SessionConfig): Assignment[] => (config.noDuty ? [] : config.duty)
 
 export type ScheduleStatus = 'review' | 'final'
 

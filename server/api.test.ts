@@ -217,6 +217,15 @@ for (const [kind, makeStore] of stores) {
       assert.equal(v.session.responses.m.ready, undefined)
     })
 
+    test('the hospital roster can be left blank', async () => {
+      const alice = await signIn('alice@example.com')
+      const { code } = (await call('POST', '/sessions', { body: {}, account: alice })).body
+      let v = (await call('PUT', `/sessions/${code}/config`, { account: alice, body: { noDuty: true } })).body
+      assert.equal(v.session.config.noDuty, true)
+      v = (await call('PUT', `/sessions/${code}/config`, { account: alice, body: { noDuty: 'yes' } })).body
+      assert.equal(v.session.config.noDuty, undefined)
+    })
+
     test('PIN guessing is slowed down per name', async () => {
       const alice = await signIn('alice@example.com')
       const { code } = (await call('POST', '/sessions', { body: {}, account: alice })).body

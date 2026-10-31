@@ -1,7 +1,7 @@
 import { countArrangements, solveMany, type SolveOptions } from './shared/solver.ts'
 import { arrangeStudents, countStudentArrangements, pickPresenters, studentOptions } from './shared/students.ts'
 import { setLang, type Lang } from './shared/i18n.ts'
-import type { Assignment, MemberResponse, SessionConfig } from './shared/types.ts'
+import { dutyOf, type Assignment, type MemberResponse, type SessionConfig } from './shared/types.ts'
 
 export type WorkerRequest = { lang: Lang } & (
   | { kind: 'many'; config: SessionConfig; responses: Record<string, MemberResponse>; opts: SolveOptions & { count?: number } }
@@ -12,7 +12,7 @@ export function handle(req: WorkerRequest) {
   setLang(req.lang)
   if (req.kind === 'many' && req.config.rosterMode === 'hospital') {
     // Residents and staff are the hospital's; only students (and presenters) are arranged.
-    const result = studentOptions(req.config, req.responses, req.config.duty, req.opts)
+    const result = studentOptions(req.config, req.responses, dutyOf(req.config), req.opts)
     const count = result.ok ? countStudentArrangements(req.config, req.responses) : null
     return { result, count }
   }

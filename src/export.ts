@@ -21,7 +21,7 @@ export function columnsFor(config: SessionConfig): Column[] {
     // The hospital's people per shift, then each student place.
     return [
       ...config.shifts.flatMap((s): Column[] => [
-        ...DUTY_ROLES.map((role): Column => ({ kind: 'duty', key: `d-${s.id}-${role}`, shiftId: s.id, role, title: `${s.name} · ${t(role === 'resident' ? 'residents' : 'staff')}` })),
+        ...(config.noDuty ? [] : DUTY_ROLES).map((role): Column => ({ kind: 'duty', key: `d-${s.id}-${role}`, shiftId: s.id, role, title: `${s.name} · ${t(role === 'resident' ? 'residents' : 'staff')}` })),
         ...s.requirements.map(
           (r): Column => ({ kind: 'place', key: r.id, shiftId: s.id, requirementId: r.id, title: r.jobId ? `${s.name} · ${t(r.count > 1 ? '{job} students' : '{job} student', { job: job(r.jobId) })}` : `${s.name} · ${t('students')}` }),
         ),

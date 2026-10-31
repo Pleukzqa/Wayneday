@@ -18,7 +18,7 @@ import {
   studentTargets,
   type StudentOption,
 } from '../shared/students.ts'
-import { STUDENT_SLOT, type MemberResponse, type Roster, type Schedule, type SessionConfig, type StudentAssignment } from '../shared/types.ts'
+import { dutyOf, STUDENT_SLOT, type MemberResponse, type Roster, type Schedule, type SessionConfig, type StudentAssignment } from '../shared/types.ts'
 import CalendarExport from './CalendarExport.tsx'
 import ConfirmButton from './ConfirmButton.tsx'
 import RosterTable, { type Arrange } from './RosterTable.tsx'
@@ -130,7 +130,7 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
   // Hospital mode: the published roster should carry the hospital roster as it now stands in Setup.
   const dutyKey = (xs: { date: string; shiftId: string; requirementId: string; memberId: string }[]) =>
     xs.map((a) => `${a.date}|${a.shiftId}|${a.requirementId}|${a.memberId}`).sort().join(',')
-  const dutyChanged = hospital && schedule !== null && dutyKey(schedule.assignments) !== dutyKey(config.duty)
+  const dutyChanged = hospital && schedule !== null && dutyKey(schedule.assignments) !== dutyKey(dutyOf(config))
 
   async function find() {
     setRunning('find')
@@ -280,14 +280,20 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
         <section className="card">
           <h2>✨ {hospital ? t('Arrange students') : t('Generate')}</h2>
           {hospital && (
+            config.noDuty ? (
+              <p className="muted small">{t('The hospital roster is left blank, so students are arranged on their own.')}</p>
+            ) : (
             <p className="muted small">{t("Residents and staff come from the hospital roster you entered in Setup (")}{config.duty.length} {t("shifts). Wayneday arranges the students")} {config.presentations.length ? t(" and presenters") : ''} {t("around it.")}</p>
+            )
           )}
-          {hospital && config.duty.length === 0 && <p className="small warn-text">{t("Enter the hospital roster in Setup first.")}</p>}
+          {hospital && !config.noDuty && config.duty.length === 0 && (
+            <p className="small warn-text">{t('Enter the hospital roster in Setup first, or mark it as left blank there.')}</p>
+          )}
           {missingAnswers.length > 0 && (
             <p className="muted small">{t("Waiting on")} {missingAnswers.length}: {missingAnswers.map((m) => m.name).join(', ')}{t(". They’ll get default preferences if you generate now.")}</p>
           )}
           <div className="row wrap">
-            <button className="primary" disabled={running !== null || (hospital && config.duty.length === 0)} onClick={() => void find()}>
+            <button className="primary" disabled={running !== null || (hospital && !config.noDuty && config.duty.length === 0)} onClick={() => void find()}>
               {running === 'find' ? `⏳ ${t('Finding arrangements…')}` : options ? `🔄 ${t('Find different arrangements')}` : `✨ ${t('Find arrangements')}`}
             </button>
             {!hospital && hasStudents && shown && (
@@ -412,7 +418,7 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
       {error && <p className="error">{error}</p>}
       {me.isHost && dutyChanged && !preview && (
         <div className="alert warn">{t("The hospital roster in Setup has changed since you published.")}{' '}
-          <button onClick={() => void publish({ ...rosterOf(schedule!), assignments: config.duty }, 'manual', schedule!.status, true)}>{t("Use the new hospital roster")}</button>{' '}
+          <button onClick={() => void publish({ ...rosterOf(schedule!), assignments: dutyOf(config) }, 'manual', schedule!.status, true)}>{t("Use the new hospital roster")}</button>{' '}
           <span className="small">{t(
             "(students stay where they are — find arrangements again if they should move)"
           )}</span>

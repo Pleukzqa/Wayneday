@@ -235,6 +235,7 @@ function cleanConfig(raw: unknown): SessionConfig {
     title: str(c.title, 100) || 'Untitled roster',
     rosterMode: c.rosterMode === 'generate' ? 'generate' : 'hospital',
     duty,
+    ...(c.noDuty === true ? { noDuty: true } : {}),
     presentationOverrides,
     startDate,
     endDate,

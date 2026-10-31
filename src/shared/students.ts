@@ -8,7 +8,7 @@ import { fmtPoints, presentationOn, reqCount, reqMin, shiftPoints, shiftRuns, sh
 import { t, weekdayShort } from './i18n.ts'
 import { addDays, dateRange, dayDiff, weekday } from './dates.ts'
 import { preferenceCost, responseFor, rng, shuffled, sortedBy, variance } from './scoring.ts'
-import { coversJob, presenterTypes, type Assignment, type Member, type MemberResponse, type PresenterAssignment, type SessionConfig, type StudentAssignment } from './types.ts'
+import { coversJob, dutyOf, presenterTypes, type Assignment, type Member, type MemberResponse, type PresenterAssignment, type SessionConfig, type StudentAssignment } from './types.ts'
 
 /** A place students can take: one shift on one date (and, in hospital mode, one job within it). */
 export interface Occ {
@@ -582,7 +582,7 @@ export function countStudentArrangements(
   opts: { nodeLimit?: number; probes?: number; seed?: number; ms?: number } = {},
 ): { exact: true; count: number } | { exact: false; log10: number } {
   const students = config.members.filter((m) => m.type === 'student')
-  const occs = studentOccs(config, config.duty)
+  const occs = studentOccs(config, dutyOf(config))
   if (!students.length || !occs.length || shiftsNeeded(config) <= 0) return { exact: true, count: students.length ? 0 : 1 }
   const resp = students.map((m) => studentResponse(config, responses, m.id))
   const quota = slotQuota(config)

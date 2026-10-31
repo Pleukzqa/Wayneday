@@ -5,7 +5,7 @@ import { shiftHours, shiftPoints, shiftTimes } from './calendar.ts'
 import { countArrangements, solve, solveMany, validate } from './solver.ts'
 import { arrangeStudents, countStudentArrangements, equalShare, pickPresenters, placeKey, studentCellIssues, studentExposure, studentOptions, studentRuleReport, studentTargets } from './students.ts'
 import { buildAiPrompt, importAiResult } from './ai.ts'
-import { ANY_SHIFT, DEFAULT_RESPONSE, DEFAULT_STUDENTS, type MemberResponse, type SessionConfig, type StudentAssignment } from './types.ts'
+import { ANY_SHIFT, DEFAULT_RESPONSE, DEFAULT_STUDENTS, dutyOf, type MemberResponse, type SessionConfig, type StudentAssignment } from './types.ts'
 
 function config(residents: number, staff = 0): SessionConfig {
   return {
@@ -211,6 +211,20 @@ test('hospital mode keeps residents/staff as given and only places students', ()
   const exp = studentExposure(c, r.alternatives[0].roster.assignments, r.alternatives[0].roster.students)
   const res = ['r0', 'r1', 'r2', 'r3'].map((id) => exp[id])
   assert.ok(Math.max(...res) - Math.min(...res) <= 1, `resident exposure ${res}`)
+})
+
+test('hospital roster left blank: students are arranged on their own', () => {
+  const c = hospital()
+  c.noDuty = true
+  c.students = { ...c.students, avoidRepeatResident: true }
+  const r = studentOptions(c, {}, dutyOf(c), { count: 2 })
+  assert.ok(r.ok)
+  if (!r.ok) return
+  assert.deepEqual(r.alternatives[0].roster.assignments, [], 'names already typed in are kept but not used')
+  assert.equal(r.alternatives[0].roster.students.length, 15)
+  const prompt = buildAiPrompt(c, {})
+  assert.match(prompt, /Hospital roster\nNot known yet/)
+  assert.doesNotMatch(prompt, /Fixed roster from the hospital/)
 })
 
 test('student places need no job (place) in hospital mode', () => {
