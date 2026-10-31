@@ -946,7 +946,7 @@ function RepairPlan({
   const shift = (id: string) => config.shifts.find((s) => s.id === id)?.name ?? ''
   const after = { assignments: before.assignments, students: plan.students, presenters: plan.presenters }
   const [b, a] = [studentRuleReport(config, responses, before), studentRuleReport(config, responses, after)]
-  const [ub, ua] = [typeSpread(config, before.students), typeSpread(config, plan.students)]
+  const [ub, ua] = [typeSpread(config, before.students, before.presenters), typeSpread(config, plan.students, plan.presenters)]
   return (
     <section className="card repair">
       <h2>🔧 {t('Fix with fewest changes')}</h2>

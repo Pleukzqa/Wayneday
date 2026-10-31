@@ -881,4 +881,6 @@ export const TH: Record<string, string> = {
   "Compare two arrangements": "เปรียบเทียบสองแบบ",
   "{n} shift(s) differ.": "เวรต่างกัน {n} เวร",
   "Days between shifts": "ระยะห่างระหว่างเวร",
+  "At most 1 apart, unless made up for in points": "ต่างกันไม่เกิน 1 เว้นแต่ชดเชยด้วยแต้ม",
+  "made up for": "ชดเชยแล้ว",
 }

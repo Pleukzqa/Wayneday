@@ -487,13 +487,14 @@ export function arrangeStudents(
       if (places.size >= students.length) sc += 400 * n.filter((k) => k === 0).length
     }
     // Each type of shift (slot) shared evenly within each group of students who take the same places: everyone
-    // gets about as many of the long shifts (e.g. overnight) as the others, at most one apart.
+    // gets about as many of the long shifts (e.g. overnight) as the others, at most one apart — unless someone with
+    // fewer makes up for it elsewhere (as many points as the group's average).
+    const loads = pointsOn ? mine.map((m, si) => m.reduce((n, oi) => n + occs[oi].pts, extraPoints[students[si].id] ?? 0)) : null
     for (const id of slotIds) {
       const n = mine.map((m) => m.filter((oi) => occs[oi].shiftId === id).length)
       sc += 40 * variance(n)
       for (const g of groups) {
-        const k = g.members.map((si) => n[si])
-        sc += SLOT_SPREAD_PENALTY * Math.max(0, Math.max(...k) - Math.min(...k) - 1)
+        sc += SLOT_SPREAD_PENALTY * unevenType(g.members.map((si) => n[si]), loads ? g.members.map((si) => loads[si]) : null)
       }
     }
     mine.forEach((m, si) => {
@@ -827,7 +828,7 @@ export function studentOptions(
         const p2 = pickPresenters(config, responses, assignments, again.students, seed)
         const rank = (st: StudentAssignment[], pr: PresenterAssignment[]) => {
           const r = studentRuleReport(config, responses, { assignments, students: st, presenters: pr })
-          return [typeSpread(config, st), r.pointsOk ? 0 : 1, r.pointsSpread]
+          return [typeSpread(config, st, pr), r.pointsOk ? 0 : 1, r.pointsSpread]
         }
         const [a, b] = [rank(placed.students, p.presenters), rank(again.students, p2.presenters)]
         const i = a.findIndex((x, k) => x !== b[k])
@@ -849,7 +850,7 @@ export function studentOptions(
       const both = r.pointsOk && missed === 0 ? 0 : r.pointsOk && r.avoidHits[3] === 0 ? 1 : 2
       // Everyone at morning report (each weekly presentation) at least once comes before all else, then each type of
       // shift shared out evenly (at most one apart within a group).
-      return [o, [r.missingWeekly.length, typeSpread(config, o.roster.students), both, r.pointsOk ? 0 : 1, r.pointsSpread, r.avoidHits[3], r.avoidHits[2], r.avoidHits[1], o.score]] as const
+      return [o, [r.missingWeekly.length, typeSpread(config, o.roster.students, o.roster.presenters), both, r.pointsOk ? 0 : 1, r.pointsSpread, r.avoidHits[3], r.avoidHits[2], r.avoidHits[1], o.score]] as const
     }),
   )
   out.sort((a, b) => {
@@ -868,16 +869,40 @@ export function sourceJob(config: SessionConfig, src: PresenterSource): string |
 }
 
 /** How unevenly each type of shift is shared: in each group, for each shift slot, shifts beyond one apart. */
-export function typeSpread(config: SessionConfig, students: StudentAssignment[]) {
+export function typeSpread(config: SessionConfig, students: StudentAssignment[], presenters?: PresenterAssignment[]) {
   const studs = config.members.filter((m) => m.type === 'student')
+  const load = loadPoints(config, students, presenters)
   let over = 0
   for (const g of shareGroups(config)) {
     for (const sh of config.shifts) {
       const n = g.members.map((si) => students.filter((x) => x.memberId === studs[si].id && x.shiftId === sh.id).length)
-      over += Math.max(0, Math.max(...n) - Math.min(...n) - 1)
+      over += unevenType(n, load ? g.members.map((si) => load[studs[si].id] ?? 0) : null)
     }
   }
   return over
+}
+
+/**
+ * How unevenly one type of shift is shared in a group: for each student more than one below the most anyone has,
+ * how far — unless they make up for it elsewhere (their points, with presentations when those count, are at least
+ * the group's average). `points` null = no points, so nothing can make up for it.
+ */
+export function unevenType(counts: number[], points: number[] | null) {
+  if (!counts.length) return 0
+  const most = Math.max(...counts)
+  const avg = points ? points.reduce((a, b) => a + b, 0) / points.length : 0
+  return counts.reduce((n, k, i) => {
+    const short = most - k - 1
+    return short > 0 && !(points && points[i] >= avg) ? n + short : n
+  }, 0)
+}
+
+/** Each student's points as the host counts them (shifts, plus presentations when they count); null when points are off. */
+function loadPoints(config: SessionConfig, students: StudentAssignment[], presenters?: PresenterAssignment[]): Record<string, number> | null {
+  if (!config.students.points?.on) return null
+  const out: Record<string, number> = presentationsCount(config) && presenters ? { ...presentationLoad(config, presenters) } : {}
+  for (const x of students) out[x.memberId] = (out[x.memberId] ?? 0) + shiftPoints(config, x.shiftId, x.date)
+  return out
 }
 
 /** Do presentations count towards points (points on, and the host chose so)? */
@@ -1153,15 +1178,19 @@ export function repairRoster(
   for (const x of cur) pts.set(x.memberId, (pts.get(x.memberId) ?? 0) + shiftPoints(config, x.shiftId, x.date))
   const spreadOf = (id: string, slot: string) => {
     const g = groupOf.get(index.get(id)!) ?? []
-    const n = g.map((si) => count.get(key(studs[si].id, slot)) ?? 0)
-    return Math.max(0, Math.max(...n) - Math.min(...n) - 1)
+    // The fix keeps to the strict rule (no making up in points): trades move points around, which would let it
+    // chase its own tail, and it must not cost anyone their only morning report.
+    return unevenType(g.map((si) => count.get(key(studs[si].id, slot)) ?? 0), null)
   }
   const avoidCost = (id: string, date: string) => AVOID_PENALTY[avoidLevel(resp.get(id)!, date)]
   /** How much a trade of places between a and b improves things (bigger is better). */
   const gain = (a: StudentAssignment, b: StudentAssignment) => {
     const slots = [...new Set([a.shiftId, b.shiftId])]
     const ids = [a.memberId, b.memberId]
-    const spreadBefore = slots.reduce((n, sl) => n + ids.reduce((m, id) => Math.max(m, spreadOf(id, sl)), 0), 0)
+    // Both are in the same group (only they can trade), so the group's figure covers them both — for every type,
+    // since a trade changes points, which decide whether fewer of some other type is made up for.
+    const every = slots
+    const spreadBefore = every.reduce((n, sl) => n + spreadOf(ids[0], sl), 0)
     const bump = (d: number) => {
       count.set(key(a.memberId, a.shiftId), (count.get(key(a.memberId, a.shiftId)) ?? 0) - d)
       count.set(key(a.memberId, b.shiftId), (count.get(key(a.memberId, b.shiftId)) ?? 0) + d)
@@ -1169,7 +1198,13 @@ export function repairRoster(
       count.set(key(b.memberId, a.shiftId), (count.get(key(b.memberId, a.shiftId)) ?? 0) + d)
     }
     bump(1)
-    const spreadAfter = slots.reduce((n, sl) => n + ids.reduce((m, id) => Math.max(m, spreadOf(id, sl)), 0), 0)
+    const shift = (d: number) => {
+      pts.set(a.memberId, (pts.get(a.memberId) ?? 0) + d * (shiftPoints(config, b.shiftId, b.date) - shiftPoints(config, a.shiftId, a.date)))
+      pts.set(b.memberId, (pts.get(b.memberId) ?? 0) + d * (shiftPoints(config, a.shiftId, a.date) - shiftPoints(config, b.shiftId, b.date)))
+    }
+    shift(1)
+    const spreadAfter = every.reduce((n, sl) => n + spreadOf(ids[0], sl), 0)
+    shift(-1)
     bump(-1)
     const avoid = avoidCost(a.memberId, a.date) + avoidCost(b.memberId, b.date) - avoidCost(a.memberId, b.date) - avoidCost(b.memberId, a.date)
     const pa = shiftPoints(config, a.shiftId, a.date)
@@ -1628,13 +1663,19 @@ export function fairnessReport(
     result: groupRanges((si) => count(si)),
     ok: st.auto ? byGroup((si) => count(si)).every((xs) => spread(xs) <= 1) : studs.every((_, si) => count(si) === need),
   })
+  const load = loadPoints(config, roster.students, roster.presenters)
   for (const sh of config.shifts.filter((x) => roster.students.some((y) => y.shiftId === x.id))) {
+    const uneven = groups.reduce(
+      (n, g) => n + unevenType(g.members.map((si) => count(si, (x) => x.shiftId === sh.id)), load ? g.members.map((si) => load[studs[si].id] ?? 0) : null),
+      0,
+    )
+    const strict = byGroup((si) => count(si, (x) => x.shiftId === sh.id)).every((xs) => spread(xs) <= 1)
     rows.push({
       key: `type-${sh.id}`,
       what: sh.name,
-      setting: t('Even, at most 1 apart'),
-      result: groupRanges((si) => count(si, (x) => x.shiftId === sh.id)),
-      ok: byGroup((si) => count(si, (x) => x.shiftId === sh.id)).every((xs) => spread(xs) <= 1),
+      setting: load ? t('At most 1 apart, unless made up for in points') : t('Even, at most 1 apart'),
+      result: `${groupRanges((si) => count(si, (x) => x.shiftId === sh.id))}${!strict && uneven === 0 ? ` (${t('made up for')})` : ''}`,
+      ok: uneven === 0,
     })
   }
   if (st.points?.on) {
