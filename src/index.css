@@ -1680,3 +1680,9 @@ button.big {
   flex-wrap: wrap;
   gap: 0.2rem 0.8rem;
 }
+.organizers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 1rem;
+  margin: 0.2rem 0 0;
+}

@@ -3,6 +3,7 @@ import { forgetMember, setTokens, api } from '../api.ts'
 import { invitedMemberFromHash, IS_DEMO, sessionHash } from '../routes.ts'
 import { shortDate } from '../shared/dates.ts'
 import { t } from '../shared/i18n.ts'
+import type { Organizer } from '../apiTypes.ts'
 import type { MemberType } from '../shared/types.ts'
 import { useSession } from '../useSession.ts'
 import SetupTab from '../components/SetupTab.tsx'
@@ -22,7 +23,7 @@ export default function SessionPage({ code }: { code: string }) {
   if (!view) {
     return <p className={error ? 'error' : 'muted'}>{error ?? t("Loading session…")}</p>;
   }
-  const { session, me, hosts } = view
+  const { session, me, hosts, organizers = [] } = view
   const google = !IS_DEMO && Boolean(googleClientId())
   // Default tab comes from the state at first load only, so saving doesn't yank the user elsewhere.
   const current: Tab = tab ?? initialTab(view)
@@ -39,6 +40,7 @@ export default function SessionPage({ code }: { code: string }) {
             {session.config.startDate}→ {session.config.endDate}· {session.config.members.length} {t("people ·")}{' '}
             {statusText(session)}
           </p>
+          <Organizers list={organizers} />
         </div>
         <div className="who">
           {me.isHost && <span className="badge host">{me.hostRole === 'cohost' ? t('Co-host') : t('Host')}</span>}
@@ -138,6 +140,32 @@ function statusText(s: SessionProps['session']) {
   if (!s.schedule) return `📝 ${t('collecting answers')}`
   if (s.schedule.status === 'final') return `✅ ${t('roster final')}`
   return Date.now() < s.schedule.reviewUntil ? `👀 ${t('roster in review')}` : `⏰ ${t('review period ended')}`
+}
+
+/** Who runs this roster, for everyone: the host (owner) and co-hosts, by name. */
+function Organizers({ list }: { list: Organizer[] }) {
+  if (!list.length) return null
+  const names = (xs: Organizer[]) => {
+    const named = xs.filter((x) => x.name).map((x) => x.name)
+    const more = xs.length - named.length
+    return [...named, ...(more ? [named.length ? t('+{n} more', { n: more }) : String(more)] : [])].join(', ')
+  }
+  const owner = list.filter((o) => o.role === 'owner')
+  const cohosts = list.filter((o) => o.role === 'cohost')
+  return (
+    <p className="small organizers">
+      {owner.length > 0 && (
+        <span>
+          👑 {t('Host')}: <b>{names(owner)}</b>
+        </span>
+      )}
+      {cohosts.length > 0 && (
+        <span>
+          🤝 {t('Co-host')}: <b>{names(cohosts)}</b>
+        </span>
+      )}
+    </p>
+  )
 }
 
 /** The host's checklist: what's done and what to do next, each step one tap away. */

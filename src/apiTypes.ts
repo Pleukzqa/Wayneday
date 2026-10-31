@@ -15,11 +15,18 @@ export interface HostInfo {
   role: 'owner' | 'cohost'
   addedAt: number
 }
+/** Who runs the session, as everyone sees it: names only, no emails. */
+export interface Organizer {
+  /** Their Google name; empty for a co-host who hasn't signed in yet (only their email is known). */
+  name: string
+  role: 'owner' | 'cohost'
+}
 export interface SessionView {
   session: PublicSession
   me: Me
   /** Only sent to hosts. */
   hosts?: HostInfo[]
+  organizers?: Organizer[]
 }
 export interface MySession {
   code: string

@@ -414,8 +414,9 @@ export function createApi(opts: ApiOptions) {
 
   function view(req: Request, s: StoredSession) {
     const { byToken: _b, account: _a, ...me } = who(req, s)
-    // Host emails are only shown to hosts.
-    return { session: toPublic(s), me, ...(me.isHost ? { hosts: s.hosts } : {}) }
+    // Host emails are only shown to hosts; everyone sees hosts' names, so members know who runs it.
+    const organizers = s.hosts.map((h) => ({ name: h.name.includes('@') ? '' : h.name, role: h.role }))
+    return { session: toPublic(s), me, organizers, ...(me.isHost ? { hosts: s.hosts } : {}) }
   }
 
   const router = express.Router()

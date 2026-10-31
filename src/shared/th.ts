@@ -655,4 +655,5 @@ export const TH: Record<string, string> = {
   "{n} not logged in yet": "ยังไม่เข้าระบบ {n}",
   "Logged in, not ready yet": "เข้าระบบแล้ว ยังไม่กดพร้อม",
   "Hasn’t logged in yet": "ยังไม่ได้เข้าระบบ",
+  "+{n} more": "+ อีก {n} คน",
 }

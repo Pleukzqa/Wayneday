@@ -80,9 +80,14 @@ for (const [kind, makeStore] of stores) {
 
       assert.equal((await call('POST', `/sessions/${code}/hosts`, { body: { action: 'add', email: 'not-an-email' }, account: alice })).status, 400)
       assert.equal((await call('POST', `/sessions/${code}/hosts`, { body: { action: 'add', email: ' Bob@Example.com ' }, account: alice })).status, 200)
+      // Members see who runs it by name only; a co-host who hasn't signed in yet has no name to show.
+      const member = (await call('GET', `/sessions/${code}`)).body
+      assert.deepEqual(member.organizers, [{ name: 'alice', role: 'owner' }, { name: '', role: 'cohost' }])
+      assert.equal(JSON.stringify(member).includes('@example.com'), false)
       const asBob = (await call('GET', `/sessions/${code}`, { account: bob })).body
       assert.equal(asBob.me.hostRole, 'cohost')
       assert.equal(asBob.hosts.find((h: { email: string }) => h.email === 'bob@example.com').name, 'bob', 'their Google name replaces the email')
+      assert.deepEqual((await call('GET', `/sessions/${code}`)).body.organizers, [{ name: 'alice', role: 'owner' }, { name: 'bob', role: 'cohost' }])
       assert.equal((await call('PUT', `/sessions/${code}/config`, { body: { title: 'Nights v2' }, account: bob })).status, 200)
       assert.equal((await call('POST', `/sessions/${code}/hosts`, { body: { action: 'add', email: 'carol@example.com' }, account: bob })).status, 403)
       assert.equal((await call('POST', `/sessions/${code}/hosts`, { body: { action: 'remove', email: 'alice@example.com' }, account: bob })).status, 400)

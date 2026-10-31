@@ -83,7 +83,11 @@ const actorFor = (code: string): Actor => {
 function view(code: string): SessionView {
   const s = store.sessions[code]
   if (!s) throw new Error('Session not found on this device. Demo sessions only exist in this browser.')
-  return { session: clone(s), me: actorFor(code) }
+  return {
+    session: clone(s),
+    me: actorFor(code),
+    organizers: code === SAMPLE_CODE ? [{ name: 'Dr. Wipa', role: 'owner' }, { name: 'Ploy', role: 'cohost' }] : [],
+  }
 }
 
 async function mutate(code: string, hostOnly: boolean, fn: (s: PublicSession) => void): Promise<SessionView> {
