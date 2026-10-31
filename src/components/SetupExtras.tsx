@@ -567,7 +567,14 @@ export function StudentsCard({ draft, edit, ro, responses }: { draft: SessionCon
           <p className="small share">
             {!count || !share.places
               ? t('Add students and student places, and Wayneday splits the places between them equally.')
-              : share.extra
+              : share.groups > 1
+                ? t('{p} student places, shared within {g} groups of students who take different places (e.g. two rotations) → {a}–{b} shifts each.', {
+                    p: share.total,
+                    g: share.groups,
+                    a: share.range[0],
+                    b: share.range[1],
+                  })
+                : share.extra
                 ? t('{p} student places ÷ {s} students → {k} students do {b} shifts, the rest do {a}.', { p: share.total, s: count, k: share.extra, a: share.base, b: share.base + 1 })
                 : t('{p} student places ÷ {s} students → every student does {a} shifts.', { p: share.total, s: count, a: share.base })}{' '}
             {share.limited && (

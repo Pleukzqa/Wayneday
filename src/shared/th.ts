@@ -732,4 +732,5 @@ export const TH: Record<string, string> = {
   "No single change is enough here — it needs a few of the fixes above together.": "เปลี่ยนข้อเดียวไม่พอ — ต้องแก้หลายข้อด้านบนพร้อมกัน",
   "Even if nobody had marked any day, there would be no arrangement — the setup itself doesn’t fit (places, minimums, shifts each or gaps).": "ถึงจะไม่มีใครทำเครื่องหมายวันไหนเลย ก็ยังจัดไม่ได้ — การตั้งค่าเองไม่ลงตัว (จำนวนที่ ขั้นต่ำ เวรต่อคน หรือระยะห่าง)",
   "With nobody’s days marked it would work — so it’s the ✕ unavailable days or locked shifts that make it impossible.": "ถ้าไม่มีใครทำเครื่องหมายวันไว้ จะจัดได้ — สิ่งที่ทำให้จัดไม่ได้คือวันที่ ✕ ไม่ว่าง หรือเวรที่ล็อกไว้",
+  "{p} student places, shared within {g} groups of students who take different places (e.g. two rotations) → {a}–{b} shifts each.": "ที่สำหรับนิสิต {p} ที่ แบ่งกันภายใน {g} กลุ่มที่อยู่คนละจุดงาน (เช่น สองสาย) → คนละ {a}–{b} เวร",
 }

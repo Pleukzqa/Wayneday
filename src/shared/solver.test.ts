@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import { addDays, dateRange, dayDiff } from './dates.ts'
 import { shiftHours, shiftPoints, shiftTimes } from './calendar.ts'
 import { countArrangements, solve, solveMany, validate } from './solver.ts'
-import { arrangeStudents, countStudentArrangements, equalShare, pickPresenters, placeKey, studentCellIssues, studentExposure, studentOptions, studentRuleReport, studentTargets } from './students.ts'
+import { arrangeStudents, countStudentArrangements, equalShare, shareGroups, shiftsNeeded, pickPresenters, placeKey, studentCellIssues, studentExposure, studentOptions, studentRuleReport, studentTargets } from './students.ts'
 import { buildAiPrompt, importAiResult } from './ai.ts'
 import { explainNoArrangement } from './explain.ts'
 import { ANY_SHIFT, DEFAULT_RESPONSE, DEFAULT_STUDENTS, dutyOf, type MemberResponse, type SessionConfig, type StudentAssignment } from './types.ts'
@@ -332,6 +332,28 @@ test('presenters from 2–3 days before, with one date changed back to last nigh
   }
   assert.match(buildAiPrompt(c, {}), /who worked "Night" 2–3 days before/)
   assert.match(buildAiPrompt(c, {}), /2026-11-18: 1 presenter\(s\), including at least 1 who worked "Night" the day before/)
+})
+
+test('sharing equally within rotations of different sizes', () => {
+  // Two wards, one student each every night. Rotation 1 (3 students): Ward A then Ward B; rotation 2 (2 students): the other way.
+  const c = hospital()
+  c.jobs = [{ id: 'a', name: 'Ward A' }, { id: 'b', name: 'Ward B' }]
+  c.shifts = [{ ...c.shifts[0], requirements: [{ id: 'wa', jobId: 'a', memberType: 'any', count: 1, min: 1 }, { id: 'wb', jobId: 'b', memberType: 'any', count: 1, min: 1 }] }]
+  c.members = c.members.filter((m) => m.type !== 'student')
+  const plan = (first: string, then: string) => [{ jobId: first, from: '2026-11-01', to: '2026-11-15' }, { jobId: then, from: '2026-11-16', to: '2026-11-30' }]
+  for (const n of ['A', 'B', 'C']) c.members.push({ id: `st${n}`, name: `Student ${n}`, type: 'student', jobs: [], periods: plan('a', 'b') })
+  for (const n of ['D', 'E']) c.members.push({ id: `st${n}`, name: `Student ${n}`, type: 'student', jobs: [], periods: plan('b', 'a') })
+  c.students = { ...c.students, auto: true }
+  assert.deepEqual(shareGroups(c).map((g) => [g.members.length, g.places]), [[3, 30], [2, 30]])
+  // Shared across all five it would be 12 each, which neither ward can take; within each rotation it's 10 and 15.
+  const r = studentOptions(c, {}, c.duty, { count: 2 })
+  assert.ok(r.ok, r.ok ? '' : r.problems.join(' | '))
+  if (!r.ok) return
+  const counts = (ids: string[]) => ids.map((id) => r.alternatives[0].roster.students.filter((x) => x.memberId === id).length)
+  assert.deepEqual(counts(['stA', 'stB', 'stC']), [10, 10, 10])
+  assert.deepEqual(counts(['stD', 'stE']), [15, 15])
+  assert.deepEqual([...studentCellIssues(c, {}, r.alternatives[0].roster.students).values()].flat(), [], 'equal within each rotation is not flagged')
+  assert.equal(shiftsNeeded(c), 15)
 })
 
 test('dated places: a student covers Ward A until the 15th, then Ward B', () => {

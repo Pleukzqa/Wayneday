@@ -93,6 +93,62 @@ export function equalShare(config: SessionConfig, total = studentOccs(config, []
   return { total, base: n ? Math.floor(total / n) : 0, extra: n ? total % n : 0 }
 }
 
+/**
+ * Students who can take the same places, joined up (by "Can cover" and places by dates). Sharing equally
+ * happens within each group: two rotations that never share a ward each split their own ward's places.
+ * Usually there's one group, everyone.
+ */
+export function shareGroups(config: SessionConfig, occs = studentOccs(config, [])): { members: number[]; places: number }[] {
+  const students = config.members.filter((m) => m.type === 'student')
+  const parent = students.map((_, i) => i)
+  const root = (i: number): number => (parent[i] === i ? i : (parent[i] = root(parent[i])))
+  const covers = students.map((m) => occs.filter((o) => coversJob(m, o.jobId, o.date)).map((o) => o.i))
+  const first = new Map<number, number>()
+  covers.forEach((list, si) =>
+    list.forEach((oi) => {
+      const other = first.get(oi)
+      if (other === undefined) first.set(oi, si)
+      else parent[root(si)] = root(other)
+    }),
+  )
+  const groups = new Map<number, number[]>()
+  students.forEach((_, si) => groups.set(root(si), [...(groups.get(root(si)) ?? []), si]))
+  return [...groups.values()].map((members) => ({
+    members,
+    places: [...new Set(members.flatMap((si) => covers[si]))].reduce((n, oi) => n + occs[oi].cap, 0),
+  }))
+}
+
+/** `total` student-shifts split between groups by their places (largest remainder), never above a group's places. */
+function splitTotal(groups: { places: number }[], total: number): number[] {
+  const places = groups.reduce((n, g) => n + g.places, 0)
+  if (!places) return groups.map(() => 0)
+  const raw = groups.map((g) => (Math.min(total, places) * g.places) / places)
+  const out = raw.map(Math.floor)
+  let left = Math.min(total, places) - out.reduce((a, b) => a + b, 0)
+  for (const gi of sortedBy(groups.map((_, i) => i), (i) => out[i] - raw[i])) {
+    if (left <= 0) break
+    if (out[gi] < groups[gi].places) {
+      out[gi]++
+      left--
+    }
+  }
+  return out
+}
+
+/** Sharing equally: each student's [fewest, most] shifts, sharing `total` within their group. */
+export function equalTargets(config: SessionConfig, total?: number, occs = studentOccs(config, [])): [number, number][] {
+  const groups = shareGroups(config, occs)
+  const totals = splitTotal(groups, total ?? occs.reduce((n, o) => n + o.cap, 0))
+  const out: [number, number][] = config.members.filter((m) => m.type === 'student').map(() => [0, 0])
+  groups.forEach((g, gi) => {
+    const base = Math.floor(totals[gi] / g.members.length)
+    const hi = base + (totals[gi] % g.members.length ? 1 : 0)
+    for (const si of g.members) out[si] = [base, hi]
+  })
+  return out
+}
+
 /** Most shifts each student can fit in their allowed places, keeping their gap (earliest-first is optimal). */
 export function fitCounts(occs: Occ[], allowed: number[][], gaps: number[]): number[] {
   return allowed.map((list, si) => {
@@ -125,17 +181,24 @@ export function equalShareFor(config: SessionConfig, responses: Record<string, M
   const resp = students.map((m) => studentResponse(config, responses, m.id))
   const allowed = students.map((m, si) => occs.filter((o) => !resp[si].unavailable.includes(o.date) && canDo(m, o)).map((o) => o.i))
   const fit = fitCounts(occs, allowed, resp.map((r) => r.minInterval))
-  const total = students.length ? Math.min(places, equalMost(fit)) : places
+  const groups = shareGroups(config, occs)
+  const total = students.length ? groups.reduce((n, g) => n + Math.min(g.places, equalMost(g.members.map((si) => fit[si]))), 0) : places
   const fewest = Math.min(...fit)
-  return { places, ...equalShare(config, total), limited: total < places ? { name: students[fit.indexOf(fewest)].name, k: fewest } : null }
+  // With groups that take different places, each shares its own: the overall range of shifts each.
+  const targets = equalTargets(config, total, occs)
+  const range: [number, number] = targets.length ? [Math.min(...targets.map(([lo]) => lo)), Math.max(...targets.map(([, hi]) => hi))] : [0, 0]
+  return {
+    places,
+    ...equalShare(config, total),
+    groups: groups.length,
+    range,
+    limited: total < places ? { name: students[fit.indexOf(fewest)].name, k: fewest } : null,
+  }
 }
 
 /** Shifts each student does in total (the most anyone does, when sharing equally). */
 export function shiftsNeeded(config: SessionConfig): number {
-  if (config.students.auto) {
-    const { base, extra } = equalShare(config)
-    return base + (extra ? 1 : 0)
-  }
+  if (config.students.auto) return Math.max(0, ...equalTargets(config).map(([, hi]) => hi))
   const q = slotQuota(config)
   return q ? [...q.values()].reduce((a, b) => a + b, 0) : config.students.shiftsPerStudent
 }
@@ -226,11 +289,17 @@ export function arrangeStudents(
   // Shifts each student does. Sharing equally, the students with the most open places take the extra
   // ones (with a random tie-break, so each option shares them differently).
   let needs = students.map(() => need)
+  // Within each group of students who can take the same places (see shareGroups).
+  const groups = shareGroups(config, occs)
   const shareOut = (total: number) => {
-    const { base, extra } = equalShare(config, total)
-    const order = sortedBy(students.map((_, si) => si), (si) => -allowed[si].length + (rand() - 0.5) * 6)
-    needs = students.map(() => base)
-    for (const si of order.slice(0, extra)) needs[si]++
+    const totals = splitTotal(groups, total)
+    needs = students.map(() => 0)
+    groups.forEach((g, gi) => {
+      const base = Math.floor(totals[gi] / g.members.length)
+      const order = sortedBy(g.members, (si) => -allowed[si].length + (rand() - 0.5) * 6)
+      for (const si of g.members) needs[si] = base
+      for (const si of order.slice(0, totals[gi] % g.members.length)) needs[si]++
+    })
   }
   // mine[si] = occurrence indexes; load[oi] = students on that occurrence
   let mine: number[][] = []
@@ -259,7 +328,7 @@ export function arrangeStudents(
   // Sharing equally, nobody can do more than one shift above the least available student.
   const fewest = Math.min(...fitMax)
   const limited = students[fitMax.indexOf(fewest)]
-  const most = equalMost(fitMax)
+  const most = groups.reduce((n, g) => n + Math.min(g.places, equalMost(g.members.map((si) => fitMax[si]))), 0)
   let total = auto ? Math.min(places, most) : places
   for (let tries = 0; ; tries++) {
     if (auto) shareOut(total)
@@ -769,13 +838,19 @@ export function studentCellIssues(
     }
   }
   if (students.length && config.students.auto) {
-    // Whatever was placed, nobody should have more than one shift more than anyone else.
-    const { base, extra } = equalShare(config, students.length)
-    for (const m of config.members.filter((x) => x.type === 'student')) {
-      const n = students.filter((s) => s.memberId === m.id).length
-      const first = students.find((s) => s.memberId === m.id)
-      if ((n < base || n > base + (extra ? 1 : 0)) && first) {
-        add(placeKey(first), t('{name} has {n} shifts; an equal share is {share}.', { name: m.name, n, share: extra ? `${base}–${base + 1}` : base }))
+    // Whatever was placed, nobody should have more than one shift more than anyone else in their group.
+    const all = config.members.filter((x) => x.type === 'student')
+    const count = (si: number) => students.filter((s) => s.memberId === all[si].id).length
+    for (const g of shareGroups(config, occs)) {
+      const placed = g.members.reduce((n, si) => n + count(si), 0)
+      const base = Math.floor(placed / g.members.length)
+      const extra = placed % g.members.length
+      for (const si of g.members) {
+        const n = count(si)
+        const first = students.find((s) => s.memberId === all[si].id)
+        if ((n < base || n > base + (extra ? 1 : 0)) && first) {
+          add(placeKey(first), t('{name} has {n} shifts; an equal share is {share}.', { name: all[si].name, n, share: extra ? `${base}–${base + 1}` : base }))
+        }
       }
     }
   } else if (students.length) {

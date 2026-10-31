@@ -5,7 +5,7 @@
 import { endDays, presentationOn, reqCount, ruleSources, shiftRuns, sourceMatches } from './calendar.ts'
 import { dateRange, WEEKDAYS } from './dates.ts'
 import { responseFor } from './scoring.ts'
-import { equalShare } from './students.ts'
+import { equalShare, equalTargets, shareGroups } from './students.ts'
 import { ANY_SHIFT, coversJob, dutyOf, LAST_NIGHT, presenterTypes, type DaysBack, type Assignment, type PresenterSource, type MemberResponse, type PresenterAssignment, type Roster, type SessionConfig, type StudentAssignment } from './types.ts'
 
 export const AI_FORMAT_TAG = 'wayneday-roster'
@@ -114,6 +114,14 @@ export function buildAiPrompt(config: SessionConfig, responses: Record<string, M
             st.auto
               ? (() => {
                   const { total, base, extra } = equalShare(config)
+                  const groups = shareGroups(config)
+                  if (groups.length > 1) {
+                    const studs = config.members.filter((m) => m.type === 'student')
+                    const targets = equalTargets(config)
+                    return `Fill every student place up to its maximum (${total} student-shifts). Students who can take the same places share them as equally as possible within their group: ${groups
+                      .map((g) => `${g.members.map((si) => `"${studs[si].name}"`).join(', ')} each do ${targets[g.members[0]][0]}${targets[g.members[0]][1] > targets[g.members[0]][0] ? ` or ${targets[g.members[0]][1]}` : ''}`)
+                      .join('; ')}. Keep a similar mix of each shift slot.`
+                  }
                   return `Fill every student place up to its maximum (${total} student-shifts) and share them as equally as possible: each student does ${base}${extra ? ` or ${base + 1}` : ''} shift(s), with a similar mix of each shift slot.`
                 })()
               : st.perSlot && Object.keys(st.perSlot).length
