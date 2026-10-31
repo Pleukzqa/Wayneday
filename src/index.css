@@ -1848,3 +1848,39 @@ button.big {
   color: var(--accent);
   font-weight: 600;
 }
+/* Big tables scroll inside their own box, so the header row (and the first column) stay in view. */
+.table-wrap {
+  max-height: 75vh;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.table-wrap thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--surface-2);
+}
+.first-sticky tbody td:first-child,
+.first-sticky thead th:first-child {
+  position: sticky;
+  left: 0;
+  background: var(--surface);
+  z-index: 1;
+}
+.first-sticky thead th:first-child,
+.grid thead th.sticky,
+.roster thead th.sticky {
+  z-index: 3;
+  background: var(--surface-2);
+}
+.first-sticky tr.me td:first-child {
+  background: var(--mine);
+}
+/* Header cells must be solid so rows don't show through as they scroll under them. */
+.table-wrap thead th.extra-col {
+  background: color-mix(in srgb, var(--accent-soft) 40%, var(--surface-2));
+}
+.table-wrap thead th.duty-col {
+  background: var(--surface-2);
+}

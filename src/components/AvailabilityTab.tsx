@@ -488,7 +488,7 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
           </span>
         </div>
         {me.isHost && editOthers && !reason.trim() && <p className="small warn-text">{t('To change someone’s pattern or interval here, write your reason above the calendar first.')}</p>}
-        <div className="scroll-x">
+        <div className="scroll-x table-wrap first-sticky">
           <table className="mini">
             <thead>
               <tr>

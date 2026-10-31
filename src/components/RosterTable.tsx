@@ -57,7 +57,7 @@ export default function RosterTable({ config, roster, myId, avoidOf, onEdit, onE
     )
 
   return (
-    <div className="scroll-x" ref={tableRef}>
+    <div className="scroll-x table-wrap" ref={tableRef}>
       <table className="roster">
         <thead>
           <tr>

@@ -997,7 +997,7 @@ function StudentSummary({ config, roster, myId }: { config: SessionConfig; roste
   return (
     <section className="card">
       <h2>🎓 {t('Per student')}</h2>
-      <div className="scroll-x">
+      <div className="scroll-x table-wrap first-sticky">
         <table className="mini">
           <thead>
             <tr>
