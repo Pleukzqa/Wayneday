@@ -171,6 +171,16 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
   // Ready, logged in and still filling in, or not logged in yet (an answer the host filled in counts as filling in).
   const statusOf = (id: string): keyof typeof STATUS =>
     respOf(id).ready ? 'ready' : session.claimed.includes(id) || session.responses[id] ? 'filling' : 'away'
+  const statusIcon = (id: string) => {
+    const status = statusOf(id)
+    const title =
+      status === 'ready'
+        ? t('Ready since {time}', { time: new Date(respOf(id).ready!).toLocaleString() })
+        : status === 'filling'
+          ? t('Logged in, not ready yet')
+          : t('Hasn’t logged in yet')
+    return <span title={title}>{STATUS[status].icon} </span>
+  }
   const members = [...answering].sort((a, b) => Number(b.id === me.memberId) - Number(a.id === me.memberId))
   const iAnswer = Boolean(me.memberId && answering.some((m) => m.id === me.memberId))
   const mine = me.memberId && iAnswer ? respOf(me.memberId) : null
@@ -346,7 +356,10 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
                 <th className="sticky">{t("Date")}</th>
                 {members.map((m) => (
                   <th key={m.id} className={m.id === me.memberId ? 'me' : ''}>
-                    <div className="colname">{m.name}</div>
+                    <div className="colname">
+                      {statusIcon(m.id)}
+                      {m.name}
+                    </div>
                     <div className="muted tiny">
                       {typeName(m.type)}
                       {session.responses[m.id]?.editedByHost ? t(" · host edited") : ''}
@@ -459,17 +472,7 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
                 return (
                   <tr key={m.id} className={m.id === me.memberId ? 'me' : ''}>
                     <td className="nowrap">
-                      <span
-                        title={
-                          r.ready
-                            ? t('Ready since {time}', { time: new Date(r.ready).toLocaleString() })
-                            : statusOf(m.id) === 'filling'
-                              ? t('Logged in, not ready yet')
-                              : t('Hasn’t logged in yet')
-                        }
-                      >
-                        {STATUS[statusOf(m.id)].icon}{' '}
-                      </span>
+                      {statusIcon(m.id)}
                       {m.name} <span className="muted tiny">{typeName(m.type)}</span>
                     </td>
                     {answered || pending[m.id] ? (
