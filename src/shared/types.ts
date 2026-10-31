@@ -178,6 +178,11 @@ export interface PointSettings {
   weekend: number
   /** Shift slot id -> multiplier; missing = 1. */
   shifts?: Record<string, number>
+  /**
+   * Final points set by hand for one shift slot, replacing the calculation: `slotId|weekday`, `slotId|weekend`
+   * (weekends and holidays) or `slotId|YYYY-MM-DD` (that date only).
+   */
+  fixed?: Record<string, number>
 }
 
 export const DEFAULT_POINTS: PointSettings = { on: false, weekday: 1, weekend: 2 }

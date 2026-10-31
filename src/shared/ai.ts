@@ -124,6 +124,16 @@ export function buildAiPrompt(config: SessionConfig, responses: Record<string, M
                     ? `, multiplied by ${Object.entries(st.points.shifts ?? {}).filter(([, m]) => m !== 1).map(([id, m]) => `${m} for "${shiftName(id)}"`).join(', ')}`
                     : ''
                 }${
+                  Object.keys(st.points.fixed ?? {}).length
+                    ? `; these shifts have points set by hand, used instead of the calculation: ${Object.entries(st.points.fixed ?? {})
+                        .sort()
+                        .map(([k, v]) => {
+                          const [slot, when] = k.split('|')
+                          return `"${shiftName(slot)}" ${when === 'weekday' ? 'on weekdays' : when === 'weekend' ? 'on weekends/holidays' : `on ${when}`} = ${v}`
+                        })
+                        .join(', ')} (a date's own points beat the weekday/weekend ones)`
+                    : ''
+                }${
                   Object.keys(config.datePoints ?? {}).length
                     ? `; these dates have their own points: ${Object.entries(config.datePoints ?? {}).sort().map(([d, v]) => `${d} = ${v}`).join(', ')}`
                     : ''

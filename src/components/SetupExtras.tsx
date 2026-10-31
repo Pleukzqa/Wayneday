@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { api } from '../api.ts'
 import { equalShareFor, studentOccs } from '../shared/students.ts'
 import { t, typeName, weekdayLetter, weekdayLong, weekdayShort } from '../shared/i18n.ts'
-import { dayPoints, fmtPoints, overrideFor, presentationOn, presentationUsually, reqCount, ruleSources, shiftHours, shiftRuns, shiftTimes, sourceOffsets } from '../shared/calendar.ts'
+import { dayPoints, fixedKey, fmtPoints, overrideFor, presentationOn, presentationUsually, reqCount, ruleSources, shiftHours, shiftPoints, shiftRuns, shiftTimes, sourceOffsets } from '../shared/calendar.ts'
 import { addDays, dateRange, shortDate, weekday } from '../shared/dates.ts'
 import { ANY_SHIFT, DEFAULT_POINTS, DUTY_ROLES, isOneDay, LAST_NIGHT, type DateOverride, type DaysBack, type DutyRole, type MemberResponse, type MemberType, type PresentationOverride, type PresentationRule, type PresenterSource, type SessionConfig } from '../shared/types.ts'
 import { uid, type SessionProps } from './props.ts'
@@ -44,6 +44,15 @@ function setPresentation(c: SessionConfig, date: string, ruleId: string, patch: 
   return { ...c, presentationOverrides: isDefault ? rest : [...rest, clean] }
 }
 
+/** Set (or with null, clear) a shift's hand-set final points; see PointSettings.fixed. */
+function setFixedPoints(c: SessionConfig, key: string, value: number | null): SessionConfig {
+  const p = { ...DEFAULT_POINTS, ...c.students.points }
+  const fixed = { ...p.fixed }
+  if (value === null) delete fixed[key]
+  else fixed[key] = value
+  return { ...c, students: { ...c.students, points: { ...p, fixed } } }
+}
+
 /**
  * Copy one day's shifts and presentations to other dates — only where that shift or presentation normally
  * happens or is already on, so copying a Monday change across the week leaves the weekend alone.
@@ -74,8 +83,12 @@ export function CalendarCard({ draft, edit, ro }: { draft: SessionConfig; edit: 
   const job = (id: string) => draft.jobs.find((j) => j.id === id)?.name ?? ''
   const pointsOn = Boolean(draft.students.points?.on)
   const ownPoints = (date: string) => (pointsOn ? draft.datePoints?.[date] : undefined)
+  const shiftOwnPoints = (shiftId: string, date: string) => (pointsOn ? draft.students.points?.fixed?.[fixedKey(shiftId, date)] : undefined)
   const changed = (date: string) =>
-    draft.overrides.some((o) => o.date === date) || draft.presentationOverrides.some((o) => o.date === date) || ownPoints(date) !== undefined
+    draft.overrides.some((o) => o.date === date) ||
+    draft.presentationOverrides.some((o) => o.date === date) ||
+    ownPoints(date) !== undefined ||
+    draft.shifts.some((s) => shiftOwnPoints(s.id, date) !== undefined)
   const setDatePoints = (date: string, value: number | null) =>
     edit((c) => {
       const next = { ...(c.datePoints ?? {}) }
@@ -92,6 +105,14 @@ export function CalendarCard({ draft, edit, ro }: { draft: SessionConfig; edit: 
       overrides: c.overrides.filter((o) => !dates.includes(o.date)),
       presentationOverrides: c.presentationOverrides.filter((o) => !dates.includes(o.date)),
       datePoints: Object.fromEntries(Object.entries(c.datePoints ?? {}).filter(([d]) => !dates.includes(d))),
+      ...(c.students.points?.fixed
+        ? {
+            students: {
+              ...c.students,
+              points: { ...c.students.points, fixed: Object.fromEntries(Object.entries(c.students.points.fixed).filter(([k]) => !dates.includes(k.split('|')[1]))) },
+            },
+          }
+        : {}),
     }))
 
   return (
@@ -194,6 +215,26 @@ export function CalendarCard({ draft, edit, ro }: { draft: SessionConfig; edit: 
                       />
                     </label>
                   ))}
+                {runs && pointsOn && s.requirements.length > 0 && (
+                  <label className="inline small" title={t('This shift’s points on this date only; other shifts keep theirs')}>
+                    🎯
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      step={0.5}
+                      disabled={ro}
+                      value={shiftPoints(draft, s.id, selected)}
+                      onChange={(e) => edit((c) => setFixedPoints(c, fixedKey(s.id, selected), Math.max(0, Number(e.target.value) || 0)))}
+                    />
+                    {t('pt')}
+                    {shiftOwnPoints(s.id, selected) !== undefined && !ro && (
+                      <button type="button" className="link" onClick={() => edit((c) => setFixedPoints(c, fixedKey(s.id, selected), null))}>
+                        {t('usual')}
+                      </button>
+                    )}
+                  </label>
+                )}
               </div>
             );
           })}
@@ -341,7 +382,7 @@ function PointsBox({ draft, ro, set, count }: { draft: SessionConfig; ro: boolea
               )}
             </div>
           )}
-          <PointsSummary draft={draft} occs={occs} count={count} />
+          <PointsSummary draft={draft} occs={occs} count={count} ro={ro} setFixed={(key, value) => setP({ fixed: setFixedPoints(draft, key, value).students.points!.fixed })} />
           <p className="muted small">
             {t('Special days, e.g. 3 points the day before an exam: tap the date in the calendar above.')}{' '}
             {t('Shift counts stay equal first; points are then made as equal as possible.')}
@@ -353,12 +394,25 @@ function PointsBox({ draft, ro, set, count }: { draft: SessionConfig; ro: boolea
 }
 
 /** What each shift earns: day points × the slot's multiplier, per shift slot and kind of day, with how many places. */
-function PointsSummary({ draft, occs, count }: { draft: SessionConfig; occs: ReturnType<typeof studentOccs>; count: number }) {
+function PointsSummary({
+  draft,
+  occs,
+  count,
+  ro,
+  setFixed,
+}: {
+  draft: SessionConfig
+  occs: ReturnType<typeof studentOccs>
+  count: number
+  ro: boolean
+  setFixed: (key: string, value: number | null) => void
+}) {
   const p = { ...DEFAULT_POINTS, ...draft.students.points }
   type Row = { shiftId: string; kind: string; label: string; day: number; places: number; pts: number }
   const rows = new Map<string, Row>()
   for (const o of occs) {
-    const own = draft.datePoints?.[o.date] !== undefined
+    // A date gets its own row when it has its own points, for every slot or just this one.
+    const own = draft.datePoints?.[o.date] !== undefined || p.fixed?.[fixedKey(o.shiftId, o.date)] !== undefined
     const kind = own ? o.date : o.weekend ? 'weekend' : 'weekday'
     const key = `${o.shiftId}|${kind}`
     const row = rows.get(key) ?? {
@@ -397,13 +451,45 @@ function PointsSummary({ draft, occs, count }: { draft: SessionConfig; occs: Ret
         <tbody>
           {list.map((r, i) => {
             const m = p.shifts?.[r.shiftId] ?? 1
+            const key = fixedKey(r.shiftId, r.kind)
+            const byHand = p.fixed?.[key] !== undefined
             return (
               <tr key={`${r.shiftId}|${r.kind}`}>
                 <td>{i === 0 || list[i - 1].shiftId !== r.shiftId ? name(r.shiftId) : ''}</td>
                 <td>{r.label}</td>
                 <td className="nowrap">
-                  {m !== 1 && <span className="muted">{fmtPoints(r.day)} × {fmtPoints(m)} = </span>}
-                  <b>{fmtPoints(r.pts)}</b>
+                  {!byHand && m !== 1 && <span className="muted">{fmtPoints(r.day)} × {fmtPoints(m)} = </span>}
+                  {ro ? (
+                    <b>{fmtPoints(r.pts)}</b>
+                  ) : (
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      step={0.5}
+                      aria-label={t('Points per shift')}
+                      title={t('Set this shift’s points by hand; other shifts keep theirs')}
+                      className={byHand ? 'by-hand' : ''}
+                      value={r.pts}
+                      onChange={(e) => setFixed(key, Math.max(0, Number(e.target.value) || 0))}
+                    />
+                  )}
+                  {byHand && (
+                    <>
+                      {' '}
+                      <span className="muted small">✋</span>
+                      {!ro && (
+                        <button
+                          type="button"
+                          className="link small"
+                          title={t('Back to the calculation: {calc}', { calc: `${fmtPoints(r.day)} × ${fmtPoints(m)} = ${fmtPoints(r.day * m)}` })}
+                          onClick={() => setFixed(key, null)}
+                        >
+                          ↺
+                        </button>
+                      )}
+                    </>
+                  )}
                 </td>
                 <td>{r.places}</td>
                 <td>{fmtPoints(r.places * r.pts)}</td>

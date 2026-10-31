@@ -160,6 +160,15 @@ function cleanConfig(raw: unknown): SessionConfig {
             .filter(([k]) => shiftIds.has(k))
             .map(([k, v]) => [k, num(v, 0, 100, 1)]),
         ),
+        fixed: Object.fromEntries(
+          Object.entries((p.fixed ?? {}) as Record<string, unknown>)
+            .slice(0, 2000)
+            .filter(([k]) => {
+              const [slot, when, ...rest] = k.split('|')
+              return !rest.length && shiftIds.has(slot) && (when === 'weekday' || when === 'weekend' || isDate(when))
+            })
+            .map(([k, v]) => [k, num(v, 0, 100, 1)]),
+        ),
       }
     })(),
     avoidRepeatResident: Boolean(st.avoidRepeatResident),

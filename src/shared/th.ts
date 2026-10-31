@@ -625,4 +625,8 @@ export const TH: Record<string, string> = {
   "Places": "จำนวนที่",
   "Total": "รวม",
   "{p} points ÷ {n} students ≈ {a} each, if every place is filled.": "{p} แต้ม ÷ นิสิต {n} คน ≈ คนละ {a} แต้ม ถ้าทุกที่มีคนอยู่",
+  "This shift’s points on this date only; other shifts keep theirs": "แต้มของเวรนี้เฉพาะวันนี้ เวรอื่นไม่เปลี่ยน",
+  "usual": "ตามปกติ",
+  "Set this shift’s points by hand; other shifts keep theirs": "กำหนดแต้มของเวรนี้เอง เวรอื่นไม่เปลี่ยน",
+  "Back to the calculation: {calc}": "กลับไปใช้การคำนวณ: {calc}",
 }

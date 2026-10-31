@@ -381,6 +381,27 @@ test('points: weekday, weekend/holiday, a date’s own points and a slot multipl
   assert.equal(shiftPoints(pointsRotation(false), 'oc', '2025-11-01'), 1, 'points off: every shift counts 1')
 })
 
+test('points set by hand for one shift leave the others alone', () => {
+  const c = pointsRotation(true)
+  c.shifts = [c.shifts[0], { ...c.shifts[0], id: 'day', name: 'Day', start: '08:00', end: '16:00' }]
+  c.students.points = { ...c.students.points!, shifts: { oc: 2 } }
+  const [a, b] = ['oc', 'day']
+  const usual = (id: string, date: string) => shiftPoints(c, id, date)
+  const sat = '2025-11-01'
+  const mon = '2025-11-03'
+  const before = { aSat: usual(a, sat), bSat: usual(b, sat), aMon: usual(a, mon), bMon: usual(b, mon) }
+  c.students.points = { ...c.students.points!, fixed: { [`${a}|weekend`]: 7, [`${b}|${mon}`]: 9 } }
+  assert.equal(shiftPoints(c, a, sat), 7)
+  assert.equal(shiftPoints(c, b, sat), before.bSat, 'the other slot keeps its weekend points')
+  assert.equal(shiftPoints(c, a, mon), before.aMon, 'weekday points unchanged')
+  assert.equal(shiftPoints(c, b, mon), 9)
+  assert.equal(shiftPoints(c, b, '2025-11-04'), before.bMon, 'only that date')
+  // A date with its own points for every slot beats the weekend one set by hand.
+  c.datePoints = { [sat]: 5 }
+  assert.equal(shiftPoints(c, a, sat), 5 * (c.students.points.shifts?.[a] ?? 1))
+  assert.match(buildAiPrompt(c, {}), /points set by hand.*on weekends\/holidays = 7/)
+})
+
 test('points: shift counts stay equal and points come out about equal', () => {
   const spread = (on: boolean, seed: number) => {
     const c = pointsRotation(on)

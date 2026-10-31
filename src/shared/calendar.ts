@@ -82,20 +82,35 @@ export function presentationOn(
   return { count, fromCount: count - left, sources, daysBack: o?.daysBack ?? rule.daysBack ?? LAST_NIGHT }
 }
 
+const isWeekendDay = (config: SessionConfig, date: string) => {
+  const wd = weekday(date)
+  return wd === 0 || wd === 6 || config.holidays.includes(date)
+}
+
 /** Points a date's shifts are worth, before the slot multiplier: that date's own, else weekday or weekend/holiday. */
 export function dayPoints(config: SessionConfig, date: string): number {
   const own = config.datePoints?.[date]
   if (own !== undefined) return own
   const p = config.students.points ?? DEFAULT_POINTS
-  const wd = weekday(date)
-  return wd === 0 || wd === 6 || config.holidays.includes(date) ? p.weekend : p.weekday
+  return isWeekendDay(config, date) ? p.weekend : p.weekday
 }
 
-/** Points one student earns for a shift slot on a date (1 each when points are off). */
+/** Key of a hand-set final point (PointSettings.fixed): a shift slot on weekdays, weekends/holidays, or one date. */
+export const fixedKey = (shiftId: string, when: 'weekday' | 'weekend' | string) => `${shiftId}|${when}`
+
+/** The hand-set points that apply to a shift slot on a date, if any: that date's, else (on an ordinary date) its kind of day's. */
+export function fixedPoints(config: SessionConfig, shiftId: string, date: string): number | undefined {
+  const fixed = config.students.points?.fixed ?? {}
+  const onDate = fixed[fixedKey(shiftId, date)]
+  if (onDate !== undefined || config.datePoints?.[date] !== undefined) return onDate
+  return fixed[fixedKey(shiftId, isWeekendDay(config, date) ? 'weekend' : 'weekday')]
+}
+
+/** Points one student earns for a shift slot on a date (1 each when points are off): hand-set, else day points × multiplier. */
 export function shiftPoints(config: SessionConfig, shiftId: string, date: string): number {
   const p = config.students.points
   if (!p?.on) return 1
-  return dayPoints(config, date) * (p.shifts?.[shiftId] ?? 1)
+  return fixedPoints(config, shiftId, date) ?? dayPoints(config, date) * (p.shifts?.[shiftId] ?? 1)
 }
 
 /** Points for display: whole numbers as is, others to one decimal. */

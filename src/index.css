@@ -1647,3 +1647,10 @@ h2[id] {
   font-weight: 600;
   padding-bottom: 0.3rem;
 }
+.points-sum input[type='number'] {
+  width: 4rem;
+}
+.points-sum input.by-hand {
+  border-color: var(--accent);
+  font-weight: 600;
+}
