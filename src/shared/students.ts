@@ -7,7 +7,7 @@
 import { fmtPoints, presentationOn, reqCount, reqMin, shiftPoints, shiftRuns, shiftSpan, shiftTimes, sourceMatches } from './calendar.ts'
 import { t, weekdayShort } from './i18n.ts'
 import { addDays, dateRange, dayDiff, weekday } from './dates.ts'
-import { preferenceCost, responseFor, rng, variance } from './scoring.ts'
+import { preferenceCost, responseFor, rng, shuffled, sortedBy, variance } from './scoring.ts'
 import { presenterTypes, type Assignment, type Member, type MemberResponse, type PresenterAssignment, type SessionConfig, type StudentAssignment } from './types.ts'
 
 /** A place students can take: one shift on one date (and, in hospital mode, one job within it). */
@@ -228,7 +228,7 @@ export function arrangeStudents(
   let needs = students.map(() => need)
   const shareOut = (total: number) => {
     const { base, extra } = equalShare(config, total)
-    const order = students.map((_, si) => si).sort((a, b) => allowed[b].length - allowed[a].length + (rand() - 0.5) * 6)
+    const order = sortedBy(students.map((_, si) => si), (si) => -allowed[si].length + (rand() - 0.5) * 6)
     needs = students.map(() => base)
     for (const si of order.slice(0, extra)) needs[si]++
   }
@@ -293,13 +293,13 @@ export function arrangeStudents(
       for (const { o } of short) {
         while (placed && load[o.i] < target(o)) {
           const cands = students.map((_, si) => si).filter((si) => mine[si].length < needs[si] && allowed[si].includes(o.i) && fits(si, o.i))
-          if (cands.length) add(cands.sort((a, b) => needs[b] - mine[b].length - (needs[a] - mine[a].length) + (rand() - 0.5) * 0.9)[0], o.i)
+          if (cands.length) add(sortedBy(cands, (si) => mine[si].length - needs[si] + (rand() - 0.5) * 0.9)[0], o.i)
           else if (load[o.i] < o.min) placed = false
           else break
         }
       }
       for (let round = 0; round < Math.max(...needs) && placed; round++) {
-        const order = students.map((_, si) => si).sort(() => rand() - 0.5)
+        const order = shuffled(students.map((_, si) => si), rand)
         for (const si of order) {
           if (mine[si].length > round || mine[si].length >= needs[si]) continue
           const cands = allowed[si].filter((oi) => fits(si, oi))
@@ -308,9 +308,7 @@ export function arrangeStudents(
             break
           }
           // Prefer places still under their minimum, then emptier ones, then random.
-          const key = (oi: number) => (load[oi] < occs[oi].min ? -10 : 0) + load[oi] + (rand() - 0.5) * 0.9
-          cands.sort((a, b) => key(a) - key(b))
-          add(si, cands[0])
+          add(si, sortedBy(cands, (oi) => (load[oi] < occs[oi].min ? -10 : 0) + load[oi] + (rand() - 0.5) * 0.9)[0])
         }
       }
       if (placed && occs.some((o) => load[o.i] < o.min)) placed = false

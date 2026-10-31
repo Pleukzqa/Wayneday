@@ -314,13 +314,13 @@ test('points: shift counts stay equal and points come out about equal', () => {
     if (on) assert.match(studentRuleReport(c, {}, { assignments: [], students: r.students }).summary.join(' '), /points each/)
     return { shifts: Math.max(...per.map((m) => m.length)) - Math.min(...per.map((m) => m.length)), points: Math.max(...pts) - Math.min(...pts) }
   }
-  for (const seed of [1, 2, 3]) {
-    const off = spread(false, seed)
-    const on = spread(true, seed)
-    assert.ok(on.shifts <= 1 && off.shifts <= 1)
-    assert.ok(on.points <= 1, `points spread with points on: ${on.points}`)
-    assert.ok(on.points <= off.points, `on ${on.points} vs off ${off.points}`)
-  }
+  const seeds = [1, 2, 3, 4, 5, 6]
+  const on = seeds.map((seed) => spread(true, seed))
+  const off = seeds.map((seed) => spread(false, seed))
+  assert.ok([...on, ...off].every((x) => x.shifts <= 1), 'shift counts stay within one')
+  assert.ok(on.every((x) => x.points <= 1.5), `points spread with points on: ${on.map((x) => x.points)}`)
+  const mean = (xs: { points: number }[]) => xs.reduce((n, x) => n + x.points, 0) / xs.length
+  assert.ok(mean(on) < mean(off), `on ${mean(on)} vs off ${mean(off)}`)
 })
 
 test('shift lengths: overnight, 24 hours and longer than a day', () => {

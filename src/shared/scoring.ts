@@ -51,3 +51,24 @@ export function preferenceCost(d: number[], n: number, r: MemberResponse): numbe
   for (let i = 1; i < d.length; i++) c += Math.abs(d[i] - d[i - 1] - r.minInterval) / ideal
   return DENSE_WEIGHT * c
 }
+
+/**
+ * Items sorted by a key worked out once each. (A comparator that draws random numbers gives different
+ * orders in different JavaScript engines, so the same seed would give different rosters.)
+ */
+export function sortedBy<T>(items: T[], key: (x: T) => number): T[] {
+  return items
+    .map((x, i) => ({ x, i, k: key(x) }))
+    .sort((a, b) => a.k - b.k || a.i - b.i)
+    .map((e) => e.x)
+}
+
+/** A shuffled copy (Fisher–Yates), the same for the same random numbers everywhere. */
+export function shuffled<T>(items: T[], rand: () => number): T[] {
+  const out = [...items]
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1))
+    ;[out[i], out[j]] = [out[j], out[i]]
+  }
+  return out
+}
