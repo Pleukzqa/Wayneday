@@ -11,6 +11,11 @@ export interface Hint {
   fix: string
 }
 export interface Explanation {
+  /**
+   * Would it work if nobody had marked any day (no unavailable or avoid days, no locks)? false = the setup
+   * itself (places, minimums, shifts each, gaps) can't work, whatever people answer.
+   */
+  freeWorks: boolean
   hints: Hint[]
   /** Single changes that make an arrangement possible, e.g. "each student doing 4 shifts instead of 5". */
   wouldWork: string[]
@@ -23,7 +28,7 @@ const list = (xs: string[], most = 4) => `${xs.slice(0, most).join(', ')}${xs.le
 export function explainNoArrangement(config: SessionConfig, responses: Record<string, MemberResponse>, assignments: Assignment[]): Explanation {
   const students = config.members.filter((m) => m.type === 'student')
   const occs = studentOccs(config, assignments)
-  if (!students.length || !occs.length) return { hints: [], wouldWork: [] }
+  if (!students.length || !occs.length) return { freeWorks: true, hints: [], wouldWork: [] }
   const auto = Boolean(config.students.auto)
   const quota = slotQuota(config)
   const need = shiftsNeeded(config)
@@ -141,6 +146,10 @@ export function explainNoArrangement(config: SessionConfig, responses: Record<st
     }
   })
 
+  // First: with everyone free every day (their gaps kept), is there an arrangement at all?
+  const cleared = Object.fromEntries(students.map((m, si) => [m.id, { ...resp[si], unavailable: [], avoid: [], locks: [] }]))
+  const freeWorks = arrangeStudents(config, { ...responses, ...cleared }, assignments, 1, 200).ok
+
   // Try one change at a time, smallest first. Minimums stay as they are: a place that must be staffed is.
   const wouldWork: string[] = []
   const MOST = 6
@@ -173,11 +182,6 @@ export function explainNoArrangement(config: SessionConfig, responses: Record<st
       withResp(si, { minInterval: g }),
     )
   }
-  // 3. One person may cover any place (their "Can cover" ticks or places by dates hold them back).
-  students.forEach((m) => {
-    if (!m.jobs.length && !m.periods?.length) return
-    tryIt(t('{name} covering any place', { name: m.name }), { ...config, members: config.members.map((x) => (x.id === m.id ? { ...x, jobs: [], periods: undefined } : x)) })
-  })
   // 4. A different number of shifts each.
   if (!auto && !quota) {
     tryIt(t('each student doing {n} shifts instead of {m}', { n: need + 1, m: need }), { ...config, students: { ...st, shiftsPerStudent: need + 1 } })
@@ -218,5 +222,5 @@ export function explainNoArrangement(config: SessionConfig, responses: Record<st
       fix: wouldWork.length ? t('Loosen one of the rules below.') : t('Try shorter gaps, a different number of shifts per student, or another student.'),
     })
   }
-  return { hints, wouldWork }
+  return { freeWorks, hints, wouldWork }
 }

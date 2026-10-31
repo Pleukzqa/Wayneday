@@ -236,6 +236,7 @@ test('no arrangement: it says why and which single change would work', () => {
   const e = explainNoArrangement(c, {}, c.duty)
   assert.match(e.hints[0].why, /3 students × 11 shifts = 33 shifts, but there are only 30/)
   assert.match(e.hints[0].fix, /10 shifts or fewer/)
+  assert.equal(e.freeWorks, false, 'too many shifts each: impossible whatever people answer')
   assert.ok(e.wouldWork.some((w) => /Share equally/.test(w)), e.wouldWork.join(' | '))
 
   // One student who's away most of the month.
@@ -248,6 +249,7 @@ test('no arrangement: it says why and which single change would work', () => {
   assert.ok(a, why.hints.map((h) => h.why).join(' | '))
   assert.match(a.why, /fits only \d of 5 shifts around their 24 unavailable day\(s\)/)
   assert.match(a.fix, /Student A/)
+  assert.equal(why.freeWorks, true, 'it’s Student A’s days that block it')
 })
 
 test('no arrangement with fixed minimums: suggests who could free which day', () => {
@@ -262,6 +264,7 @@ test('no arrangement with fixed minimums: suggests who could free which day', ()
   assert.ok(e.hints.some((h) => /On .*10\/11, a place needs a student/.test(h.why) && /Student A/.test(h.why)), e.hints.map((h) => h.why).join(' | '))
   assert.ok(!e.hints.some((h) => /minimum/i.test(h.fix)), 'never suggests lowering a minimum')
   assert.ok(e.wouldWork.includes('Student A freeing Tue 10/11'), e.wouldWork.join(' | '))
+  assert.equal(e.freeWorks, true)
   assert.ok(!e.wouldWork.some((w) => /minimum/.test(w)))
 })
 

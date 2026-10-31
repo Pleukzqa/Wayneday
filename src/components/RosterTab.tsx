@@ -378,6 +378,13 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
               <strong>{t("No possible arrangement.")}</strong>
               {explain && explain.hints.length > 0 ? (
                 <>
+                  <p className="small">
+                    <b>
+                      {explain.freeWorks
+                        ? `🗓️ ${t('With nobody’s days marked it would work — so it’s the ✕ unavailable days or locked shifts that make it impossible.')}`
+                        : `⚙️ ${t('Even if nobody had marked any day, there would be no arrangement — the setup itself doesn’t fit (places, minimums, shifts each or gaps).')}`}
+                    </b>
+                  </p>
                   <p className="small">{t('Why it doesn’t fit, and what to change:')}</p>
                   <ul className="hints">
                     {explain.hints.map((h) => (

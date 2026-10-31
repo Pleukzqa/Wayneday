@@ -725,10 +725,11 @@ export const TH: Record<string, string> = {
   "{name} freeing {date}": "{name} ว่างวัน {date}",
   "{name} allowing shifts on back-to-back days": "{name} ยอมอยู่เวรวันติดกัน",
   "{name} allowing shifts {g} days apart instead of {h}": "{name} ยอมให้เวรห่างกัน {g} วันแทน {h} วัน",
-  "{name} covering any place": "{name} อยู่จุดงานไหนก็ได้",
   "one more student": "เพิ่มนิสิตอีก 1 คน",
   "two more students": "เพิ่มนิสิตอีก 2 คน",
   "Even working as often as their gaps and free days allow, the {s} students can cover at most {max} of the {min} student-shifts the minimums need.": "ถึงนิสิต {s} คนจะอยู่เวรถี่ที่สุดเท่าที่ระยะห่างและวันว่างอนุญาต ก็ครอบคลุมได้มากสุด {max} จาก {min} เวรที่ขั้นต่ำต้องการ",
   "You need about {k} more student(s), or shorter gaps between shifts.": "ต้องมีนิสิตเพิ่มอีกประมาณ {k} คน หรือให้เวรห่างกันน้อยลง",
   "No single change is enough here — it needs a few of the fixes above together.": "เปลี่ยนข้อเดียวไม่พอ — ต้องแก้หลายข้อด้านบนพร้อมกัน",
+  "Even if nobody had marked any day, there would be no arrangement — the setup itself doesn’t fit (places, minimums, shifts each or gaps).": "ถึงจะไม่มีใครทำเครื่องหมายวันไหนเลย ก็ยังจัดไม่ได้ — การตั้งค่าเองไม่ลงตัว (จำนวนที่ ขั้นต่ำ เวรต่อคน หรือระยะห่าง)",
+  "With nobody’s days marked it would work — so it’s the ✕ unavailable days or locked shifts that make it impossible.": "ถ้าไม่มีใครทำเครื่องหมายวันไว้ จะจัดได้ — สิ่งที่ทำให้จัดไม่ได้คือวันที่ ✕ ไม่ว่าง หรือเวรที่ล็อกไว้",
 }
