@@ -484,6 +484,8 @@ export function StudentsCard({ draft, edit, ro, responses }: { draft: SessionCon
 const TYPES: MemberType[] = ['resident', 'staff', 'student']
 
 type SourceOption = { value: string; label: string }
+/** How the diagram names a source: "shift|place|job". */
+const srcValue = (s: Pick<PresenterSource, 'shiftId' | 'placeId' | 'jobId'>) => `${s.shiftId}|${s.placeId ?? ''}|${s.jobId ?? ''}`
 
 /** A new presentation: weekly (a morning report) or, given a date, on that day only (a case discussion). */
 function newPresentation(c: SessionConfig, date?: string): PresentationRule {
@@ -513,39 +515,40 @@ function PresenterFlow({
 }) {
   const sources = ruleSources(rule)
   const [showSame, setShowSame] = useState(sources.some((s) => s.when === 'same'))
-  const keyOf = (s: Pick<PresenterSource, 'shiftId' | 'placeId' | 'when'>) => `${s.when ?? 'before'}|${s.shiftId}|${s.placeId ?? ''}`
+  const keyOf = (s: Pick<PresenterSource, 'shiftId' | 'placeId' | 'jobId' | 'when'>) => `${s.when ?? 'before'}|${srcValue(s)}`
   const countOf = (key: string) => sources.find((s) => keyOf(s) === key)?.count ?? 0
   const linked = sources.reduce((n, s) => n + s.count, 0)
-  const labelOf = (s: PresenterSource) => options.find((o) => o.value === `${s.shiftId}|${s.placeId ?? ''}`)?.label ?? '?'
+  const labelOf = (s: PresenterSource) => options.find((o) => o.value === srcValue(s))?.label ?? '?'
 
   const setCount = (when: 'before' | 'same', value: string, n: number) => {
-    const [shiftId, placeId] = value.split('|')
-    const key = keyOf({ shiftId, placeId: placeId || undefined, when })
+    const [shiftId, placeId, jobId] = value.split('|')
+    const key = keyOf({ shiftId, placeId: placeId || undefined, jobId: jobId || undefined, when })
     const others = sources.filter((s) => keyOf(s) !== key)
     // Linking more than there are seats adds seats (up to 20 presenters).
     const taken = others.reduce((x, s) => x + s.count, 0)
     const count = Math.max(0, Math.min(n, 20 - taken))
-    const next = count > 0 ? [...others, { shiftId, ...(placeId ? { placeId } : {}), count, when }] : others
+    const next = count > 0 ? [...others, { shiftId, ...(placeId ? { placeId } : {}), ...(jobId ? { jobId } : {}), count, when }] : others
     // Same order as the diagram, so the first source is stable.
-    const order = (s: PresenterSource) => (s.when === 'same' ? 1000 : 0) + options.findIndex((o) => o.value === `${s.shiftId}|${s.placeId ?? ''}`)
+    const order = (s: PresenterSource) => (s.when === 'same' ? 1000 : 0) + options.findIndex((o) => o.value === srcValue(s))
     setSources(rule, next.sort((a, b) => order(a) - order(b)), taken + count > rule.count ? { count: taken + count } : {})
   }
 
   // Only shifts that run then; one already linked stays, marked, so it can be unlinked.
   const runs = (when: 'before' | 'same', value: string) => {
-    const shiftId = value.split('|')[0]
-    return shiftId === ANY_SHIFT || !running[when] || running[when].has(shiftId)
+    const [shiftId, , jobId] = value.split('|')
+    if (!running[when]) return true
+    return shiftId === ANY_SHIFT ? !jobId || running[when].has(`job:${jobId}`) : running[when].has(shiftId)
   }
   const group = (when: 'before' | 'same', title: string) => (
     <div className="flow-group">
       <span className="flow-title">{title}</span>
-      {options.length > 1 && options.every((o) => !runs(when, o.value) || o.value.startsWith(`${ANY_SHIFT}|`)) && (
+      {options.length > 1 && options.every((o) => !runs(when, o.value) || o.value === `${ANY_SHIFT}||`) && (
         <span className="muted small">{t('No shifts run then.')}</span>
       )}
       {options.map((o) => {
         const key = `${when}|${o.value}`
         const n = countOf(key)
-        const isPlace = !o.value.endsWith('|')
+        const isPlace = !o.value.endsWith('||')
         const off = !runs(when, o.value)
         if (off && n === 0) return null
         return (
@@ -643,12 +646,15 @@ export function PresentationsCard({ draft, edit, ro }: { draft: SessionConfig; e
   const job = (id: string) => draft.jobs.find((j) => j.id === id)?.name ?? ''
   const oneDay = draft.presentations.filter(isOneDay).sort((a, b) => (a.dates?.[0] ?? '').localeCompare(b.dates?.[0] ?? ''))
   // Any shift, each shift, and each place of a shift that has several.
+  // Any shift, each place (ward) on whichever shift, each shift, and each place of a shift that has several.
+  const usedJobs = draft.jobs.filter((j) => draft.shifts.some((s) => s.requirements.some((r) => r.jobId === j.id)))
   const sourceOptions = [
-    { value: `${ANY_SHIFT}|`, label: t('any shift') },
+    { value: `${ANY_SHIFT}||`, label: t('any shift') },
+    ...(usedJobs.length > 1 ? usedJobs.map((j) => ({ value: `${ANY_SHIFT}||${j.id}`, label: t('{place} · any shift', { place: j.name }) })) : []),
     ...draft.shifts.flatMap((s) => [
-      { value: `${s.id}|`, label: s.name },
+      { value: `${s.id}||`, label: s.name },
       ...(s.requirements.length > 1
-        ? s.requirements.map((r, i) => ({ value: `${s.id}|${r.id}`, label: `${s.name} · ${r.jobId ? job(r.jobId) : t('place {n}', { n: i + 1 })}` }))
+        ? s.requirements.map((r, i) => ({ value: `${s.id}|${r.id}|`, label: `${s.name} · ${r.jobId ? job(r.jobId) : t('place {n}', { n: i + 1 })}` }))
         : []),
     ]),
   ]
@@ -656,7 +662,13 @@ export function PresentationsCard({ draft, edit, ro }: { draft: SessionConfig; e
   const runningFor = (p: PresentationRule): Record<'before' | 'same', Set<string> | null> => {
     const dates = isOneDay(p) ? (p.dates ?? []) : dateRange(draft.startDate, draft.endDate).filter((d) => presentationOn(draft, p, d))
     if (!dates.length) return { before: null, same: null }
-    const on = (offset: number) => new Set(draft.shifts.filter((s) => dates.some((d) => shiftRuns(draft, s, addDays(d, offset)))).map((s) => s.id))
+    // Shift ids, and `job:<id>` for each place those shifts have.
+    const on = (offset: number) =>
+      new Set(
+        draft.shifts
+          .filter((s) => dates.some((d) => shiftRuns(draft, s, addDays(d, offset))))
+          .flatMap((s) => [s.id, ...s.requirements.filter((r) => r.jobId).map((r) => `job:${r.jobId}`)]),
+      )
     return { before: on(-1), same: on(0) }
   }
   const sourcesText = (p: PresentationRule) => {
@@ -666,7 +678,7 @@ export function PresentationsCard({ draft, edit, ro }: { draft: SessionConfig; e
       .map((s) =>
         t('{n} from {place}, {when}', {
           n: s.count,
-          place: sourceOptions.find((o) => o.value === `${s.shiftId}|${s.placeId ?? ''}`)?.label ?? '?',
+          place: sourceOptions.find((o) => o.value === srcValue(s))?.label ?? '?',
           when: s.when === 'same' ? t('the same day') : t('the day before'),
         }),
       )

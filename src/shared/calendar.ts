@@ -44,8 +44,12 @@ export function ruleSources(rule: PresentationRule): PresenterSource[] {
 }
 
 /** Was someone on this shift (and place) one of the people a source draws from? */
-export const sourceMatches = (src: PresenterSource, shiftId: string, placeId?: string) =>
-  (src.shiftId === ANY_SHIFT || src.shiftId === shiftId) && (!src.placeId || src.placeId === placeId)
+export function sourceMatches(config: SessionConfig, src: PresenterSource, shiftId: string, placeId?: string) {
+  if (src.shiftId !== ANY_SHIFT && src.shiftId !== shiftId) return false
+  if (src.placeId && src.placeId !== placeId) return false
+  if (!src.jobId) return true
+  return config.shifts.find((s) => s.id === shiftId)?.requirements.find((r) => r.id === placeId)?.jobId === src.jobId
+}
 
 /**
  * A rule on one date, after that date's changes: how many present, and who must be among them.

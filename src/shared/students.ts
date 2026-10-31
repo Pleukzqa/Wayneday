@@ -485,7 +485,7 @@ export function pickPresenters(
         const day = src.when === 'same' ? date : addDays(date, -1)
         if (day < config.startDate || src.count === 0) continue
         const pool = [...assignments, ...students]
-          .filter((x) => x.date === day && sourceMatches(src, x.shiftId, x.requirementId))
+          .filter((x) => x.date === day && sourceMatches(config, src, x.shiftId, x.requirementId))
           .map((x) => x.memberId)
           .filter((id, i, arr) => arr.indexOf(id) === i && eligible.includes(id) && !chosen.includes(id))
         const picked = byFewest(pool).slice(0, src.count)

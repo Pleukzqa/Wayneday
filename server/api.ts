@@ -187,7 +187,8 @@ function cleanConfig(raw: unknown): SessionConfig {
                 const shiftId = str(x.shiftId, 40)
                 const placeId = str(x.placeId, 40)
                 const placeOk = placeId && shifts.find((s) => s.id === shiftId)?.requirements.some((r) => r.id === placeId)
-                return { shiftId, ...(placeOk ? { placeId } : {}), count: int(x.count, 0, count, 1), when: x.when === 'same' ? ('same' as const) : ('before' as const) }
+                const jobId = str(x.jobId, 40)
+                return { shiftId, ...(placeOk ? { placeId } : {}), ...(jobIds.has(jobId) ? { jobId } : {}), count: int(x.count, 0, count, 1), when: x.when === 'same' ? ('same' as const) : ('before' as const) }
               }),
           }
         : {}),

@@ -611,4 +611,5 @@ export const TH: Record<string, string> = {
   "Same as {names}": "เหมือน {names}",
   "No shifts run then.": "ไม่มีเวรในวันนั้น",
   "This shift doesn’t run then — tap to unlink it": "เวรนี้ไม่มีในวันนั้น — แตะเพื่อยกเลิกการเชื่อม",
+  "{place} · any shift": "{place} · เวรใดก็ได้",
 }

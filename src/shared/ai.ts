@@ -45,7 +45,7 @@ export function buildAiPrompt(config: SessionConfig, responses: Record<string, M
   const describeSource = (src: PresenterSource) => {
     const shift = src.shiftId === ANY_SHIFT ? 'any shift' : `"${shiftName(src.shiftId)}"`
     const req = config.shifts.find((x) => x.id === src.shiftId)?.requirements.find((r) => r.id === src.placeId)
-    const place = req ? ` (${req.jobId ? job(req.jobId) : 'that place'})` : ''
+    const place = src.jobId ? ` in ${job(src.jobId)}` : req ? ` (${req.jobId ? job(req.jobId) : 'that place'})` : ''
     return `at least ${src.count} who worked ${shift}${place} ${src.when === 'same' ? 'that same day' : 'the day before'}`
   }
   const shiftName = (id: string) => config.shifts.find((s) => s.id === id)?.name ?? id
@@ -323,7 +323,7 @@ export function importAiResult(text: string, config: SessionConfig): ImportResul
     }
     const yesterday = new Date(Date.parse(date + 'T00:00:00Z') - 86_400_000).toISOString().slice(0, 10)
     const fromLastNight = (x: { date: string; shiftId: string; requirementId?: string; memberId: string }) =>
-      x.date === yesterday && x.memberId === member.id && ruleSources(rule).some((src) => src.when !== 'same' && sourceMatches(src, x.shiftId, x.requirementId))
+      x.date === yesterday && x.memberId === member.id && ruleSources(rule).some((src) => src.when !== 'same' && sourceMatches(config, src, x.shiftId, x.requirementId))
     const postCall = assignments.some(fromLastNight) || students.some(fromLastNight)
     presenters.push({ date, ruleId: rule.id, memberId: member.id, postCall })
   }

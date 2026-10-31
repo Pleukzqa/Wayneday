@@ -145,12 +145,19 @@ for (const [kind, makeStore] of stores) {
         { id: 'case', name: 'Case', days: [], dates: ['2026-11-10', 'bad'], count: 2, fromShiftId: 'n', fromCount: 1, types: ['student'],
           sources: [{ shiftId: 'n', placeId: 'wa', count: 1 }, { shiftId: 'n', placeId: 'nope', count: 1, when: 'same' }, { shiftId: 'gone', count: 1 }] },
       ]
-      const v = (await call('PUT', `/sessions/${code}/config`, { account: alice, body: { shifts, presentations } })).body
+      const jobs = [{ id: 'j17', name: '17C' }]
+      ;(presentations[0].sources as object[]).push({ shiftId: '*', jobId: 'j17', count: 1 }, { shiftId: '*', jobId: 'gone', count: 1 })
+      const v = (await call('PUT', `/sessions/${code}/config`, { account: alice, body: { jobs, shifts, presentations } })).body
       assert.equal(v.session.config.shifts[1].endDays, 1)
       assert.equal(v.session.config.shifts[0].endDays, undefined)
       const r = v.session.config.presentations[0]
       assert.deepEqual(r.dates, ['2026-11-10'])
-      assert.deepEqual(r.sources, [{ shiftId: 'n', placeId: 'wa', count: 1, when: 'before' }, { shiftId: 'n', count: 1, when: 'same' }])
+      assert.deepEqual(r.sources, [
+        { shiftId: 'n', placeId: 'wa', count: 1, when: 'before' },
+        { shiftId: 'n', count: 1, when: 'same' },
+        { shiftId: '*', jobId: 'j17', count: 1, when: 'before' },
+        { shiftId: '*', count: 1, when: 'before' },
+      ])
     })
 
     test('dated places are kept (and cleaned)', async () => {

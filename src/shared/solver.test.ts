@@ -225,6 +225,34 @@ test('student places need no job (place) in hospital mode', () => {
   assert.match(buildAiPrompt(c, {}), /up to \d+ student\(s\)[,\n]/, 'the AI prompt doesn’t mention a job')
 })
 
+test('presenters: one from each ward, whichever shift had it', () => {
+  const c = hospital()
+  c.jobs = [{ id: 'a', name: '17C' }, { id: 'b', name: '26A' }]
+  const places = (p: string) => [{ id: `${p}a`, jobId: 'a', memberType: 'any' as const, count: 1 }, { id: `${p}b`, jobId: 'b', memberType: 'any' as const, count: 1 }]
+  // Weeknights and a weekend shift, each with a student in 17C and in 26A.
+  c.shifts = [
+    { ...c.shifts[0], days: [1, 2, 3, 4, 5], requirements: places('n') },
+    { id: 'we', name: 'Weekend', start: '08:00', end: '08:00', days: [0, 6], requirements: places('w') },
+  ]
+  c.members.push(...['D', 'E', 'F'].map((n) => ({ id: `st${n}`, name: `Student ${n}`, type: 'student' as const, jobs: [] })))
+  c.students = { ...c.students, auto: true }
+  c.presentations = [{ id: 'mr', name: 'Morning report', days: [1, 2, 3, 4, 5], count: 2, fromShiftId: ANY_SHIFT, fromCount: 1, types: ['student'],
+    sources: [{ shiftId: ANY_SHIFT, jobId: 'a', count: 1 }, { shiftId: ANY_SHIFT, jobId: 'b', count: 1 }] }]
+  const s = arrangeStudents(c, {}, c.duty)
+  assert.ok(s.ok)
+  if (!s.ok) return
+  const p = pickPresenters(c, {}, c.duty, s.students)
+  const days = [...new Set(p.presenters.map((x) => x.date))].filter((d) => d > c.startDate)
+  assert.ok(days.length > 15)
+  const job = (x: StudentAssignment) => (x.requirementId?.endsWith('a') ? 'a' : 'b')
+  for (const date of days) {
+    const ids = p.presenters.filter((x) => x.date === date).map((x) => x.memberId)
+    const was = (j: string) => s.students.find((x) => x.date === addDays(date, -1) && job(x) === j)?.memberId
+    assert.ok(ids.includes(was('a')!) && ids.includes(was('b')!), `${date}: ${ids} should include ${was('a')} (17C) and ${was('b')} (26A)`)
+  }
+  assert.match(buildAiPrompt(c, {}), /at least 1 who worked any shift in 17C the day before/)
+})
+
 test('dated places: a student covers Ward A until the 15th, then Ward B', () => {
   const c = hospital()
   c.jobs = [{ id: 'a', name: 'Ward A' }, { id: 'b', name: 'Ward B' }]

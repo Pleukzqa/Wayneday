@@ -110,6 +110,8 @@ export interface PresenterSource {
   shiftId: string
   /** One place (requirement) of that shift; missing = any of its places. */
   placeId?: string
+  /** A place by name (job), e.g. ward 17C, on whichever shift has it (with ANY_SHIFT). */
+  jobId?: string
   count: number
   /** 'before' (default): on that shift the day before, e.g. post-call. 'same': on it that same day. */
   when?: 'before' | 'same'
