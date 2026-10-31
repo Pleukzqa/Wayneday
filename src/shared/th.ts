@@ -720,4 +720,7 @@ export const TH: Record<string, string> = {
   "{name} fits only {n} of {need} shifts around their {u} unavailable day(s).": "{name} ลงได้แค่ {n} จาก {need} เวร เพราะไม่ว่าง {u} วัน",
   "Ask {name} to free some days, or to allow shifts on back-to-back days (it fits then).": "ขอให้ {name} ว่างเพิ่มบางวัน หรือยอมอยู่เวรวันติดกัน (แล้วจะลงได้)",
   "Ask {name} to free some days, or to allow {g} days between shifts (it fits then).": "ขอให้ {name} ว่างเพิ่มบางวัน หรือยอมให้เวรห่างกัน {g} วัน (แล้วจะลงได้)",
+  "❗ Avoid — !!! / !! / ! mean you’d rather not work that day (Wayneday tries hardest for !!!).": "❗ หลบเวร — !!! / !! / ! คืออยากหลบวันนั้น (Wayneday พยายามที่สุดกับ !!!)",
+  "❗ Avoid": "❗ หลบเวร",
+  "Mark the days you’d rather avoid above, then press this so the host knows you’re done.": "ทำเครื่องหมายวันที่อยากหลบด้านบน แล้วกดปุ่มนี้ให้ผู้จัดรู้ว่าคุณกรอกเสร็จแล้ว",
 }
