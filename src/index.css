@@ -1620,3 +1620,7 @@ h2[id] {
 .periods input[type='date'] {
   width: auto;
 }
+.site-footer .build {
+  margin-top: 0.3rem;
+  font-size: 0.75rem;
+}

@@ -79,6 +79,9 @@ export default function App() {
               <a href="/privacy.html">{t('Privacy')}</a>
             </>
           )}
+          <div className="build" title={t('Built {date}', { date: __BUILD__.date })}>
+            {t('Version')} {__BUILD__.commit || 'dev'} · {new Date(__BUILD__.date).toLocaleString(lang === 'th' ? 'th-TH' : 'en-GB', { timeZone: 'Asia/Bangkok', dateStyle: 'medium', timeStyle: 'short' })}
+          </div>
         </footer>
       </main>
       {DemoBar && (

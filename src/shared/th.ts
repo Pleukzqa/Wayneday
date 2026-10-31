@@ -605,4 +605,6 @@ export const TH: Record<string, string> = {
   "Only this place between two dates, e.g. Ward A for two weeks, then Ward B": "อยู่จุดงานนี้อย่างเดียวในช่วงวันที่กำหนด เช่น Ward A สองสัปดาห์ แล้วไป Ward B",
   "➕ then another place": "➕ แล้วย้ายไปจุดงานอื่น",
   "➕ Place by dates": "➕ จุดงานตามช่วงวัน",
+  "Version": "เวอร์ชัน",
+  "Built {date}": "สร้างเมื่อ {date}",
 }
