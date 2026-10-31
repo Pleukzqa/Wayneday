@@ -1642,3 +1642,8 @@ h2[id] {
   color: inherit;
   text-decoration: line-through;
 }
+.points-sum caption {
+  text-align: left;
+  font-weight: 600;
+  padding-bottom: 0.3rem;
+}

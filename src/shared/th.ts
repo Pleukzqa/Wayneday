@@ -617,4 +617,12 @@ export const TH: Record<string, string> = {
   "{a}–{b} days before": "{a}–{b} วันก่อน",
   "was on duty": "อยู่เวร",
   "Shifts {when}": "เวร {when}",
+  "How points add up": "คิดแต้มอย่างไร",
+  "Shift slot": "ช่วงเวร",
+  "Weekday": "วันธรรมดา",
+  "Weekend / holiday": "เสาร์–อาทิตย์ / วันหยุด",
+  "Points per shift": "แต้มต่อเวร",
+  "Places": "จำนวนที่",
+  "Total": "รวม",
+  "{p} points ÷ {n} students ≈ {a} each, if every place is filled.": "{p} แต้ม ÷ นิสิต {n} คน ≈ คนละ {a} แต้ม ถ้าทุกที่มีคนอยู่",
 }

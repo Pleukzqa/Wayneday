@@ -299,7 +299,6 @@ function PointsBox({ draft, ro, set, count }: { draft: SessionConfig; ro: boolea
   const setP = (patch: Partial<typeof p>) => set({ points: { ...p, ...patch } })
   const slots = draft.shifts.filter((x) => x.requirements.length > 0)
   const occs = studentOccs(draft, [])
-  const total = occs.reduce((n, o) => n + o.cap * o.pts, 0)
   // Suggested multipliers from shift length: the shortest slot counts 1, others by their hours (to the nearest 0.5).
   const hours = slots.map((x) => shiftHours(x))
   const shortest = Math.min(...hours.filter((h) => h > 0))
@@ -342,13 +341,91 @@ function PointsBox({ draft, ro, set, count }: { draft: SessionConfig; ro: boolea
               )}
             </div>
           )}
+          <PointsSummary draft={draft} occs={occs} count={count} />
           <p className="muted small">
             {t('Special days, e.g. 3 points the day before an exam: tap the date in the calendar above.')}{' '}
-            {count > 0 && total > 0 && t('{p} points in all, about {a} per student.', { p: fmtPoints(total), a: fmtPoints(Math.round((total / count) * 10) / 10) })}{' '}
             {t('Shift counts stay equal first; points are then made as equal as possible.')}
           </p>
         </>
       )}
+    </div>
+  )
+}
+
+/** What each shift earns: day points × the slot's multiplier, per shift slot and kind of day, with how many places. */
+function PointsSummary({ draft, occs, count }: { draft: SessionConfig; occs: ReturnType<typeof studentOccs>; count: number }) {
+  const p = { ...DEFAULT_POINTS, ...draft.students.points }
+  type Row = { shiftId: string; kind: string; label: string; day: number; places: number; pts: number }
+  const rows = new Map<string, Row>()
+  for (const o of occs) {
+    const own = draft.datePoints?.[o.date] !== undefined
+    const kind = own ? o.date : o.weekend ? 'weekend' : 'weekday'
+    const key = `${o.shiftId}|${kind}`
+    const row = rows.get(key) ?? {
+      shiftId: o.shiftId,
+      kind,
+      label: own ? shortDate(o.date) : o.weekend ? t('Weekend / holiday') : t('Weekday'),
+      day: dayPoints(draft, o.date),
+      places: 0,
+      pts: o.pts,
+    }
+    row.places += o.cap
+    rows.set(key, row)
+  }
+  const order = (r: Row) => [draft.shifts.findIndex((s) => s.id === r.shiftId), r.kind === 'weekday' ? 0 : r.kind === 'weekend' ? 1 : 2, r.kind] as const
+  const list = [...rows.values()].sort((a, b) => {
+    const [x, y] = [order(a), order(b)]
+    return x[0] - y[0] || x[1] - y[1] || x[2].localeCompare(y[2])
+  })
+  if (!list.length) return null
+  const places = list.reduce((n, r) => n + r.places, 0)
+  const total = list.reduce((n, r) => n + r.places * r.pts, 0)
+  const name = (id: string) => draft.shifts.find((s) => s.id === id)?.name ?? ''
+  return (
+    <div className="scroll-x">
+      <table className="mini points-sum">
+        <caption className="small">{t('How points add up')}</caption>
+        <thead>
+          <tr>
+            <th>{t('Shift slot')}</th>
+            <th>{t('Day')}</th>
+            <th>{t('Points per shift')}</th>
+            <th>{t('Places')}</th>
+            <th>{t('Points')}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {list.map((r, i) => {
+            const m = p.shifts?.[r.shiftId] ?? 1
+            return (
+              <tr key={`${r.shiftId}|${r.kind}`}>
+                <td>{i === 0 || list[i - 1].shiftId !== r.shiftId ? name(r.shiftId) : ''}</td>
+                <td>{r.label}</td>
+                <td className="nowrap">
+                  {m !== 1 && <span className="muted">{fmtPoints(r.day)} × {fmtPoints(m)} = </span>}
+                  <b>{fmtPoints(r.pts)}</b>
+                </td>
+                <td>{r.places}</td>
+                <td>{fmtPoints(r.places * r.pts)}</td>
+              </tr>
+            )
+          })}
+        </tbody>
+        <tfoot>
+          <tr>
+            <th colSpan={3}>{t('Total')}</th>
+            <th>{places}</th>
+            <th>{fmtPoints(total)}</th>
+          </tr>
+          {count > 0 && (
+            <tr>
+              <td colSpan={5} className="muted small">
+                {t('{p} points ÷ {n} students ≈ {a} each, if every place is filled.', { p: fmtPoints(total), n: count, a: fmtPoints(Math.round((total / count) * 10) / 10) })}
+              </td>
+            </tr>
+          )}
+        </tfoot>
+      </table>
     </div>
   )
 }
