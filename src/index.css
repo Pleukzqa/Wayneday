@@ -1636,3 +1636,9 @@ h2[id] {
   cursor: pointer;
   white-space: nowrap;
 }
+.flow-row.off .flow-node {
+  border-color: var(--warn);
+  background: var(--warn-soft);
+  color: inherit;
+  text-decoration: line-through;
+}

@@ -4,7 +4,7 @@ import { api } from '../api.ts'
 import { equalShareFor, studentOccs } from '../shared/students.ts'
 import { t, typeName, weekdayLetter, weekdayLong, weekdayShort } from '../shared/i18n.ts'
 import { dayPoints, fmtPoints, overrideFor, presentationOn, presentationUsually, reqCount, ruleSources, shiftHours, shiftRuns, shiftTimes } from '../shared/calendar.ts'
-import { dateRange, shortDate, weekday } from '../shared/dates.ts'
+import { addDays, dateRange, shortDate, weekday } from '../shared/dates.ts'
 import { ANY_SHIFT, DEFAULT_POINTS, DUTY_ROLES, isOneDay, type DateOverride, type DutyRole, type MemberResponse, type MemberType, type PresentationOverride, type PresentationRule, type PresenterSource, type SessionConfig } from '../shared/types.ts'
 import { uid, type SessionProps } from './props.ts'
 
@@ -500,11 +500,14 @@ function newPresentation(c: SessionConfig, date?: string): PresentationRule {
 function PresenterFlow({
   rule,
   options,
+  running,
   ro,
   setSources,
 }: {
   rule: PresentationRule
   options: SourceOption[]
+  /** Shift ids that run the day before / the same day as the presentation; null = don't filter. */
+  running: Record<'before' | 'same', Set<string> | null>
   ro: boolean
   setSources: (p: PresentationRule, sources: PresenterSource[], extra?: Partial<PresentationRule>) => void
 }) {
@@ -528,16 +531,34 @@ function PresenterFlow({
     setSources(rule, next.sort((a, b) => order(a) - order(b)), taken + count > rule.count ? { count: taken + count } : {})
   }
 
+  // Only shifts that run then; one already linked stays, marked, so it can be unlinked.
+  const runs = (when: 'before' | 'same', value: string) => {
+    const shiftId = value.split('|')[0]
+    return shiftId === ANY_SHIFT || !running[when] || running[when].has(shiftId)
+  }
   const group = (when: 'before' | 'same', title: string) => (
     <div className="flow-group">
       <span className="flow-title">{title}</span>
+      {options.length > 1 && options.every((o) => !runs(when, o.value) || o.value.startsWith(`${ANY_SHIFT}|`)) && (
+        <span className="muted small">{t('No shifts run then.')}</span>
+      )}
       {options.map((o) => {
         const key = `${when}|${o.value}`
         const n = countOf(key)
         const isPlace = !o.value.endsWith('|')
+        const off = !runs(when, o.value)
+        if (off && n === 0) return null
         return (
-          <div key={key} className={`flow-row ${n > 0 ? 'on' : ''} ${isPlace ? 'place' : ''}`}>
-            <button type="button" className="flow-node" disabled={ro} aria-pressed={n > 0} onClick={() => setCount(when, o.value, n > 0 ? 0 : 1)}>
+          <div key={key} className={`flow-row ${n > 0 ? 'on' : ''} ${isPlace ? 'place' : ''} ${off ? 'off' : ''}`}>
+            <button
+              type="button"
+              className="flow-node"
+              disabled={ro}
+              aria-pressed={n > 0}
+              title={off ? t('This shift doesn’t run then — tap to unlink it') : undefined}
+              onClick={() => setCount(when, o.value, n > 0 ? 0 : 1)}
+            >
+              {off && '⚠️ '}
               {o.label}
             </button>
             <span className="flow-step">
@@ -631,6 +652,13 @@ export function PresentationsCard({ draft, edit, ro }: { draft: SessionConfig; e
         : []),
     ]),
   ]
+  // Which shifts run the day before / the same day, on the dates this presentation happens.
+  const runningFor = (p: PresentationRule): Record<'before' | 'same', Set<string> | null> => {
+    const dates = isOneDay(p) ? (p.dates ?? []) : dateRange(draft.startDate, draft.endDate).filter((d) => presentationOn(draft, p, d))
+    if (!dates.length) return { before: null, same: null }
+    const on = (offset: number) => new Set(draft.shifts.filter((s) => dates.some((d) => shiftRuns(draft, s, addDays(d, offset)))).map((s) => s.id))
+    return { before: on(-1), same: on(0) }
+  }
   const sourcesText = (p: PresentationRule) => {
     const list = ruleSources(p)
     if (!list.length) return t('anyone')
@@ -673,7 +701,7 @@ export function PresentationsCard({ draft, edit, ro }: { draft: SessionConfig; e
               <button type="button" className="link danger" onClick={() => edit((c) => ({ ...c, presentations: c.presentations.filter((x) => x.id !== p.id) }))}>{t("Remove")}</button>
             )}
           </div>
-          <PresenterFlow rule={p} options={sourceOptions} ro={ro} setSources={setSources} />
+          <PresenterFlow rule={p} options={sourceOptions} running={runningFor(p)} ro={ro} setSources={setSources} />
           {draft.rosterMode !== 'hospital' && (
             <div className="row wrap">
               <span className="small">{t("Who can present:")}</span>
@@ -718,7 +746,7 @@ export function PresentationsCard({ draft, edit, ro }: { draft: SessionConfig; e
                 <summary className="small">
                   🎤 {t('{n} presenter(s)', { n: p.count })} · {sourcesText(p)}
                 </summary>
-                <PresenterFlow rule={p} options={sourceOptions} ro={ro} setSources={setSources} />
+                <PresenterFlow rule={p} options={sourceOptions} running={runningFor(p)} ro={ro} setSources={setSources} />
               </details>
             </div>
           ))}

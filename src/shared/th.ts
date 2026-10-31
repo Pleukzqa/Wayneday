@@ -609,4 +609,6 @@ export const TH: Record<string, string> = {
   "Built {date}": "สร้างเมื่อ {date}",
   "Same dates as {names}, places swapped": "วันเดียวกับ {names} แต่สลับจุดงาน",
   "Same as {names}": "เหมือน {names}",
+  "No shifts run then.": "ไม่มีเวรในวันนั้น",
+  "This shift doesn’t run then — tap to unlink it": "เวรนี้ไม่มีในวันนั้น — แตะเพื่อยกเลิกการเชื่อม",
 }
