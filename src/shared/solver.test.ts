@@ -527,6 +527,22 @@ test('points: weekday, weekend/holiday, a date’s own points and a slot multipl
   assert.equal(shiftPoints(pointsRotation(false), 'oc', '2025-11-01'), 1, 'points off: every shift counts 1')
 })
 
+test('points stay within the host’s limit on how far apart they may be', () => {
+  const c = pointsRotation(true)
+  const pts = (r: ReturnType<typeof arrangeStudents>) =>
+    r.ok ? c.members.filter((m) => m.type === 'student').map((m) => r.students.filter((x) => x.memberId === m.id).reduce((n, x) => n + shiftPoints(c, x.shiftId, x.date), 0)) : []
+  c.students.points = { ...c.students.points!, maxDiff: 15 }
+  for (let seed = 1; seed <= 3; seed++) {
+    const p = pts(arrangeStudents(c, {}, [], seed))
+    const avg = p.reduce((a, b) => a + b, 0) / p.length
+    assert.ok(Math.max(...p) - Math.min(...p) <= avg * 0.15, `seed ${seed}: ${p} (average ${avg})`)
+  }
+  const r = arrangeStudents(c, {}, [], 1)
+  assert.ok(r.ok)
+  if (!r.ok) return
+  assert.match(studentRuleReport(c, {}, { assignments: [], students: r.students }).summary.join(' '), /within 15%/)
+})
+
 test('points set by hand for one shift leave the others alone', () => {
   const c = pointsRotation(true)
   c.shifts = [c.shifts[0], { ...c.shifts[0], id: 'day', name: 'Day', start: '08:00', end: '16:00' }]

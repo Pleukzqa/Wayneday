@@ -364,6 +364,21 @@ function PointsBox({ draft, ro, set, count }: { draft: SessionConfig; ro: boolea
               {t('Weekend / holiday shift')} {value(p.weekend, (n) => setP({ weekend: n }), t('Weekend / holiday shift'))} {t('pt')}
             </label>
           </div>
+          <label className="inline">
+            {t('Points may differ by at most')}{' '}
+            <input
+              type="number"
+              min={1}
+              max={100}
+              disabled={ro}
+              placeholder="—"
+              aria-label={t('Points may differ by at most')}
+              value={p.maxDiff ?? ''}
+              onChange={(e) => setP({ maxDiff: e.target.value === '' ? undefined : Math.min(100, Math.max(1, Math.round(Number(e.target.value)) || 1)) })}
+            />{' '}
+            {t('% of the average between students')}{' '}
+            <span className="muted small">{t('(empty = no limit; e.g. 20% of an average of 18 points allows 16–20)')}</span>
+          </label>
           {slots.length > 1 && (
             <div className="stack-tight">
               <span className="small">{t('Worth more on some shift slots? Multiply by:')}</span>

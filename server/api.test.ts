@@ -137,14 +137,14 @@ for (const [kind, makeStore] of stores) {
             students: {
               points: {
                 on: true, weekday: 1, weekend: '2.5', shifts: { oc: 1.5, gone: 3 },
-                fixed: { 'oc|weekend': 4, 'oc|2025-12-24': '6', 'oc|someday': 1, 'gone|weekday': 2 },
+                fixed: { 'oc|weekend': 4, 'oc|2025-12-24': '6', 'oc|someday': 1, 'gone|weekday': 2 }, maxDiff: '20',
               },
             },
             datePoints: { '2025-12-03': 3, nope: 9 },
           },
         })
       ).body
-      assert.deepEqual(v.session.config.students.points, { on: true, weekday: 1, weekend: 2.5, shifts: { oc: 1.5 }, fixed: { 'oc|weekend': 4, 'oc|2025-12-24': 6 } })
+      assert.deepEqual(v.session.config.students.points, { on: true, weekday: 1, weekend: 2.5, shifts: { oc: 1.5 }, fixed: { 'oc|weekend': 4, 'oc|2025-12-24': 6 }, maxDiff: 20 })
       assert.deepEqual(v.session.config.datePoints, { '2025-12-03': 3 })
     })
 

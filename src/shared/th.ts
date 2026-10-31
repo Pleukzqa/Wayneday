@@ -769,4 +769,10 @@ export const TH: Record<string, string> = {
   "It’s kept for you and your co-hosts, so it’s still here next time.": "ระบบเก็บไว้ให้คุณและผู้จัดร่วม เปิดครั้งหน้าก็ยังอยู่",
   "one-day": "เฉพาะวัน",
   "{n} presentations each": "คนละ {n} ครั้ง",
+  "Points may differ by at most": "แต้มของนิสิตต่างกันได้ไม่เกิน",
+  "% of the average between students": "% ของค่าเฉลี่ย",
+  "(empty = no limit; e.g. 20% of an average of 18 points allows 16–20)": "(เว้นว่าง = ไม่จำกัด เช่น 20% ของค่าเฉลี่ย 18 แต้ม คือ 16–20)",
+  "{p}% apart, above your {limit}% limit": "ต่างกัน {p}% เกินที่กำหนด {limit}%",
+  "{p}% apart, within {limit}%": "ต่างกัน {p}% อยู่ในเกณฑ์ {limit}%",
+  "Points are {p}% apart ({a}–{b}); your limit is {limit}%.": "แต้มต่างกัน {p}% ({a}–{b}) เกินที่กำหนด {limit}%",
 }

@@ -170,6 +170,7 @@ function cleanConfig(raw: unknown): SessionConfig {
             })
             .map(([k, v]) => [k, num(v, 0, 100, 1)]),
         ),
+        ...(p.maxDiff === undefined || p.maxDiff === null || p.maxDiff === '' ? {} : { maxDiff: int(p.maxDiff, 1, 100, 20) }),
       }
     })(),
     avoidRepeatResident: Boolean(st.avoidRepeatResident),

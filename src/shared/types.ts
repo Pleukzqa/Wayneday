@@ -188,6 +188,8 @@ export interface PointSettings {
    * (weekends and holidays) or `slotId|YYYY-MM-DD` (that date only).
    */
   fixed?: Record<string, number>
+  /** Most students' points may differ, as a percentage of the average (e.g. 20); missing = no limit. */
+  maxDiff?: number
 }
 
 export const DEFAULT_POINTS: PointSettings = { on: false, weekday: 1, weekend: 2 }

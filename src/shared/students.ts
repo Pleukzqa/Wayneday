@@ -76,6 +76,16 @@ const REPEAT_RESIDENT_PENALTY = 400
 const REPEAT_STAFF_PENALTY = 300
 const REPEAT_PARTNER_PENALTY = 350
 const ALONE_PENALTY = 150
+/** Per point above the host's limit on how far apart students' points may be. */
+const POINTS_OVER_PENALTY = 2000
+
+/** How many points the spread (most − fewest) is above `maxDiff` percent of the average; 0 when within it or no limit. */
+export function pointsOver(pts: number[], maxDiff?: number) {
+  if (!maxDiff || pts.length < 2) return 0
+  const avg = pts.reduce((a, b) => a + b, 0) / pts.length
+  return Math.max(0, Math.max(...pts) - Math.min(...pts) - (avg * maxDiff) / 100)
+}
+
 /** On a shift a presentation draws presenters from, while ✕ on the presentation day. */
 const PRESENT_AWAY_PENALTY = 600
 
@@ -449,7 +459,19 @@ export function arrangeStudents(
       const ids = config.members.filter((m) => m.type === type).map((m) => m.id)
       sc += 100 * variance(ids.map((id) => exposure.get(id) ?? 0))
     }
-    if (pointsOn) sc += 80 * variance(mine.map((m) => m.reduce((n, oi) => n + occs[oi].pts, 0)))
+    if (pointsOn) {
+      const pts = mine.map((m) => m.reduce((n, oi) => n + occs[oi].pts, 0))
+      sc += 80 * variance(pts)
+      // The host's limit on how far apart points may be, far above every other wish: everyone outside the
+      // band around the average counts (not just the two ends), so each step towards it is rewarded.
+      const limit = settings.points?.maxDiff
+      if (limit) {
+        const avg = pts.reduce((a, b) => a + b, 0) / pts.length
+        const half = (avg * limit) / 200
+        for (const p of pts) sc += POINTS_OVER_PENALTY * Math.max(0, Math.abs(p - avg) - half)
+        sc += POINTS_OVER_PENALTY * pointsOver(pts, limit)
+      }
+    }
     else sc += 30 * variance(mine.map((m) => m.filter((oi) => occs[oi].weekend).length))
     // Shifts presenters come from, spread evenly by type of presentation.
     for (const places of presentKinds.values()) {
@@ -1087,7 +1109,18 @@ export function studentRuleReport(
       .map((m) => roster.students.filter((s) => s.memberId === m.id).reduce((n, s) => n + shiftPoints(config, s.shiftId, s.date), 0))
     if (pts.length) {
       const [a, b] = [Math.min(...pts), Math.max(...pts)]
-      summary.push(`🎯 ${a === b ? t('{a} points each', { a: fmtPoints(a) }) : t('{a}–{b} points each', { a: fmtPoints(a), b: fmtPoints(b) })}`)
+      const limit = st.points.maxDiff
+      const avg = pts.reduce((x, y) => x + y, 0) / pts.length
+      const pct = avg ? Math.round(((b - a) / avg) * 100) : 0
+      const range = a === b ? t('{a} points each', { a: fmtPoints(a) }) : t('{a}–{b} points each', { a: fmtPoints(a), b: fmtPoints(b) })
+      summary.push(
+        limit
+          ? pointsOver(pts, limit) > 0
+            ? `⚠️ ${range} — ${t('{p}% apart, above your {limit}% limit', { p: pct, limit })}`
+            : `✅ ${range} — ${t('{p}% apart, within {limit}%', { p: pct, limit })}`
+          : `🎯 ${range}`,
+      )
+      if (limit && pointsOver(pts, limit) > 0) notes.push(t('Points are {p}% apart ({a}–{b}); your limit is {limit}%.', { p: pct, a: fmtPoints(a), b: fmtPoints(b), limit }))
     }
   }
   if (config.presentations.length && roster.presenters?.length) {
