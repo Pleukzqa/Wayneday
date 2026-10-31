@@ -1,8 +1,8 @@
 import { getLang } from './shared/i18n.ts'
 import type { CountResult } from './shared/solver.ts'
 import type { Explanation } from './shared/explain.ts'
-import type { StudentOption } from './shared/students.ts'
-import type { Assignment, MemberResponse, PresenterAssignment, SessionConfig, StudentAssignment } from './shared/types.ts'
+import type { RepairSwap, StudentOption } from './shared/students.ts'
+import type { Assignment, MemberResponse, PresenterAssignment, Roster, SessionConfig, StudentAssignment } from './shared/types.ts'
 import type { WorkerRequest } from './solver.worker.ts'
 
 /** Run solver work off the main thread; falls back to running inline where workers are unavailable. */
@@ -41,6 +41,12 @@ export const findArrangements = (config: SessionConfig, responses: Record<string
 export type StudentsResult =
   | { ok: true; students: StudentAssignment[]; presenters: PresenterAssignment[]; warnings: string[] }
   | { ok: false; problems: string[] }
+
+export type RepairResult = { students: StudentAssignment[]; presenters: PresenterAssignment[]; swaps: RepairSwap[]; presenterDays: string[] }
+
+/** Fix a published roster with as few trades between students as possible. */
+export const repairInBackground = (config: SessionConfig, responses: Record<string, MemberResponse>, roster: Roster) =>
+  run<RepairResult>({ kind: 'repair', lang: getLang(), config, responses, roster })
 
 export const rearrangeStudents = (config: SessionConfig, responses: Record<string, MemberResponse>, assignments: Assignment[], seed: number) =>
   run<StudentsResult>({ kind: 'students', lang: getLang(), config, responses, assignments, seed })

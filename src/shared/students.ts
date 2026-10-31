@@ -1118,6 +1118,152 @@ export function studentCellIssues(
   return out
 }
 
+/** One change the repair makes: two students trade places (each takes the other's shift). */
+export interface RepairSwap {
+  a: StudentAssignment
+  b: StudentAssignment
+}
+
+/**
+ * Fix a roster with as few changes as possible: trade places between two students (only trades the hand-arranging
+ * rules allow), one at a time, taking the trade that helps most — each type of shift shared evenly first, then
+ * fewer missed avoid requests, then fairer points — preferring trades on the same day (nobody's dates change).
+ * Stops when no trade helps enough to be worth making. Presenters are re-picked only on days whose night before
+ * changed.
+ */
+export function repairRoster(
+  config: SessionConfig,
+  responses: Record<string, MemberResponse>,
+  roster: { assignments: Assignment[]; students: StudentAssignment[]; presenters: PresenterAssignment[] },
+  most = 40,
+): { students: StudentAssignment[]; presenters: PresenterAssignment[]; swaps: RepairSwap[]; presenterDays: string[] } {
+  const studs = config.members.filter((m) => m.type === 'student')
+  const index = new Map(studs.map((m, i) => [m.id, i]))
+  const groups = shareGroups(config)
+  const groupOf = new Map<number, number[]>()
+  for (const g of groups) for (const si of g.members) groupOf.set(si, g.members)
+  const resp = new Map(studs.map((m) => [m.id, studentResponse(config, responses, m.id)]))
+  let cur = roster.students.map((x) => ({ ...x }))
+  // Shifts of each type per student, and points per student.
+  const count = new Map<string, number>()
+  const key = (id: string, slot: string) => `${id}|${slot}`
+  for (const x of cur) count.set(key(x.memberId, x.shiftId), (count.get(key(x.memberId, x.shiftId)) ?? 0) + 1)
+  // Points as the host counts them: shifts, plus presentations when they count.
+  const pts = new Map<string, number>(presentationsCount(config) ? Object.entries(presentationLoad(config, roster.presenters)) : [])
+  for (const x of cur) pts.set(x.memberId, (pts.get(x.memberId) ?? 0) + shiftPoints(config, x.shiftId, x.date))
+  const spreadOf = (id: string, slot: string) => {
+    const g = groupOf.get(index.get(id)!) ?? []
+    const n = g.map((si) => count.get(key(studs[si].id, slot)) ?? 0)
+    return Math.max(0, Math.max(...n) - Math.min(...n) - 1)
+  }
+  const avoidCost = (id: string, date: string) => AVOID_PENALTY[avoidLevel(resp.get(id)!, date)]
+  /** How much a trade of places between a and b improves things (bigger is better). */
+  const gain = (a: StudentAssignment, b: StudentAssignment) => {
+    const slots = [...new Set([a.shiftId, b.shiftId])]
+    const ids = [a.memberId, b.memberId]
+    const spreadBefore = slots.reduce((n, sl) => n + ids.reduce((m, id) => Math.max(m, spreadOf(id, sl)), 0), 0)
+    const bump = (d: number) => {
+      count.set(key(a.memberId, a.shiftId), (count.get(key(a.memberId, a.shiftId)) ?? 0) - d)
+      count.set(key(a.memberId, b.shiftId), (count.get(key(a.memberId, b.shiftId)) ?? 0) + d)
+      count.set(key(b.memberId, b.shiftId), (count.get(key(b.memberId, b.shiftId)) ?? 0) - d)
+      count.set(key(b.memberId, a.shiftId), (count.get(key(b.memberId, a.shiftId)) ?? 0) + d)
+    }
+    bump(1)
+    const spreadAfter = slots.reduce((n, sl) => n + ids.reduce((m, id) => Math.max(m, spreadOf(id, sl)), 0), 0)
+    bump(-1)
+    const avoid = avoidCost(a.memberId, a.date) + avoidCost(b.memberId, b.date) - avoidCost(a.memberId, b.date) - avoidCost(b.memberId, a.date)
+    const pa = shiftPoints(config, a.shiftId, a.date)
+    const pb = shiftPoints(config, b.shiftId, b.date)
+    const [x, y] = [pts.get(a.memberId) ?? 0, pts.get(b.memberId) ?? 0]
+    const points = x * x + y * y - ((x - pa + pb) ** 2 + (y - pb + pa) ** 2)
+    // Each trade costs a little (more across days), so only worthwhile ones are made.
+    return 100_000 * (spreadBefore - spreadAfter) + avoid + 40 * points - (a.date === b.date ? 30 : 120)
+  }
+  const swaps: RepairSwap[] = []
+  for (let n = 0; n < most; n++) {
+    let best: { a: StudentAssignment; b: StudentAssignment; g: number } | null = null
+    for (const a of cur) {
+      const { swaps: legal } = studentTargets(config, responses, cur, a)
+      for (const k of legal) {
+        const memberId = k.slice(k.lastIndexOf('|') + 1)
+        const place = k.slice(0, k.lastIndexOf('|'))
+        const b = cur.find((x) => x.memberId === memberId && placeKey(x) === place)
+        // Each pair once (from the student listed later); trades are allowed both ways or neither.
+        if (!b || b.memberId === a.memberId || index.get(b.memberId)! > index.get(a.memberId)!) continue
+        const g = gain(a, b)
+        if (g > 0 && (!best || g > best.g)) best = { a, b, g }
+      }
+    }
+    if (!best) break
+    const { a, b } = best
+    swaps.push({ a: { ...a }, b: { ...b } })
+    // Apply: a takes b's place and b takes a's.
+    count.set(key(a.memberId, a.shiftId), (count.get(key(a.memberId, a.shiftId)) ?? 0) - 1)
+    count.set(key(a.memberId, b.shiftId), (count.get(key(a.memberId, b.shiftId)) ?? 0) + 1)
+    count.set(key(b.memberId, b.shiftId), (count.get(key(b.memberId, b.shiftId)) ?? 0) - 1)
+    count.set(key(b.memberId, a.shiftId), (count.get(key(b.memberId, a.shiftId)) ?? 0) + 1)
+    const [pa, pb] = [shiftPoints(config, a.shiftId, a.date), shiftPoints(config, b.shiftId, b.date)]
+    pts.set(a.memberId, (pts.get(a.memberId) ?? 0) - pa + pb)
+    pts.set(b.memberId, (pts.get(b.memberId) ?? 0) - pb + pa)
+    const placeA = { date: a.date, shiftId: a.shiftId, requirementId: a.requirementId }
+    const placeB = { date: b.date, shiftId: b.shiftId, requirementId: b.requirementId }
+    cur = cur.map((x) => (x === a ? { ...placeB, memberId: a.memberId } : x === b ? { ...placeA, memberId: b.memberId } : x))
+  }
+  // Presenters: keep them, except on days where one of them no longer fits — someone who had to come off a
+  // shift the night before (or that day) and was moved off it. Those days are picked again.
+  const changedNights = new Set(swaps.flatMap((x) => [x.a.date, x.b.date]))
+  const stillFits = (p: PresenterAssignment) => {
+    const rule = config.presentations.find((r) => r.id === p.ruleId)
+    const today = rule && presentationOn(config, rule, p.date)
+    if (!today || !today.sources.length) return true
+    const was = (st: StudentAssignment[]) =>
+      today.sources.some((src) =>
+        sourceOffsets(src, today.daysBack).some((n) =>
+          st.some((x) => x.memberId === p.memberId && x.date === addDays(p.date, -n) && sourceMatches(config, src, x.shiftId, x.requirementId)),
+        ),
+      )
+    // Only those who were picked for a source (they were on its shift) must still be on it.
+    return !was(roster.students) || was(cur)
+  }
+  const presenterDays = [...new Set([...changedNights].flatMap((d) => [d, addDays(d, 1)]))]
+    .filter((d) => roster.presenters.some((p) => p.date === d && !stillFits(p)))
+    .sort()
+  const again = pickPresenters(config, responses, roster.assignments, cur).presenters
+  const presenters = [
+    ...roster.presenters.filter((p) => !presenterDays.includes(p.date)),
+    ...again.filter((p) => presenterDays.includes(p.date)),
+  ]
+    .map((p) => ({ ...p }))
+    .sort((x, y) => x.date.localeCompare(y.date))
+  // Re-picking can leave someone without a weekly presentation they had: hand them one of the re-picked turns
+  // they could take (they were on its shift), from someone who has more than one.
+  for (const rule of config.presentations.filter((r) => !isOneDay(r))) {
+    for (const m of studs) {
+      const has = (id: string) => presenters.filter((p) => p.ruleId === rule.id && p.memberId === id).length
+      if (has(m.id) > 0) continue
+      const can = (p: PresenterAssignment) => {
+        if (p.ruleId !== rule.id || has(p.memberId) < 2) return false
+        if (presenters.some((q) => q.date === p.date && q.memberId === m.id)) return false
+        if (resp.get(m.id)!.unavailable.includes(p.date)) return false
+        const today = presentationOn(config, rule, p.date)
+        return Boolean(today?.sources.some((src) => cur.some((x) => x.memberId === m.id && x.date === addDays(p.date, -1) && sourceMatches(config, src, x.shiftId, x.requirementId))))
+      }
+      // A day already being re-picked first; any other day only if need be.
+      const turn = presenters.find((p) => presenterDays.includes(p.date) && can(p)) ?? presenters.find(can)
+      if (turn) {
+        turn.memberId = m.id
+        if (!presenterDays.includes(turn.date)) presenterDays.push(turn.date)
+      }
+    }
+  }
+  const changedPresenterDays = presenterDays.filter((d) => {
+    const before = roster.presenters.filter((p) => p.date === d).map((p) => `${p.ruleId}|${p.memberId}`).sort().join()
+    const after = presenters.filter((p) => p.date === d).map((p) => `${p.ruleId}|${p.memberId}`).sort().join()
+    return before !== after
+  })
+  return { students: cur, presenters, swaps, presenterDays: changedPresenterDays }
+}
+
 /**
  * Where a picked-up student could go without breaking a rule: places with room ('move'),
  * and other students they could trade places with ('swap', keyed by the other student's place + id).

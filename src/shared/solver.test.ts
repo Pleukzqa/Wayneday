@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import { addDays, dateRange, dayDiff } from './dates.ts'
 import { shiftHours, shiftPoints, shiftTimes } from './calendar.ts'
 import { countArrangements, solve, solveMany, validate } from './solver.ts'
-import { arrangeStudents, countStudentArrangements, equalShare, shareGroups, shiftsNeeded, pickPresenters, placeKey, studentCellIssues, studentExposure, studentOptions, presentationLoad, studentDetails, studentRuleReport, studentSummaryTable, studentTargets, typeSpread } from './students.ts'
+import { arrangeStudents, countStudentArrangements, equalShare, shareGroups, shiftsNeeded, pickPresenters, placeKey, studentCellIssues, studentExposure, studentOptions, presentationLoad, repairRoster, studentDetails, studentRuleReport, studentSummaryTable, studentTargets, typeSpread } from './students.ts'
 import { buildAiPrompt, importAiResult } from './ai.ts'
 import { explainNoArrangement } from './explain.ts'
 import { ANY_SHIFT, DEFAULT_RESPONSE, DEFAULT_STUDENTS, dutyOf, presentationPoints, type MemberResponse, type SessionConfig, type StudentAssignment } from './types.ts'
@@ -610,6 +610,35 @@ test('each type of shift is shared evenly: the long 24h shifts at most one apart
     const long = c.members.filter((m) => m.type === 'student').map((m) => r.students.filter((x) => x.memberId === m.id && x.shiftId === 'day').length)
     assert.ok(Math.max(...long) - Math.min(...long) <= 1, `seed ${seed}: 24h shifts ${long}`)
   }
+})
+
+test('fix with fewest changes: trades places to even out shift types, keeping every rule and shift count', () => {
+  const c = equalRotation()
+  const r = arrangeStudents(c, {}, c.duty, 2)
+  assert.ok(r.ok)
+  if (!r.ok) return
+  // Make it lopsided with a few legal trades that pile the 24h shifts onto some students.
+  let students = r.students
+  for (let n = 0; n < 6; n++) {
+    let worst: StudentAssignment[] | null = null
+    for (const a of students) {
+      for (const k of studentTargets(c, {}, students, a).swaps) {
+        const [memberId, place] = [k.slice(k.lastIndexOf('|') + 1), k.slice(0, k.lastIndexOf('|'))]
+        const b = students.find((x) => x.memberId === memberId && placeKey(x) === place)!
+        const next = students.map((x) => (x === a ? { ...b, memberId: a.memberId } : x === b ? { ...a, memberId: b.memberId } : x))
+        if (!worst || typeSpread(c, next) > typeSpread(c, worst)) worst = next
+      }
+    }
+    if (worst) students = worst
+  }
+  const lopsided = typeSpread(c, students)
+  assert.ok(lopsided > 0)
+  const fixed = repairRoster(c, {}, { assignments: c.duty, students, presenters: [] })
+  assert.ok(fixed.swaps.length > 0 && fixed.swaps.length <= 12, `${fixed.swaps.length} trades`)
+  assert.ok(typeSpread(c, fixed.students) < lopsided, `${typeSpread(c, fixed.students)} vs ${lopsided}`)
+  assert.deepEqual([...studentCellIssues(c, {}, fixed.students).values()].flat(), [], 'no rule broken')
+  const count = (st: StudentAssignment[]) => c.members.map((m) => st.filter((x) => x.memberId === m.id).length)
+  assert.deepEqual(count(fixed.students), count(students), 'everyone keeps their number of shifts')
 })
 
 test('sharing equally fills every place and splits them within one shift', () => {

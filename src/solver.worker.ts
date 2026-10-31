@@ -1,16 +1,18 @@
 import { countArrangements, solveMany, type SolveOptions } from './shared/solver.ts'
-import { arrangeStudents, countStudentArrangements, pickPresenters, studentOptions } from './shared/students.ts'
+import { arrangeStudents, countStudentArrangements, pickPresenters, repairRoster, studentOptions } from './shared/students.ts'
 import { setLang, type Lang } from './shared/i18n.ts'
 import { explainNoArrangement } from './shared/explain.ts'
-import { dutyOf, type Assignment, type MemberResponse, type SessionConfig } from './shared/types.ts'
+import { dutyOf, type Assignment, type MemberResponse, type Roster, type SessionConfig } from './shared/types.ts'
 
 export type WorkerRequest = { lang: Lang } & (
   | { kind: 'many'; config: SessionConfig; responses: Record<string, MemberResponse>; opts: SolveOptions & { count?: number } }
   | { kind: 'students'; config: SessionConfig; responses: Record<string, MemberResponse>; assignments: Assignment[]; seed: number }
+  | { kind: 'repair'; config: SessionConfig; responses: Record<string, MemberResponse>; roster: Roster }
 )
 
 export function handle(req: WorkerRequest) {
   setLang(req.lang)
+  if (req.kind === 'repair') return repairRoster(req.config, req.responses, req.roster)
   if (req.kind === 'many' && req.config.rosterMode === 'hospital') {
     // Residents and staff are the hospital's; only students (and presenters) are arranged.
     const result = studentOptions(req.config, req.responses, dutyOf(req.config), req.opts)

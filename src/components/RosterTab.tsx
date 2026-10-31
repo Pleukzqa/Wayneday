@@ -3,7 +3,7 @@ import { api } from '../api.ts'
 import { googleClientId } from '../google.ts'
 import { t } from '../shared/i18n.ts'
 import { exportCsv, exportPng, exportToDrive, exportXlsx, personTable } from '../export.ts'
-import { findArrangements, rearrangeStudents } from '../runSolver.ts'
+import { findArrangements, rearrangeStudents, repairInBackground, type RepairResult } from '../runSolver.ts'
 import { buildAiPrompt, importAiResult } from '../shared/ai.ts'
 import { addDays, shortDate } from '../shared/dates.ts'
 import { fmtPoints, reqCount, ruleSources, sourceMatches } from '../shared/calendar.ts'
@@ -16,6 +16,7 @@ import {
   studentExposure,
   studentRuleReport,
   studentDetails,
+  typeSpread,
   studentTargets,
   type StudentOption,
 } from '../shared/students.ts'
@@ -166,6 +167,7 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
   }, [code, preview, options, count, problems, explain, seed])
   const [reviewHours, setReviewHours] = useState(48)
   const [edit, setEdit] = useState<Roster | null>(null)
+  const [repair, setRepair] = useState<RepairResult | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [concernDate, setConcernDate] = useState('')
   const [swapDraft, setSwapDraft] = useState<SwapDraft | null>(null)
@@ -533,7 +535,25 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
                 <button onClick={() => void setStatus({ status: 'review', reviewUntil: now + 24 * 3_600_000 })}>{t("Reopen for review")}</button>
               )}
               {!edit ? (
-                <button onClick={() => setEdit(rosterOf(schedule))}>{hospital ? (config.presentations.length ? t('Edit students & presenters') : t('Edit students')) : t('Edit cells')}</button>
+                <>
+                  <button onClick={() => setEdit(rosterOf(schedule))}>{hospital ? (config.presentations.length ? t('Edit students & presenters') : t('Edit students')) : t('Edit cells')}</button>
+                  {hospital && hasStudents && (
+                    <button
+                      disabled={running !== null}
+                      title={t('Trade places between students to share each type of shift more evenly, changing as little as possible')}
+                      onClick={async () => {
+                        setRunning('repair')
+                        try {
+                          setRepair(await repairInBackground(config, responses, rosterOf(schedule)))
+                        } finally {
+                          setRunning(null)
+                        }
+                      }}
+                    >
+                      {running === 'repair' ? `⏳ ${t('Looking for the fewest changes…')}` : `🔧 ${t('Fix with fewest changes')}`}
+                    </button>
+                  )}
+                </>
               ) : (
                 <>
                   <button className="primary" onClick={() => void publish(edit, 'manual', schedule.status, true)}>{t("💾 Save edits")}</button>
@@ -557,6 +577,20 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
             "(students stay where they are — find arrangements again if they should move)"
           )}</span>
         </div>
+      )}
+      {repair && schedule && !preview && (
+        <RepairPlan
+          config={config}
+          responses={responses}
+          before={rosterOf(schedule)}
+          plan={repair}
+          apply={() => {
+            setEdit({ assignments: schedule.assignments, students: repair.students, presenters: repair.presenters })
+            setRepair(null)
+            setTimeout(() => tableRef.current?.scrollIntoView({ behavior: 'smooth' }), 50)
+          }}
+          dismiss={() => setRepair(null)}
+        />
       )}
       {schedule && !preview && <Swaps {...{ code, session, me, mutate }} draft={swapDraft} clearDraft={() => setSwapDraft(null)} />}
       {schedule && !preview && <FeedbackCard {...{ code, session, me, mutate }} />}
@@ -875,6 +909,109 @@ function Concerns({
       )}
     </section>
   );
+}
+
+/** The fewest-changes fix: what it would change and what it gets you, before applying it as edits. */
+function RepairPlan({
+  config,
+  responses,
+  before,
+  plan,
+  apply,
+  dismiss,
+}: {
+  config: SessionConfig
+  responses: Record<string, MemberResponse>
+  before: Roster
+  plan: RepairResult
+  apply: () => void
+  dismiss: () => void
+}) {
+  const name = (id: string) => config.members.find((m) => m.id === id)?.name ?? '?'
+  const shift = (id: string) => config.shifts.find((s) => s.id === id)?.name ?? ''
+  const after = { assignments: before.assignments, students: plan.students, presenters: plan.presenters }
+  const [b, a] = [studentRuleReport(config, responses, before), studentRuleReport(config, responses, after)]
+  const [ub, ua] = [typeSpread(config, before.students), typeSpread(config, plan.students)]
+  return (
+    <section className="card repair">
+      <h2>🔧 {t('Fix with fewest changes')}</h2>
+      {plan.swaps.length === 0 ? (
+        <p>{t('Nothing to fix — no trade between students would make it fairer.')}</p>
+      ) : (
+        <>
+          <p className="small">
+            {t('{n} trade(s) between students ({same} on the same day, so nobody’s dates change).', { n: plan.swaps.length, same: plan.swaps.filter((x) => x.a.date === x.b.date).length })}{' '}
+            {plan.presenterDays.length > 0 && t('Presenters change on {n} day(s) because of them.', { n: plan.presenterDays.length })}
+          </p>
+          <table className="mini">
+            <thead>
+              <tr>
+                <th />
+                <th>{t('Now')}</th>
+                <th>{t('After')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>{t('Uneven shift types')}</td>
+                <td>{ub}</td>
+                <td>
+                  <b>{ua}</b>
+                </td>
+              </tr>
+              <tr>
+                <td>{t('Avoid requests not met')}</td>
+                <td>{b.avoidHits[1] + b.avoidHits[2] + b.avoidHits[3]}</td>
+                <td>
+                  <b>{a.avoidHits[1] + a.avoidHits[2] + a.avoidHits[3]}</b>
+                </td>
+              </tr>
+              <tr>
+                <td>{t('Points apart')}</td>
+                <td>{fmtPoints(b.pointsSpread)}</td>
+                <td>
+                  <b>{fmtPoints(a.pointsSpread)}</b>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <ol className="small repair-list">
+            {plan.swaps.map((x, i) => (
+              <li key={i}>
+                {x.a.date === x.b.date
+                  ? t('{date}: {a} takes {b}’s {sb} and {b} takes {a}’s {sa}', {
+                      date: shortDate(x.a.date),
+                      a: name(x.a.memberId),
+                      b: name(x.b.memberId),
+                      sa: shift(x.a.shiftId),
+                      sb: shift(x.b.shiftId),
+                    })
+                  : t('{a} moves from {da} {sa} to {db} {sb}; {b} the other way', {
+                      a: name(x.a.memberId),
+                      b: name(x.b.memberId),
+                      da: shortDate(x.a.date),
+                      db: shortDate(x.b.date),
+                      sa: shift(x.a.shiftId),
+                      sb: shift(x.b.shiftId),
+                    })}
+              </li>
+            ))}
+          </ol>
+          <p className="muted small">{t('Applying opens them as edits, so you can check the table and change anything before saving.')}</p>
+        </>
+      )}
+      <div className="row wrap">
+        {plan.swaps.length > 0 && (
+          <button type="button" className="primary" onClick={apply}>
+            {t('Apply as edits')}
+          </button>
+        )}
+        <button type="button" onClick={dismiss}>
+          {t('Close')}
+        </button>
+      </div>
+    </section>
+  )
 }
 
 /** Which arrangement the table below is showing. */
