@@ -5,6 +5,7 @@ import { shiftHours, shiftPoints, shiftTimes } from './calendar.ts'
 import { countArrangements, solve, solveMany, validate } from './solver.ts'
 import { arrangeStudents, countStudentArrangements, equalShare, pickPresenters, placeKey, studentCellIssues, studentExposure, studentOptions, studentRuleReport, studentTargets } from './students.ts'
 import { buildAiPrompt, importAiResult } from './ai.ts'
+import { explainNoArrangement } from './explain.ts'
 import { ANY_SHIFT, DEFAULT_RESPONSE, DEFAULT_STUDENTS, dutyOf, type MemberResponse, type SessionConfig, type StudentAssignment } from './types.ts'
 
 function config(residents: number, staff = 0): SessionConfig {
@@ -225,6 +226,28 @@ test('hospital roster left blank: students are arranged on their own', () => {
   const prompt = buildAiPrompt(c, {})
   assert.match(prompt, /Hospital roster\nNot known yet/)
   assert.doesNotMatch(prompt, /Fixed roster from the hospital/)
+})
+
+test('no arrangement: it says why and which single change would work', () => {
+  // 3 students × 11 nights, but only 30 places.
+  const c = hospital()
+  c.students = { ...c.students, shiftsPerStudent: 11 }
+  assert.equal(studentOptions(c, {}, c.duty, { count: 1 }).ok, false)
+  const e = explainNoArrangement(c, {}, c.duty)
+  assert.match(e.hints[0].why, /3 students × 11 shifts = 33 shifts, but there are only 30/)
+  assert.match(e.hints[0].fix, /10 shifts or fewer/)
+  assert.ok(e.wouldWork.some((w) => /Share equally/.test(w)), e.wouldWork.join(' | '))
+
+  // One student who's away most of the month.
+  const d = hospital()
+  const away = dateRange('2026-11-01', '2026-11-24')
+  const responses = { stA: resp({ unavailable: away }) }
+  assert.equal(studentOptions(d, responses, d.duty, { count: 1 }).ok, false)
+  const why = explainNoArrangement(d, responses, d.duty)
+  const a = why.hints.find((h) => h.why.startsWith('Student A'))
+  assert.ok(a, why.hints.map((h) => h.why).join(' | '))
+  assert.match(a.why, /fits only \d of 5 shifts around their 24 unavailable day\(s\)/)
+  assert.match(a.fix, /Student A/)
 })
 
 test('student places need no job (place) in hospital mode', () => {

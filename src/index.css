@@ -1728,3 +1728,6 @@ button.big {
 .alert.practice p {
   margin: 0.2rem 0 0;
 }
+.hints li {
+  margin-bottom: 0.4rem;
+}

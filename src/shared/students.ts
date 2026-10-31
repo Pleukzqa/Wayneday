@@ -94,7 +94,7 @@ export function equalShare(config: SessionConfig, total = studentOccs(config, []
 }
 
 /** Most shifts each student can fit in their allowed places, keeping their gap (earliest-first is optimal). */
-function fitCounts(occs: Occ[], allowed: number[][], gaps: number[]): number[] {
+export function fitCounts(occs: Occ[], allowed: number[][], gaps: number[]): number[] {
   return allowed.map((list, si) => {
     let n = 0
     let last: Occ | null = null

@@ -1,6 +1,7 @@
 import { countArrangements, solveMany, type SolveOptions } from './shared/solver.ts'
 import { arrangeStudents, countStudentArrangements, pickPresenters, studentOptions } from './shared/students.ts'
 import { setLang, type Lang } from './shared/i18n.ts'
+import { explainNoArrangement } from './shared/explain.ts'
 import { dutyOf, type Assignment, type MemberResponse, type SessionConfig } from './shared/types.ts'
 
 export type WorkerRequest = { lang: Lang } & (
@@ -14,7 +15,9 @@ export function handle(req: WorkerRequest) {
     // Residents and staff are the hospital's; only students (and presenters) are arranged.
     const result = studentOptions(req.config, req.responses, dutyOf(req.config), req.opts)
     const count = result.ok ? countStudentArrangements(req.config, req.responses) : null
-    return { result, count }
+    // Nothing fits: say why and what to change.
+    const explain = result.ok ? null : explainNoArrangement(req.config, req.responses, dutyOf(req.config))
+    return { result, count, explain }
   }
   if (req.kind === 'many') {
     const result = solveMany(req.config, req.responses, req.opts)

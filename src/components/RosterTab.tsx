@@ -21,6 +21,7 @@ import {
 import { dutyOf, STUDENT_SLOT, type MemberResponse, type Roster, type Schedule, type SessionConfig, type StudentAssignment } from '../shared/types.ts'
 import CalendarExport from './CalendarExport.tsx'
 import ConfirmButton from './ConfirmButton.tsx'
+import type { Explanation } from '../shared/explain.ts'
 import RosterTable, { type Arrange } from './RosterTable.tsx'
 import Swaps, { type SwapDraft } from './Swaps.tsx'
 import type { SessionProps } from './props.ts'
@@ -111,6 +112,7 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
   const [options, setOptions] = useState<StudentOption[] | null>(null)
   const [count, setCount] = useState<CountResult | null>(null)
   const [problems, setProblems] = useState<string[] | null>(null)
+  const [explain, setExplain] = useState<Explanation | null>(null)
   const [running, setRunning] = useState<string | null>(null)
   const [seed, setSeed] = useState(1)
   const [reviewHours, setReviewHours] = useState(48)
@@ -135,6 +137,7 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
   async function find() {
     setRunning('find')
     setProblems(null)
+    setExplain(null)
     setError(null)
     try {
       const r = await findArrangements(config, responses, seed)
@@ -149,6 +152,7 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
         setCount(null)
         setPreview(null)
         setProblems(r.result.ok ? [t('No arrangement found.')] : r.result.problems)
+        setExplain(r.explain ?? null)
       }
     } catch (e) {
       setError((e as Error).message)
@@ -372,11 +376,30 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
           {problems && (
             <div className="alert">
               <strong>{t("No possible arrangement.")}</strong>
-              <ul>
-                {problems.map((p) => (
-                  <li key={p}>{p}</li>
-                ))}
-              </ul>
+              {explain && explain.hints.length > 0 ? (
+                <>
+                  <p className="small">{t('Why it doesn’t fit, and what to change:')}</p>
+                  <ul className="hints">
+                    {explain.hints.map((h) => (
+                      <li key={h.why}>
+                        {h.why}
+                        <span className="block small">💡 {h.fix}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  {explain.wouldWork.length > 0 && (
+                    <p className="small">
+                      ✅ <b>{t('It would work with any one of these:')}</b> {explain.wouldWork.join(' · ')}
+                    </p>
+                  )}
+                </>
+              ) : (
+                <ul>
+                  {problems.map((p) => (
+                    <li key={p}>{p}</li>
+                  ))}
+                </ul>
+              )}
             </div>
           )}
           {preview && (

@@ -1,5 +1,6 @@
 import { getLang } from './shared/i18n.ts'
 import type { CountResult } from './shared/solver.ts'
+import type { Explanation } from './shared/explain.ts'
 import type { StudentOption } from './shared/students.ts'
 import type { Assignment, MemberResponse, PresenterAssignment, SessionConfig, StudentAssignment } from './shared/types.ts'
 import type { WorkerRequest } from './solver.worker.ts'
@@ -30,6 +31,8 @@ function run<T>(req: WorkerRequest): Promise<T> {
 export type ManyResult = {
   result: { ok: true; alternatives: StudentOption[] } | { ok: false; problems: string[] }
   count: CountResult | null
+  /** Hospital mode, when nothing fits: why, and what to change. */
+  explain?: Explanation | null
 }
 
 export const findArrangements = (config: SessionConfig, responses: Record<string, MemberResponse>, seed: number, count = 6) =>
