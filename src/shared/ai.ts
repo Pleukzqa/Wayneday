@@ -6,7 +6,7 @@ import { endDays, presentationOn, reqCount, ruleSources, shiftRuns, sourceMatche
 import { dateRange, WEEKDAYS } from './dates.ts'
 import { responseFor } from './scoring.ts'
 import { equalShare, equalTargets, shareGroups } from './students.ts'
-import { ANY_SHIFT, coversJob, dutyOf, LAST_NIGHT, presenterTypes, type DaysBack, type Assignment, type PresenterSource, type MemberResponse, type PresenterAssignment, type Roster, type SessionConfig, type StudentAssignment } from './types.ts'
+import { ANY_SHIFT, coversJob, dutyOf, LAST_NIGHT, presentationPoints, presenterTypes, type DaysBack, type Assignment, type PresenterSource, type MemberResponse, type PresenterAssignment, type Roster, type SessionConfig, type StudentAssignment } from './types.ts'
 
 export const AI_FORMAT_TAG = 'wayneday-roster'
 
@@ -148,7 +148,7 @@ export function buildAiPrompt(config: SessionConfig, responses: Record<string, M
                   Object.keys(config.datePoints ?? {}).length
                     ? `; these dates have their own points: ${Object.entries(config.datePoints ?? {}).sort().map(([d, v]) => `${d} = ${v}`).join(', ')}`
                     : ''
-                }. Keep every student's total points as equal as possible (after keeping their number of shifts equal).`
+                }. Keep every student's total points as equal as possible (after keeping their number of shifts equal)${st.points.presentations ? ", counting each student's presentation points too (whoever presents less should get heavier shifts)" : ''}.`
               : '',
             st.avoidRepeatResident ? 'A student should not meet the same resident twice.' : '',
             st.avoidRepeatStaff ? 'A student should not meet the same staff member twice.' : '',
@@ -167,7 +167,7 @@ export function buildAiPrompt(config: SessionConfig, responses: Record<string, M
     lines.push('## Presentations')
     for (const r of config.presentations) {
       lines.push(
-        `- "${r.name}" on ${[r.days.map((d) => WEEKDAYS[d]).join('/'), (r.dates ?? []).join(', ')].filter(Boolean).join(' and on ') || 'no regular days'}: ${r.count} presenter(s)${ruleSources(r).length ? `, including ${ruleSources(r).map((src) => describeSource(src, r.daysBack)).join(' and ')}` : ''}. Presenters can be: ${presenterTypes(config, r).join(', ')}. Share presentations evenly.`,
+        `- "${r.name}" (each presentation counts as ${presentationPoints(r)} point(s)) on ${[r.days.map((d) => WEEKDAYS[d]).join('/'), (r.dates ?? []).join(', ')].filter(Boolean).join(' and on ') || 'no regular days'}: ${r.count} presenter(s)${ruleSources(r).length ? `, including ${ruleSources(r).map((src) => describeSource(src, r.daysBack)).join(' and ')}` : ''}. Presenters can be: ${presenterTypes(config, r).join(', ')}. Share presentations evenly.`,
       )
       const changes = config.presentationOverrides.filter((o) => o.ruleId === r.id).sort((x, y) => x.date.localeCompare(y.date))
       for (const o of changes) {

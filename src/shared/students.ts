@@ -8,7 +8,7 @@ import { fmtPoints, presentationOn, reqCount, reqMin, shiftPoints, shiftRuns, sh
 import { t, weekdayShort } from './i18n.ts'
 import { addDays, dateRange, dayDiff, weekday } from './dates.ts'
 import { preferenceCost, responseFor, rng, shuffled, sortedBy, variance } from './scoring.ts'
-import { coversJob, dutyOf, isOneDay, presenterTypes, type Assignment, type Member, type MemberResponse, type PresenterAssignment, type SessionConfig, type StudentAssignment } from './types.ts'
+import { coversJob, dutyOf, isOneDay, presentationPoints, presenterTypes, type Assignment, type Member, type MemberResponse, type PresenterAssignment, type SessionConfig, type StudentAssignment } from './types.ts'
 
 /** A place students can take: one shift on one date (and, in hospital mode, one job within it). */
 export interface Occ {
@@ -236,6 +236,8 @@ export function arrangeStudents(
   assignments: Assignment[],
   seed = 1,
   iterations = 20_000,
+  /** Points each student already has from presenting (member id -> points), when presentations count towards points. */
+  extraPoints: Record<string, number> = {},
 ): StudentResult {
   const students = config.members.filter((m) => m.type === 'student')
   const settings = config.students
@@ -460,7 +462,7 @@ export function arrangeStudents(
       sc += 100 * variance(ids.map((id) => exposure.get(id) ?? 0))
     }
     if (pointsOn) {
-      const pts = mine.map((m) => m.reduce((n, oi) => n + occs[oi].pts, 0))
+      const pts = mine.map((m, si) => m.reduce((n, oi) => n + occs[oi].pts, extraPoints[students[si].id] ?? 0))
       sc += 80 * variance(pts)
       // The host's limit on how far apart points may be, far above every other wish: everyone outside the
       // band around the average counts (not just the two ends), so each step towards it is rewarded.
@@ -595,10 +597,14 @@ export function pickPresenters(
   students: StudentAssignment[],
   seed = 1,
 ): { presenters: PresenterAssignment[]; warnings: string[] } {
+  // With presentations counting towards points, everyone starts from their shift points, so whoever has
+  // lighter shifts presents more.
+  const start: Record<string, number> = {}
+  if (presentationsCount(config)) for (const s of students) start[s.memberId] = (start[s.memberId] ?? 0) + shiftPoints(config, s.shiftId, s.date)
   // A few tries from different random starts; the most even one wins (fewest people short or twice in a day first).
   let best: { presenters: PresenterAssignment[]; warnings: string[]; cost: number } | null = null
   for (let attempt = 0; attempt < 8; attempt++) {
-    const r = pickPresentersOnce(config, responses, assignments, students, seed + attempt * 1000)
+    const r = pickPresentersOnce(config, responses, assignments, students, seed + attempt * 1000, start)
     if (!best || r.cost < best.cost) best = r
   }
   return { presenters: best!.presenters, warnings: best!.warnings }
@@ -610,6 +616,7 @@ function pickPresentersOnce(
   assignments: Assignment[],
   students: StudentAssignment[],
   seed: number,
+  start: Record<string, number>,
 ): { presenters: PresenterAssignment[]; warnings: string[]; cost: number } {
   const rand = rng(seed * 31 + 7)
   const warnings: string[] = []
@@ -620,10 +627,12 @@ function pickPresentersOnce(
     const rule = config.presentations.find((r) => r.id === ruleId)!
     return isOneDay(rule) ? 'one-day' : rule.id
   }
-  const total = new Map<string, number>()
+  const total = new Map<string, number>(Object.entries(start))
   const byKind = new Map<string, number>()
-  const bump = (id: string, k: string, d: number) => {
-    total.set(id, (total.get(id) ?? 0) + d)
+  // Totals count each presentation by its points (a one-day one counts double by default); types by number.
+  const weight = (k: string, ruleId?: string) => presentationPoints(config.presentations.find((r) => r.id === ruleId) ?? config.presentations.find((r) => kind(r.id) === k)!)
+  const bump = (id: string, k: string, d: number, ruleId?: string) => {
+    total.set(id, (total.get(id) ?? 0) + d * weight(k, ruleId))
     byKind.set(`${k}|${id}`, (byKind.get(`${k}|${id}`) ?? 0) + d)
   }
   // Even totals come first: someone short of one type (e.g. one-day ones, tied to a few nights) makes it up in
@@ -651,7 +660,7 @@ function pickPresentersOnce(
         const free = pool.filter((x) => !chosen.includes(x))
         for (const id of [...byFewest(free.filter((x) => !busy.has(x)), k), ...byFewest(free.filter((x) => busy.has(x)), k)].slice(0, n)) {
           chosen.push(id)
-          bump(id, k, 1)
+          bump(id, k, 1, rule.id)
           slots.push({ date, ruleId: rule.id, kind: k, pool, lastNight, who: id })
         }
       }
@@ -685,19 +694,19 @@ function pickPresentersOnce(
         if (taken.has(id)) continue
         // Moving this place from its presenter to `id`: how much more even does it get?
         const now = cost(slot.who, slot.kind) + cost(id, slot.kind)
-        bump(slot.who, slot.kind, -1)
-        bump(id, slot.kind, 1)
+        bump(slot.who, slot.kind, -1, slot.ruleId)
+        bump(id, slot.kind, 1, slot.ruleId)
         const after = cost(slot.who, slot.kind) + cost(id, slot.kind)
-        bump(id, slot.kind, -1)
-        bump(slot.who, slot.kind, 1)
+        bump(id, slot.kind, -1, slot.ruleId)
+        bump(slot.who, slot.kind, 1, slot.ruleId)
         if (now - after > gain) {
           gain = now - after
           best = id
         }
       }
       if (best) {
-        bump(slot.who, slot.kind, -1)
-        bump(best, slot.kind, 1)
+        bump(slot.who, slot.kind, -1, slot.ruleId)
+        bump(best, slot.kind, 1, slot.ruleId)
         slot.who = best
         better = true
       }
@@ -782,11 +791,33 @@ export function studentOptions(
     const key = r.students.map((x) => `${x.memberId}${x.date}${x.shiftId}`).join(',')
     if (seen.has(key)) continue
     seen.add(key)
-    const p = pickPresenters(config, responses, assignments, r.students, seed)
-    out.push({ id: `st-${seed}`, score: r.score, roster: { assignments, students: r.students, presenters: p.presenters }, warnings: [...r.warnings, ...p.warnings] })
+    let p = pickPresenters(config, responses, assignments, r.students, seed)
+    let placed = r
+    if (presentationsCount(config)) {
+      // Presenting counts towards points: arrange again knowing who presents how much, then pick presenters again.
+      const again = arrangeStudents(config, responses, assignments, seed, undefined, presentationLoad(config, p.presenters))
+      if (again.ok) {
+        placed = again
+        p = pickPresenters(config, responses, assignments, again.students, seed)
+      }
+    }
+    out.push({ id: `st-${seed}`, score: placed.score, roster: { assignments, students: placed.students, presenters: p.presenters }, warnings: [...placed.warnings, ...p.warnings] })
   }
   out.sort((a, b) => a.score - b.score)
   return { ok: true, alternatives: out }
+}
+
+/** Do presentations count towards points (points on, and the host chose so)? */
+export const presentationsCount = (config: SessionConfig) => Boolean(config.students.points?.on && config.students.points.presentations)
+
+/** Points each person has from presenting: member id -> sum of their presentations' points. */
+export function presentationLoad(config: SessionConfig, presenters: PresenterAssignment[]): Record<string, number> {
+  const out: Record<string, number> = {}
+  for (const p of presenters) {
+    const rule = config.presentations.find((r) => r.id === p.ruleId)
+    if (rule) out[p.memberId] = (out[p.memberId] ?? 0) + presentationPoints(rule)
+  }
+  return out
 }
 
 /**
@@ -1132,9 +1163,11 @@ export function studentRuleReport(
     }
   }
   if (st.points?.on) {
+    // With presentations counting towards points, each person's presentation points are added.
+    const fromTalks = presentationsCount(config) && roster.presenters ? presentationLoad(config, roster.presenters) : {}
     const pts = config.members
       .filter((m) => m.type === 'student')
-      .map((m) => roster.students.filter((s) => s.memberId === m.id).reduce((n, s) => n + shiftPoints(config, s.shiftId, s.date), 0))
+      .map((m) => roster.students.filter((s) => s.memberId === m.id).reduce((n, s) => n + shiftPoints(config, s.shiftId, s.date), fromTalks[m.id] ?? 0))
     if (pts.length) {
       const [a, b] = [Math.min(...pts), Math.max(...pts)]
       const limit = st.points.maxDiff
@@ -1204,10 +1237,11 @@ export function studentSummaryTable(config: SessionConfig, roster: { assignments
   const weekly = config.presentations.filter((r) => !isOneDay(r))
   const oneDay = new Set(config.presentations.filter(isOneDay).map((r) => r.id))
   const presents = config.presentations.length > 0 && roster.presenters !== undefined
+  const fromTalks = presentationsCount(config) && roster.presenters ? presentationLoad(config, roster.presenters) : {}
   const header = [
     t('Student'),
     t('Shifts'),
-    ...(pointsOn ? [t('Points')] : []),
+    ...(pointsOn ? [presentationsCount(config) ? t('Points (shifts + presentations)') : t('Points')] : []),
     ...(presents ? [t('Presentations'), ...(weekly.length > 1 || oneDay.size ? weekly.map((r) => r.name) : []), ...(oneDay.size ? [t('One-day presentations')] : [])] : []),
   ]
   const lead = header.length
@@ -1218,7 +1252,7 @@ export function studentSummaryTable(config: SessionConfig, roster: { assignments
     const row = [
       m.name,
       String(mine.length),
-      ...(pointsOn ? [fmtPoints(mine.reduce((n, s) => n + shiftPoints(config, s.shiftId, s.date), 0))] : []),
+      ...(pointsOn ? [fmtPoints(mine.reduce((n, s) => n + shiftPoints(config, s.shiftId, s.date), fromTalks[m.id] ?? 0))] : []),
       ...(presents
         ? [
             String(gives.length),

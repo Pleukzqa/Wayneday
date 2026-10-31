@@ -3,10 +3,10 @@ import { test } from 'node:test'
 import { addDays, dateRange, dayDiff } from './dates.ts'
 import { shiftHours, shiftPoints, shiftTimes } from './calendar.ts'
 import { countArrangements, solve, solveMany, validate } from './solver.ts'
-import { arrangeStudents, countStudentArrangements, equalShare, shareGroups, shiftsNeeded, pickPresenters, placeKey, studentCellIssues, studentExposure, studentOptions, studentRuleReport, studentSummaryTable, studentTargets } from './students.ts'
+import { arrangeStudents, countStudentArrangements, equalShare, shareGroups, shiftsNeeded, pickPresenters, placeKey, studentCellIssues, studentExposure, studentOptions, presentationLoad, studentRuleReport, studentSummaryTable, studentTargets } from './students.ts'
 import { buildAiPrompt, importAiResult } from './ai.ts'
 import { explainNoArrangement } from './explain.ts'
-import { ANY_SHIFT, DEFAULT_RESPONSE, DEFAULT_STUDENTS, dutyOf, type MemberResponse, type SessionConfig, type StudentAssignment } from './types.ts'
+import { ANY_SHIFT, DEFAULT_RESPONSE, DEFAULT_STUDENTS, dutyOf, presentationPoints, type MemberResponse, type SessionConfig, type StudentAssignment } from './types.ts'
 
 function config(residents: number, staff = 0): SessionConfig {
   return {
@@ -424,6 +424,35 @@ test('roster table: one column for all one-day presentations, each labelled', as
   const roster = { assignments: c.duty, students: [], presenters: [{ date: '2026-11-06', ruleId: 'chest', memberId: 'stA', postCall: true }] }
   assert.deepEqual(cellNames(c, roster, cols[1], '2026-11-06'), ['CCR Chest: Student A ●'])
   assert.equal(cellNames(c, roster, cols[1], '2026-11-07'), null, 'no one-day presentation that day')
+})
+
+test('presentation points: one-day ones count double by default; presenting can count towards points', () => {
+  const c = pointsRotation(true)
+  const base = { fromShiftId: 'oc', fromCount: 1, types: ['student' as const] }
+  c.presentations = [
+    { ...base, id: 'mr', name: 'Morning report', days: [1, 2, 3, 4], count: 1 },
+    { ...base, id: 'cc', name: 'CCR', days: [], dates: ['2025-11-07', '2025-11-14', '2025-11-21', '2025-11-28'], count: 2 },
+  ]
+  assert.deepEqual(c.presentations.map(presentationPoints), [1, 2])
+  const studs = c.members.filter((m) => m.type === 'student').map((m) => m.id)
+  const spread = (xs: number[]) => Math.max(...xs) - Math.min(...xs)
+  const run = () => {
+    const r = studentOptions(c, {}, [], { count: 1 })
+    assert.ok(r.ok)
+    if (!r.ok) throw new Error()
+    const o = r.alternatives[0].roster
+    const talk = presentationLoad(c, o.presenters)
+    const shift = studs.map((id) => o.students.filter((x) => x.memberId === id).reduce((n, x) => n + shiftPoints(c, x.shiftId, x.date), 0))
+    return { talk: studs.map((id) => talk[id] ?? 0), both: studs.map((id, i) => (talk[id] ?? 0) + shift[i]), report: studentRuleReport(c, {}, o).summary.join(' ') }
+  }
+  // Weighted: presentation points (not counts) are shared out within a couple of points.
+  assert.ok(spread(run().talk) <= 2, String(run().talk))
+  // Counting towards points: shifts + presentations together stay close, and the report says so.
+  c.students.points = { ...c.students.points!, presentations: true }
+  const both = run()
+  assert.ok(spread(both.both) <= 4, String(both.both))
+  const table = studentSummaryTable(c, { assignments: [], students: [], presenters: [] })
+  assert.ok(table.header.includes('Points (shifts + presentations)'))
 })
 
 test('nobody presents twice in a day', () => {

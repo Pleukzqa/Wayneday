@@ -790,4 +790,9 @@ export const TH: Record<string, string> = {
   "Open": "เปิด",
   "tap to delete": "แตะเพื่อลบ",
   "Saved {time}": "บันทึกเมื่อ {time}",
+  "Each presentation counts as": "การนำเสนอแต่ละครั้งนับเป็น",
+  "point(s)": "แต้ม",
+  "Presenting counts towards points too — whoever presents less gets heavier shifts, and the other way round": "นับการนำเสนอเป็นแต้มด้วย — ใครนำเสนอน้อยจะได้เวรที่หนักขึ้น และกลับกัน",
+  "(each presentation’s points are set in its box under Presentations)": "(ตั้งแต้มของแต่ละการนำเสนอได้ในกล่องของมันในส่วนการนำเสนอ)",
+  "Points (shifts + presentations)": "แต้ม (เวร + การนำเสนอ)",
 }

@@ -139,6 +139,8 @@ export interface PresentationRule {
   dates?: string[]
   /** How far back "the day before" sources look, in days: [2, 3] = on that shift 2 or 3 days before. Missing = [1, 1]. */
   daysBack?: DaysBack
+  /** How much one presentation counts when sharing them out (and towards points): missing = 1 weekly, 2 one-day. */
+  points?: number
 }
 
 /** [nearest, farthest] days before a presentation, each 1–7. */
@@ -147,6 +149,9 @@ export const LAST_NIGHT: DaysBack = [1, 1]
 
 /** A presentation that happens on one date only (e.g. a case discussion), rather than every week. */
 export const isOneDay = (rule: PresentationRule) => rule.days.length === 0 && (rule.dates?.length ?? 0) > 0
+
+/** How much presenting once at this presentation counts (a one-day one is more work than a weekly one). */
+export const presentationPoints = (rule: PresentationRule) => rule.points ?? (isOneDay(rule) ? 2 : 1)
 
 /** Was someone on `shiftId` the shift this rule takes presenters from? */
 export const fromRuleShift = (rule: PresentationRule, shiftId: string) => rule.fromShiftId === ANY_SHIFT || rule.fromShiftId === shiftId
@@ -190,6 +195,8 @@ export interface PointSettings {
   fixed?: Record<string, number>
   /** Most students' points may differ, as a percentage of the average (e.g. 20); missing = no limit. */
   maxDiff?: number
+  /** Presenting counts towards points too: whoever presents less gets heavier shifts, and the other way round. */
+  presentations?: boolean
 }
 
 export const DEFAULT_POINTS: PointSettings = { on: false, weekday: 1, weekend: 2 }

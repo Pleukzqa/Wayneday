@@ -137,14 +137,14 @@ for (const [kind, makeStore] of stores) {
             students: {
               points: {
                 on: true, weekday: 1, weekend: '2.5', shifts: { oc: 1.5, gone: 3 },
-                fixed: { 'oc|weekend': 4, 'oc|2025-12-24': '6', 'oc|someday': 1, 'gone|weekday': 2 }, maxDiff: '20',
+                fixed: { 'oc|weekend': 4, 'oc|2025-12-24': '6', 'oc|someday': 1, 'gone|weekday': 2 }, maxDiff: '20', presentations: true,
               },
             },
             datePoints: { '2025-12-03': 3, nope: 9 },
           },
         })
       ).body
-      assert.deepEqual(v.session.config.students.points, { on: true, weekday: 1, weekend: 2.5, shifts: { oc: 1.5 }, fixed: { 'oc|weekend': 4, 'oc|2025-12-24': 6 }, maxDiff: 20 })
+      assert.deepEqual(v.session.config.students.points, { on: true, weekday: 1, weekend: 2.5, shifts: { oc: 1.5 }, fixed: { 'oc|weekend': 4, 'oc|2025-12-24': 6 }, maxDiff: 20, presentations: true })
       assert.deepEqual(v.session.config.datePoints, { '2025-12-03': 3 })
     })
 
@@ -163,6 +163,7 @@ for (const [kind, makeStore] of stores) {
       ;(presentations[0].sources as object[]).push({ shiftId: '*', jobId: 'j17', count: 1 }, { shiftId: '*', jobId: 'gone', count: 1 })
       ;(presentations[0].sources[0] as Record<string, unknown>).orShiftIds = ['l', 'n', 'gone']
       ;(presentations[0] as Record<string, unknown>).daysBack = [3, '2']
+      ;(presentations[0] as Record<string, unknown>).points = '1.5'
       const presentationOverrides = [
         { date: '2026-11-10', ruleId: 'case', active: true, daysBack: [1, 1] },
         { date: '2026-11-11', ruleId: 'case', active: true, daysBack: [9] },
@@ -173,6 +174,7 @@ for (const [kind, makeStore] of stores) {
       const r = v.session.config.presentations[0]
       assert.deepEqual(r.dates, ['2026-11-10'])
       assert.deepEqual(r.daysBack, [2, 3])
+      assert.equal(r.points, 1.5)
       assert.deepEqual(v.session.config.presentationOverrides.map((o: { daysBack?: number[] }) => o.daysBack), [[1, 1], undefined])
       assert.deepEqual(r.sources, [
         { shiftId: 'n', placeId: 'wa', orShiftIds: ['l'], count: 1, when: 'before' },

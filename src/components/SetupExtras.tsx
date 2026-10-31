@@ -5,7 +5,7 @@ import { equalShareFor, studentOccs } from '../shared/students.ts'
 import { t, typeName, weekdayLetter, weekdayLong, weekdayShort } from '../shared/i18n.ts'
 import { dayPoints, fixedKey, fmtPoints, overrideFor, presentationOn, presentationUsually, reqCount, ruleSources, shiftHours, shiftPoints, shiftRuns, shiftTimes, sourceOffsets } from '../shared/calendar.ts'
 import { addDays, dateRange, shortDate, weekday } from '../shared/dates.ts'
-import { ANY_SHIFT, DEFAULT_POINTS, DUTY_ROLES, isOneDay, LAST_NIGHT, type DateOverride, type DaysBack, type DutyRole, type MemberResponse, type MemberType, type PresentationOverride, type PresentationRule, type PresenterSource, type SessionConfig, type ShiftSlot } from '../shared/types.ts'
+import { ANY_SHIFT, DEFAULT_POINTS, DUTY_ROLES, isOneDay, LAST_NIGHT, presentationPoints, type DateOverride, type DaysBack, type DutyRole, type MemberResponse, type MemberType, type PresentationOverride, type PresentationRule, type PresenterSource, type SessionConfig, type ShiftSlot } from '../shared/types.ts'
 import { uid, type SessionProps } from './props.ts'
 
 type Edit = (fn: (c: SessionConfig) => SessionConfig) => void
@@ -397,6 +397,13 @@ function PointsBox({ draft, ro, set, count }: { draft: SessionConfig; ro: boolea
               )}
             </div>
           )}
+          {draft.presentations.length > 0 && (
+            <label className="check">
+              <input type="checkbox" disabled={ro} checked={Boolean(p.presentations)} onChange={(e) => setP({ presentations: e.target.checked || undefined })} />
+              {t('Presenting counts towards points too — whoever presents less gets heavier shifts, and the other way round')}
+              <span className="muted small"> {t('(each presentation’s points are set in its box under Presentations)')}</span>
+            </label>
+          )}
           <PointsSummary draft={draft} occs={occs} count={count} ro={ro} setFixed={(key, value) => setP({ fixed: setFixedPoints(draft, key, value).students.points!.fixed })} />
           <p className="muted small">
             {t('Special days, e.g. 3 points the day before an exam: tap the date in the calendar above.')}{' '}
@@ -447,8 +454,14 @@ function PointsSummary({
     return x[0] - y[0] || x[1] - y[1] || x[2].localeCompare(y[2])
   })
   if (!list.length) return null
+  // Presentations counting towards points: how many there are of each, and what they're worth.
+  const talks = p.presentations
+    ? draft.presentations
+        .map((r) => ({ rule: r, n: dateRange(draft.startDate, draft.endDate).reduce((a, d) => a + (presentationOn(draft, r, d)?.count ?? 0), 0) }))
+        .filter((x) => x.n > 0)
+    : []
   const places = list.reduce((n, r) => n + r.places, 0)
-  const total = list.reduce((n, r) => n + r.places * r.pts, 0)
+  const total = list.reduce((n, r) => n + r.places * r.pts, 0) + talks.reduce((n, x) => n + x.n * presentationPoints(x.rule), 0)
   const name = (id: string) => draft.shifts.find((s) => s.id === id)?.name ?? ''
   return (
     <div className="scroll-x">
@@ -511,6 +524,17 @@ function PointsSummary({
               </tr>
             )
           })}
+          {talks.map((x) => (
+            <tr key={x.rule.id} className="talk-row">
+              <td>🎤 {x.rule.name}</td>
+              <td>{t('presentations')}</td>
+              <td>
+                <b>{fmtPoints(presentationPoints(x.rule))}</b>
+              </td>
+              <td>{x.n}</td>
+              <td>{fmtPoints(x.n * presentationPoints(x.rule))}</td>
+            </tr>
+          ))}
         </tbody>
         <tfoot>
           <tr>
@@ -898,6 +922,19 @@ function PresenterFlow({
             }}
           />{' '}
           {t('presenter(s) each time')}
+        </label>
+        <label className="inline small">
+          {t('Each presentation counts as')}{' '}
+          <input
+            type="number"
+            min={0}
+            max={20}
+            step={0.5}
+            disabled={ro}
+            value={presentationPoints(rule)}
+            onChange={(e) => setSources(rule, sources, { points: Math.max(0, Number(e.target.value) || 0) })}
+          />{' '}
+          {t('point(s)')}
         </label>
         <ul>
           {sources.map((s) => (

@@ -171,6 +171,7 @@ function cleanConfig(raw: unknown): SessionConfig {
             .map(([k, v]) => [k, num(v, 0, 100, 1)]),
         ),
         ...(p.maxDiff === undefined || p.maxDiff === null || p.maxDiff === '' ? {} : { maxDiff: int(p.maxDiff, 1, 100, 20) }),
+        ...(p.presentations === true ? { presentations: true } : {}),
       }
     })(),
     avoidRepeatResident: Boolean(st.avoidRepeatResident),
@@ -197,6 +198,7 @@ function cleanConfig(raw: unknown): SessionConfig {
       types: [...new Set(arr(o.types, 3).map(memberType))],
       ...(Array.isArray(o.dates) ? { dates: [...new Set(arr(o.dates, 400).filter(isDate))].sort() } : {}),
       ...(daysBack(o.daysBack) && String(daysBack(o.daysBack)) !== '1,1' ? { daysBack: daysBack(o.daysBack) } : {}),
+      ...(o.points === undefined || o.points === null || o.points === '' ? {} : { points: num(o.points, 0, 20, 1) }),
       ...(Array.isArray(o.sources)
         ? {
             sources: arr(o.sources, 6)
