@@ -387,10 +387,12 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
                       </li>
                     ))}
                   </ul>
-                  {explain.wouldWork.length > 0 && (
+                  {explain.wouldWork.length > 0 ? (
                     <p className="small">
                       ✅ <b>{t('It would work with any one of these:')}</b> {explain.wouldWork.join(' · ')}
                     </p>
+                  ) : (
+                    <p className="small muted">{t('No single change is enough here — it needs a few of the fixes above together.')}</p>
                   )}
                 </>
               ) : (

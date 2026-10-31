@@ -250,6 +250,21 @@ test('no arrangement: it says why and which single change would work', () => {
   assert.match(a.fix, /Student A/)
 })
 
+test('no arrangement with fixed minimums: suggests who could free which day', () => {
+  // Every night must have a student; on the 10th all three are away.
+  const c = hospital()
+  c.shifts[0].requirements = [{ id: 'p1', jobId: 'er', memberType: 'any', count: 1, min: 1 }]
+  c.students = { ...c.students, auto: true }
+  const away = { unavailable: ['2026-11-10'] }
+  const responses = { stA: resp(away), stB: resp(away), stC: resp(away) }
+  assert.equal(studentOptions(c, responses, c.duty, { count: 1 }).ok, false)
+  const e = explainNoArrangement(c, responses, c.duty)
+  assert.ok(e.hints.some((h) => /On .*10\/11, a place needs a student/.test(h.why) && /Student A/.test(h.why)), e.hints.map((h) => h.why).join(' | '))
+  assert.ok(!e.hints.some((h) => /minimum/i.test(h.fix)), 'never suggests lowering a minimum')
+  assert.ok(e.wouldWork.includes('Student A freeing Tue 10/11'), e.wouldWork.join(' | '))
+  assert.ok(!e.wouldWork.some((w) => /minimum/.test(w)))
+})
+
 test('student places need no job (place) in hospital mode', () => {
   const c = hospital()
   c.jobs = []
