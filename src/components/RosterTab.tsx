@@ -259,6 +259,10 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
   })()
 
   const missingAnswers = config.members.filter((m) => !responses[m.id] && (!hospital || m.type === 'student'))
+  // Until everyone has pressed "I'm ready!", finding arrangements is a practice run.
+  const answering = config.members.filter((m) => !hospital || m.type === 'student')
+  const notReady = answering.filter((m) => !responses[m.id]?.ready)
+  const practice = notReady.length > 0
   const pick = (date: string, shiftId: string, requirementId: string | null) => {
     const mineHere =
       requirementId &&
@@ -289,12 +293,25 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
           {hospital && !config.noDuty && config.duty.length === 0 && (
             <p className="small warn-text">{t('Enter the hospital roster in Setup first, or mark it as left blank there.')}</p>
           )}
-          {missingAnswers.length > 0 && (
-            <p className="muted small">{t("Waiting on")} {missingAnswers.length}: {missingAnswers.map((m) => m.name).join(', ')}{t(". They’ll get default preferences if you generate now.")}</p>
+          {practice && (
+            <div className="alert practice" role="status">
+              <strong>🧪 {t('Practice run — {r} of {n} ready', { r: answering.length - notReady.length, n: answering.length })}</strong>
+              <p className="small">
+                {t('Not everyone has pressed “I’m ready!”, so arrangements found now are just to try things out — answers can still change.')}{' '}
+                {t('Waiting on: {names}.', { names: notReady.map((m) => m.name).join(', ') })}
+                {missingAnswers.length > 0 && ` ${t('{n} haven’t answered at all and get the default preferences.', { n: missingAnswers.length })}`}
+              </p>
+            </div>
           )}
           <div className="row wrap">
             <button className="primary" disabled={running !== null || (hospital && !config.noDuty && config.duty.length === 0)} onClick={() => void find()}>
-              {running === 'find' ? `⏳ ${t('Finding arrangements…')}` : options ? `🔄 ${t('Find different arrangements')}` : `✨ ${t('Find arrangements')}`}
+              {running === 'find'
+                ? `⏳ ${t('Finding arrangements…')}`
+                : options
+                  ? `🔄 ${t('Find different arrangements')}`
+                  : practice
+                    ? `🧪 ${t('Try arrangements (practice)')}`
+                    : `✨ ${t('Find arrangements')}`}
             </button>
             {!hospital && hasStudents && shown && (
               <button disabled={running !== null} onClick={() => void studentsOnly()} title={t("Keep residents and staff exactly as they are")}>
@@ -333,7 +350,17 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
           {preview && (
             <div className="row wrap">
               <label className="inline">{t("Concern period")} <input type="number" min={0} max={720} value={reviewHours} onChange={(e) => setReviewHours(Math.max(0, Number(e.target.value)))} /> {t("hours")}</label>
-              <button className="primary" onClick={() => void publish(preview.roster, preview.source, 'review')}>{t("📢 Publish for review")}</button>
+              {practice ? (
+                <ConfirmButton
+                  title={t('Not everyone is ready yet')}
+                  confirmText={t('tap again to publish anyway')}
+                  onConfirm={() => void publish(preview.roster, preview.source, 'review')}
+                >
+                  {t('📢 Publish anyway ({n} not ready)', { n: notReady.length })}
+                </ConfirmButton>
+              ) : (
+                <button className="primary" onClick={() => void publish(preview.roster, preview.source, 'review')}>{t("📢 Publish for review")}</button>
+              )}
               <button
                 onClick={() => {
                   setPreview(null)

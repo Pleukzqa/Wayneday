@@ -1721,3 +1721,10 @@ button.big {
 .host-reason input.needs {
   border-color: var(--warn);
 }
+.alert.practice {
+  border-color: var(--warn);
+  background: var(--warn-soft);
+}
+.alert.practice p {
+  margin: 0.2rem 0 0;
+}

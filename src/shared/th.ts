@@ -682,4 +682,12 @@ export const TH: Record<string, string> = {
   "{who} changed your answers": "{who}แก้คำตอบของคุณ",
   "Why:": "เหตุผล:",
   "To change someone’s pattern or interval here, write your reason above the calendar first.": "ถ้าจะแก้รูปแบบเวรหรือระยะห่างของใครตรงนี้ ให้เขียนเหตุผลไว้เหนือปฏิทินก่อน",
+  "Practice run — {r} of {n} ready": "ลองจัดดูก่อน — พร้อมแล้ว {r} จาก {n} คน",
+  "Not everyone has pressed “I’m ready!”, so arrangements found now are just to try things out — answers can still change.": "ยังมีคนที่ไม่ได้กด “พร้อมแล้ว!” การจัดเวรตอนนี้จึงเป็นแค่การลองดู — คำตอบยังเปลี่ยนได้",
+  "Waiting on: {names}.": "รอ: {names}",
+  "{n} haven’t answered at all and get the default preferences.": "มี {n} คนที่ยังไม่ได้ตอบเลย จะใช้ค่าเริ่มต้นไปก่อน",
+  "Try arrangements (practice)": "ลองจัดเวรดู (ทดลอง)",
+  "Not everyone is ready yet": "ยังไม่ทุกคนพร้อม",
+  "tap again to publish anyway": "แตะอีกครั้งเพื่อเผยแพร่เลย",
+  "📢 Publish anyway ({n} not ready)": "📢 เผยแพร่เลย (ยังไม่พร้อม {n} คน)",
 }
