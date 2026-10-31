@@ -530,12 +530,15 @@ export default function SetupTab({ code, session, me, mutate }: SessionProps) {
 function PlacePeriods({ draft, member, ro, set }: { draft: SessionConfig; member: Member; ro: boolean; set: (p: PlacePeriod[]) => void }) {
   const periods = member.periods ?? []
   const change = (i: number, patch: Partial<PlacePeriod>) => set(periods.map((p, k) => (k === i ? { ...p, ...patch } : p)))
+  const others = draft.members.filter((m) => m.id !== member.id && m.periods?.length)
   const add = () => {
-    // Carry on from the last one: the next place, starting the day after it ends.
+    // Carry on from the last one: the next place, starting the day after it ends, ending where
+    // someone else's block from that day ends (students usually rotate on the same dates).
     const last = periods[periods.length - 1]
     const next = draft.jobs[(draft.jobs.findIndex((j) => j.id === last?.jobId) + 1) % draft.jobs.length]
     const from = last && last.to < draft.endDate ? addDays(last.to, 1) : draft.startDate
-    set([...periods, { jobId: next.id, from, to: draft.endDate }])
+    const block = others.flatMap((m) => m.periods!).filter((p) => p.from === from && p.to >= from).sort((a, b) => a.to.localeCompare(b.to))[0]
+    set([...periods, { jobId: next.id, from, to: block?.to ?? draft.endDate }])
   }
   return (
     <div className="periods">
@@ -563,6 +566,45 @@ function PlacePeriods({ draft, member, ro, set }: { draft: SessionConfig; member
           {periods.length ? t('➕ then another place') : t('➕ Place by dates')}
         </button>
       )}
+      {!ro && periods.length === 0 && <PlanSuggestions draft={draft} others={others} pick={set} />}
+    </div>
+  )
+}
+
+/**
+ * One tap to reuse another student's dated places: the same plan, or the same dates with the places
+ * moved one along (Ward → ER, ER → Ward), for the group that rotates the other way.
+ */
+function PlanSuggestions({ draft, others, pick }: { draft: SessionConfig; others: Member[]; pick: (p: PlacePeriod[]) => void }) {
+  const plans = new Map<string, { periods: PlacePeriod[]; names: string[]; rotated: boolean }>()
+  const key = (ps: PlacePeriod[]) => ps.map((p) => `${p.jobId}|${p.from}|${p.to}`).join(',')
+  for (const m of others) {
+    const ps = [...m.periods!].sort((a, b) => a.from.localeCompare(b.from))
+    const k = key(ps)
+    if (!plans.has(k)) plans.set(k, { periods: ps, names: [], rotated: false })
+    plans.get(k)!.names.push(m.name)
+  }
+  for (const plan of [...plans.values()]) {
+    if (plan.rotated || new Set(plan.periods.map((p) => p.jobId)).size < 2) continue
+    const ps = plan.periods.map((p, i) => ({ ...p, jobId: plan.periods[(i + 1) % plan.periods.length].jobId }))
+    if (!plans.has(key(ps))) plans.set(key(ps), { periods: ps, names: plan.names, rotated: true })
+  }
+  if (!plans.size) return null
+  const place = (id: string) => draft.jobs.find((j) => j.id === id)?.name ?? ''
+  const dm = (d: string) => `${Number(d.slice(8))}/${Number(d.slice(5, 7))}`
+  return (
+    <div className="plans">
+      {[...plans.values()].slice(0, 4).map((plan) => (
+        <button
+          key={key(plan.periods)}
+          type="button"
+          className="chip small"
+          title={plan.rotated ? t('Same dates as {names}, places swapped', { names: plan.names.join(', ') }) : t('Same as {names}', { names: plan.names.join(', ') })}
+          onClick={() => pick(plan.periods.map((p) => ({ ...p })))}
+        >
+          📋 {plan.periods.map((p) => `${place(p.jobId)} ${dm(p.from)}–${dm(p.to)}`).join(' → ')}
+        </button>
+      ))}
     </div>
   )
 }

@@ -1624,3 +1624,15 @@ h2[id] {
   margin-top: 0.3rem;
   font-size: 0.75rem;
 }
+.plans {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.25rem;
+}
+.plans .chip {
+  padding: 0.2rem 0.7rem;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  white-space: nowrap;
+}

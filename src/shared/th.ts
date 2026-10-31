@@ -607,4 +607,6 @@ export const TH: Record<string, string> = {
   "➕ Place by dates": "➕ จุดงานตามช่วงวัน",
   "Version": "เวอร์ชัน",
   "Built {date}": "สร้างเมื่อ {date}",
+  "Same dates as {names}, places swapped": "วันเดียวกับ {names} แต่สลับจุดงาน",
+  "Same as {names}": "เหมือน {names}",
 }
