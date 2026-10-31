@@ -382,8 +382,11 @@ export function arrangeStudents(
       }
       if (placed && occs.some((o) => load[o.i] < o.min)) placed = false
     }
-    if (placed || !auto || total <= minimum || tries >= 3 * students.length) break
-    total--
+    if (placed || !auto || tries >= 3 * students.length) break
+    // At the minimums there's nothing to leave empty: share the extra shifts out differently and try again.
+    if (total <= minimum) {
+      if (tries >= 8) break
+    } else total--
   }
   if (!placed) {
     return {

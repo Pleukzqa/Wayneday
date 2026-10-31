@@ -7,11 +7,12 @@ import { responseFor } from '../shared/solver.ts'
 import { DEFAULT_RESPONSE, type AnswerChange, type AvoidLevel, type HostNote, type MemberResponse } from '../shared/types.ts'
 import type { SessionProps } from './props.ts'
 
-// 'mark' = would rather not work that day, at the chosen level (!!! tried hardest).
-// There's no "can't" mark any more; ✕ days from older answers still show and can be cleared.
+// 'mark' = can't work / would rather not, at the chosen level (0 = can't at all).
 type Tool = 'mark' | 'lock' | 'clear'
+type MarkLevel = 0 | AvoidLevel
 
 const AVOID_LABEL = ['', 'Rather not', 'Important', 'Really need it off']
+const MARK_LABEL = ['Can’t', ...AVOID_LABEL.slice(1)]
 
 const STATUS = {
   ready: { icon: '✅', label: '{n} ready' },
@@ -33,7 +34,7 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
   })
   // Host: whose notes are open in Everyone's answers.
   const [notesFor, setNotesFor] = useState<string | null>(null)
-  const [markLvl, setMarkLvl] = useState<AvoidLevel>(3)
+  const [markLvl, setMarkLvl] = useState<MarkLevel>(0)
   const [notice, setNotice] = useState<string | null>(null)
   const myType = config.members.find((m) => m.id === me.memberId)?.type
   // A member only sees shift slots they can actually work; the host sees all.
@@ -123,7 +124,8 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
       const unavailable = r.unavailable.filter((d) => d !== date)
       const locks = r.locks.filter((l) => l.date !== date)
       const avoid = (r.avoid ?? []).filter((a) => a.date !== date)
-      if (mode === 'mark') avoid.push({ date, level: markLvl })
+      if (mode === 'mark' && markLvl > 0) avoid.push({ date, level: markLvl as AvoidLevel })
+      if (mode === 'mark' && markLvl === 0) unavailable.push(date)
       if (mode === 'lock') locks.push({ date, shiftId: lockShift })
       return { ...r, unavailable, locks, avoid }
     })
@@ -140,7 +142,8 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
     const st = cellState(respOf(c.memberId), c.date)
     // Pressing on a cell that already has this state erases instead.
     const same =
-      (tool === 'mark' && st.kind === 'avoid' && st.level === markLvl) ||
+      (tool === 'mark' && markLvl === 0 && st.kind === 'unavailable') ||
+      (tool === 'mark' && markLvl > 0 && st.kind === 'avoid' && st.level === markLvl) ||
       (tool === 'lock' && st.kind === 'lock' && st.shiftId === lockShift)
     const mode: Tool = same ? 'clear' : tool
     paint.current = { mode }
@@ -156,8 +159,9 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
       const want = paint.current.mode
       const already =
         (want === 'clear' && st.kind === 'free') ||
+        (want === 'mark' && markLvl === 0 && st.kind === 'unavailable') ||
         (want === 'lock' && st.kind === 'lock' && st.shiftId === lockShift) ||
-        (want === 'mark' && st.kind === 'avoid' && st.level === markLvl)
+        (want === 'mark' && markLvl > 0 && st.kind === 'avoid' && st.level === markLvl)
       if (!already) apply(c.memberId, c.date, want)
     }
   }
@@ -179,8 +183,6 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
   const hospital = config.rosterMode === 'hospital'
   const answering = config.members.filter((m) => !hospital || m.type === 'student')
   // Ready, logged in and still filling in, or not logged in yet (an answer the host filled in counts as filling in).
-  // ✕ "can't" days only exist in older answers; the column shows while anyone still has some.
-  const showUnavailable = answering.some((m) => respOf(m.id).unavailable.length > 0)
   const statusOf = (id: string): keyof typeof STATUS =>
     respOf(id).ready ? 'ready' : session.claimed.includes(id) || session.responses[id] ? 'filling' : 'away'
   const statusIcon = (id: string) => {
@@ -329,7 +331,7 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
           {t('Pick a tool, then tap or drag over cells.')}
         </p>
         <ul className="howto small">
-          <li>{t('❗ Avoid — !!! / !! / ! mean you’d rather not work that day (Wayneday tries hardest for !!!).')}</li>
+          <li>{t('🚫 Can’t / avoid — ✕ means you can’t work that day; !!! / !! / ! mean you’d rather not (Wayneday tries hardest for !!!).')}</li>
           <li>
             {t('🔒 Lock in — you must work that day, on the shift slot you pick.')}
             {lockChoices.length > 1 ? ` (${lockChoices.map((s) => s.name).join(' / ')})` : ''}
@@ -357,16 +359,16 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
         )}
         <div className="row wrap toolbar">
           <div className="segmented" role="radiogroup" aria-label={t("Tool")}>
-            <button role="radio" aria-checked={tool === 'mark'} className={tool === 'mark' ? 'on' : ''} onClick={() => setTool('mark')}>{t('❗ Avoid')}</button>
+            <button role="radio" aria-checked={tool === 'mark'} className={tool === 'mark' ? 'on' : ''} onClick={() => setTool('mark')}>{t("🚫 Can’t / avoid")}</button>
             <button role="radio" aria-checked={tool === 'lock'} className={tool === 'lock' ? 'on' : ''} onClick={() => setTool('lock')}>{t("🔒 Lock in")}</button>
             <button role="radio" aria-checked={tool === 'clear'} className={tool === 'clear' ? 'on' : ''} onClick={() => setTool('clear')}>{t("🧽 Clear")}</button>
           </div>
           <button onClick={undo} disabled={undoCount === 0} title={t("Undo your last change")}>{t("↶ Undo")}</button>
           {tool === 'mark' && (
             <div className="segmented levels" role="radiogroup" aria-label={t("How much it matters")}>
-              {([3, 2, 1] as const).map((l) => (
+              {([0, 3, 2, 1] as const).map((l) => (
                 <button key={l} role="radio" aria-checked={markLvl === l} className={`${markLvl === l ? 'on' : ''} lvl-${l}`} onClick={() => setMarkLvl(l)}>
-                  {'!'.repeat(l)} {t(AVOID_LABEL[l])}
+                  {l === 0 ? '✕' : '!'.repeat(l)} {t(MARK_LABEL[l])}
                 </button>
               ))}
             </div>
@@ -466,7 +468,7 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
           ) : (
             <>
               <h2>🏁 {t('Finished?')}</h2>
-              <p className="muted small">{t('Mark the days you’d rather avoid above, then press this so the host knows you’re done.')}</p>
+              <p className="muted small">{t('Mark the days you can’t do or would rather avoid above, then press this so the host knows you’re done.')}</p>
               <button type="button" className="primary big" disabled={!canEdit(me.memberId)} onClick={() => setPref((r) => ({ ...r, ready: Date.now() }))}>
                 ✅ {t('I’m ready!')}
               </button>
@@ -493,7 +495,7 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
                 <th>{t("Name")}</th>
                 <th>{t("Pattern")}</th>
                 <th>{t("Min interval")}</th>
-                {showUnavailable && <th>{t("Unavailable")}</th>}
+                <th>{t("Unavailable")}</th>
                 <th>{t("Avoid")}</th>
                 <th>{t("Locked")}</th>
                 <th>{t("Note")}</th>
@@ -544,14 +546,14 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
                             <td>{t("{n} d", { n: r.minInterval })}</td>
                           </>
                         )}
-                        {showUnavailable && <td>{r.unavailable.length}</td>}
+                        <td>{r.unavailable.length}</td>
                         <td>{r.avoid?.length ?? 0}</td>
                         <td>{r.locks.length}</td>
                         <td className="note">{r.note}</td>
                         <td className="muted small nowrap">{r.updatedAt ? new Date(r.updatedAt).toLocaleString() : t("now")}</td>
                       </>
                     ) : (
-                      <td colSpan={showUnavailable ? 7 : 6} className="muted small">{t("No answer yet — defaults: spread out,")} {r.minInterval}{t("-day interval")}</td>
+                      <td colSpan={7} className="muted small">{t("No answer yet — defaults: spread out,")} {r.minInterval}{t("-day interval")}</td>
                     )}
                     {me.isHost && (
                       <td>
