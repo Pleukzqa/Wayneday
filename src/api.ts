@@ -75,6 +75,8 @@ export const api = {
   saveSchedule: (code: string, s: Schedule | null) => call<SessionView>(code, 'PUT', `/sessions/${code}/schedule`, s),
   addConcern: (code: string, text: string, date?: string, shiftId?: string) =>
     call<SessionView>(code, 'POST', `/sessions/${code}/concerns`, { text, date, shiftId }),
+  saveFeedback: (code: string, f: { ratings: Record<string, number>; text: string; anonymous: boolean }) =>
+    call<SessionView>(code, 'PUT', `/sessions/${code}/feedback`, f),
   addNote: (code: string, memberId: string, text: string) => call<SessionView>(code, 'POST', `/sessions/${code}/notes`, { memberId, text }),
   removeNote: (code: string, id: string) => call<SessionView>(code, 'DELETE', `/sessions/${code}/notes/${id}`),
   readNote: (code: string, id: string) => call<SessionView>(code, 'POST', `/sessions/${code}/notes/${id}/read`),

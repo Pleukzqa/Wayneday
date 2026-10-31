@@ -103,7 +103,10 @@ function Announcements({ session, me, go }: { session: SessionProps['session']; 
   const open = session.swaps.filter((s) => s.status === 'open')
   const agreed = session.swaps.filter((s) => s.status === 'agreed')
   const joins = session.joinRequests.filter((r) => r.status === 'pending')
-  const items: { key: string; text: string; tab: Tab; action: string }[] = []
+  const items: { key: string; text: string; tab: Tab; action: string; target?: string; icon?: string }[] = []
+  if (me.memberId && session.schedule?.status === 'final' && !session.feedback.some((f) => f.memberId === me.memberId)) {
+    items.push({ key: 'feedback', icon: '⭐', text: t('The roster is final — tell the host how it went'), tab: 'roster', action: t('Give feedback'), target: 'feedback' })
+  }
   for (const s of open.slice(0, 3)) {
     items.push({
       key: s.id,
@@ -122,12 +125,12 @@ function Announcements({ session, me, go }: { session: SessionProps['session']; 
     <ul className="announce" aria-label={t("Announcements")}>
       {items.map((i) => (
         <li key={i.key}>
-          <span aria-hidden>⇄</span> <span>{i.text}</span>{' '}
+          <span aria-hidden>{i.icon ?? '⇄'}</span> <span>{i.text}</span>{' '}
           <button
             className="link"
             onClick={() => {
               go(i.tab)
-              setTimeout(() => document.getElementById(i.tab === 'roster' ? 'swaps' : 'root')?.scrollIntoView({ behavior: 'smooth' }), 50)
+              setTimeout(() => document.getElementById(i.target ?? (i.tab === 'roster' ? 'swaps' : 'root'))?.scrollIntoView({ behavior: 'smooth' }), 50)
             }}
           >
             {i.action}

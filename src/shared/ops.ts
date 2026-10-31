@@ -1,5 +1,5 @@
 // Session changes shared by the API server and the in-browser demo, so both enforce the same rules.
-import { DEFAULT_RESPONSE, STUDENT_SLOT, type AnswerChange, type HostNote, type JoinRequest, type MemberResponse, type MemberType, type PublicSession, type Roster, type SwapRequest } from './types.ts'
+import { DEFAULT_RESPONSE, FEEDBACK_QUESTIONS, STUDENT_SLOT, type AnswerChange, type Feedback, type HostNote, type JoinRequest, type MemberResponse, type MemberType, type PublicSession, type Roster, type SwapRequest } from './types.ts'
 
 export interface Actor {
   isHost: boolean
@@ -99,6 +99,28 @@ export function readNote(s: PublicSession, actor: Actor, id: string) {
 
 /** The notes a viewer may see: all for hosts, their own for a member, none for anyone else. */
 export const visibleNotes = (s: PublicSession, actor: Actor) => (s.notes ?? []).filter((n) => actor.isHost || n.memberId === actor.memberId)
+
+// ---------- feedback ----------
+
+/** A member's feedback once the roster is final; saving again replaces it. */
+export function saveFeedback(s: PublicSession, actor: Actor, f: Pick<Feedback, 'ratings' | 'text' | 'anonymous'>) {
+  if (!actor.memberId) throw new OpError(401, 'Log in to give feedback')
+  if (s.schedule?.status !== 'final') throw new OpError(409, 'Feedback opens once the roster is final')
+  const ids = new Set<string>(FEEDBACK_QUESTIONS.map((q) => q.id))
+  const ratings = Object.fromEntries(
+    Object.entries(f.ratings).filter(([k, v]) => ids.has(k) && Number.isInteger(v) && v >= 1 && v <= 5),
+  )
+  const text = f.text.trim().slice(0, 2000)
+  if (!Object.keys(ratings).length && !text) throw new OpError(400, 'Rate something or write a comment first')
+  const entry: Feedback = { memberId: actor.memberId, ratings, text, ...(f.anonymous ? { anonymous: true } : {}), at: Date.now() }
+  s.feedback = [...(s.feedback ?? []).filter((x) => x.memberId !== actor.memberId), entry]
+}
+
+/** Hosts see everyone's (anonymous ones without the name); a member sees only their own. */
+export const visibleFeedback = (s: PublicSession, actor: Actor): Feedback[] =>
+  (s.feedback ?? []).flatMap((f) =>
+    actor.memberId === f.memberId ? [f] : actor.isHost ? [f.anonymous ? { ...f, memberId: '' } : f] : [],
+  )
 
 // ---------- swaps ----------
 

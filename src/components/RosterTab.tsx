@@ -21,6 +21,7 @@ import {
 import { dutyOf, STUDENT_SLOT, type MemberResponse, type Roster, type Schedule, type SessionConfig, type StudentAssignment } from '../shared/types.ts'
 import CalendarExport from './CalendarExport.tsx'
 import ConfirmButton from './ConfirmButton.tsx'
+import FeedbackCard from './Feedback.tsx'
 import type { Explanation } from '../shared/explain.ts'
 import RosterTable, { type Arrange } from './RosterTable.tsx'
 import Swaps, { type SwapDraft } from './Swaps.tsx'
@@ -484,6 +485,7 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
         </div>
       )}
       {schedule && !preview && <Swaps {...{ code, session, me, mutate }} draft={swapDraft} clearDraft={() => setSwapDraft(null)} />}
+      {schedule && !preview && <FeedbackCard {...{ code, session, me, mutate }} />}
       {!shown ? (
         <p className="muted">{me.isHost ? t("Tap “Find arrangements” to see the possible rosters.") : t("The host hasn’t published a roster yet.")}</p>
       ) : (

@@ -366,6 +366,26 @@ export interface HostNote {
   change?: { id: string; summary: string }
 }
 
+/** After the roster is final, everyone rates how it went (1–5 stars) and can write a comment. */
+export const FEEDBACK_QUESTIONS = [
+  { id: 'fair', text: 'How fair was your share of shifts?' },
+  { id: 'days', text: 'How well were your days off and avoid requests respected?' },
+  { id: 'pattern', text: 'How well did your shifts fit your pattern (spread out or grouped)?' },
+  { id: 'easy', text: 'How easy was Wayneday to use?' },
+  { id: 'overall', text: 'Overall, how happy are you with the final roster?' },
+] as const
+
+export interface Feedback {
+  /** '' when a host is shown an anonymous answer. */
+  memberId: string
+  /** Question id -> 1–5 stars; a skipped question is missing. */
+  ratings: Record<string, number>
+  text: string
+  /** Hosts see it without the name. */
+  anonymous?: boolean
+  at: number
+}
+
 /** What the API returns to every participant (no secrets). */
 export interface PublicSession {
   code: string
@@ -382,6 +402,8 @@ export interface PublicSession {
   changes: AnswerChange[]
   /** Host notes this viewer may see: all of them for hosts, their own for a member. */
   notes: HostNote[]
+  /** Feedback this viewer may see: everyone's for hosts (anonymous ones without a name), their own for a member. */
+  feedback: Feedback[]
 }
 
 export const DEFAULT_RESPONSE: MemberResponse = {
@@ -413,5 +435,6 @@ export function normalizeSession(s: PublicSession): PublicSession {
     joinRequests: s.joinRequests ?? [],
     changes: s.changes ?? [],
     notes: s.notes ?? [],
+    feedback: s.feedback ?? [],
   }
 }

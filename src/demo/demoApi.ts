@@ -3,7 +3,7 @@
 
 import type { SessionView } from '../apiTypes.ts'
 import { addDays } from '../shared/dates.ts'
-import { actOnSwap, addNote, createJoin, decideJoin, readNote, removeNote, requestSwap, saveResponse, visibleNotes, type Actor, type SwapAction } from '../shared/ops.ts'
+import { actOnSwap, addNote, createJoin, decideJoin, readNote, removeNote, requestSwap, saveFeedback, saveResponse, visibleFeedback, visibleNotes, type Actor, type SwapAction } from '../shared/ops.ts'
 import {
   DEFAULT_STUDENTS,
   normalizeSession,
@@ -84,7 +84,7 @@ function view(code: string): SessionView {
   const s = store.sessions[code]
   if (!s) throw new Error('Session not found on this device. Demo sessions only exist in this browser.')
   return {
-    session: { ...clone(s), notes: visibleNotes(s, actorFor(code)) },
+    session: { ...clone(s), notes: visibleNotes(s, actorFor(code)), feedback: visibleFeedback(s, actorFor(code)) },
     me: actorFor(code),
     organizers: code === SAMPLE_CODE ? [{ name: 'Dr. Wipa', role: 'owner' }, { name: 'Ploy', role: 'cohost' }] : [],
   }
@@ -151,6 +151,7 @@ export const api = {
       schedule: null,
       concerns: [],
       notes: [],
+      feedback: [],
       swaps: [],
       joinRequests: [],
       changes: [],
@@ -204,6 +205,8 @@ export const api = {
       }
       s.concerns.push(c)
     }),
+  saveFeedback: (code: string, f: { ratings: Record<string, number>; text: string; anonymous: boolean }) =>
+    mutate(code, false, (s) => saveFeedback(s, actorFor(code), f)),
   addNote: (code: string, memberId: string, text: string) =>
     mutate(code, false, (s) => addNote(s, actorFor(code), memberId, text, { by: 'Dr. Wipa', role: 'owner' })),
   removeNote: (code: string, id: string) => mutate(code, false, (s) => removeNote(s, actorFor(code), id)),
@@ -318,6 +321,7 @@ function sample(): PublicSession {
     schedule: null,
     concerns: [],
     notes: [],
+    feedback: [],
     swaps: [],
     joinRequests: [{ id: 'join-pond', name: 'Pond', type: 'student', status: 'pending', createdAt: Date.now() - 600_000 }],
     changes: [],

@@ -3,7 +3,7 @@
 import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto'
 import express, { type Request, type Response, type NextFunction } from 'express'
 import { isDate } from '../src/shared/dates.ts'
-import { actOnSwap, addNote, createJoin, decideJoin, OpError, readNote, removeNote, requestSwap, saveResponse, visibleNotes, type SwapAction } from '../src/shared/ops.ts'
+import { actOnSwap, addNote, createJoin, decideJoin, OpError, readNote, removeNote, requestSwap, saveFeedback, saveResponse, visibleFeedback, visibleNotes, type SwapAction } from '../src/shared/ops.ts'
 import {
   ANY_SHIFT,
   DEFAULT_STUDENTS,
@@ -429,7 +429,12 @@ export function createApi(opts: ApiOptions) {
     // Host emails are only shown to hosts; everyone sees hosts' names, so members know who runs it.
     const organizers = s.hosts.map((h) => ({ name: h.name.includes('@') ? '' : h.name, role: h.role }))
     // Notes are private: each member only gets their own.
-    return { session: { ...toPublic(s), notes: visibleNotes(s, me) }, me, organizers, ...(me.isHost ? { hosts: s.hosts } : {}) }
+    return {
+      session: { ...toPublic(s), notes: visibleNotes(s, me), feedback: visibleFeedback(s, me) },
+      me,
+      organizers,
+      ...(me.isHost ? { hosts: s.hosts } : {}),
+    }
   }
 
   const router = express.Router()
@@ -529,6 +534,7 @@ export function createApi(opts: ApiOptions) {
           schedule: null,
           concerns: [],
           notes: [],
+          feedback: [],
         }
         // Saving version 1 only succeeds if the code is unused.
         if (await write(s)) return { code: s.code, hostToken: s.hostToken }
@@ -657,6 +663,19 @@ export function createApi(opts: ApiOptions) {
         if (!me.isHost) throw new HttpError(403, 'Only the host can publish a roster')
         s.schedule = schedule
       })
+    }),
+  )
+
+  router.put(
+    '/sessions/:code/feedback',
+    handle((req) => {
+      const b = (req.body ?? {}) as Record<string, unknown>
+      const ratings = Object.fromEntries(
+        Object.entries((b.ratings ?? {}) as Record<string, unknown>)
+          .slice(0, 20)
+          .map(([k, v]) => [k.slice(0, 40), int(v, 0, 5, 0)]),
+      )
+      return mutate(req, code(req), (s, me) => saveFeedback(s, me, { ratings, text: str(b.text, 2000), anonymous: b.anonymous === true }))
     }),
   )
 

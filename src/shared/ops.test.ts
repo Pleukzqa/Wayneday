@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { actOnSwap, addNote, createJoin, decideJoin, readNote, removeNote, requestSwap, saveResponse, visibleNotes } from './ops.ts'
+import { actOnSwap, addNote, createJoin, decideJoin, readNote, removeNote, requestSwap, saveFeedback, saveResponse, visibleFeedback, visibleNotes } from './ops.ts'
 import { DEFAULT_RESPONSE, DEFAULT_STUDENTS, type PublicSession } from './types.ts'
 
 function session(): PublicSession {
@@ -44,6 +44,7 @@ function session(): PublicSession {
     joinRequests: [],
     changes: [],
     notes: [],
+    feedback: [],
   }
 }
 
@@ -157,4 +158,23 @@ test('a host changing someone’s answers with a reason sends them one message, 
   // Without a reason (e.g. undoing), no message.
   saveResponse(s, host, 'ben', { ...DEFAULT_RESPONSE, minInterval: 4 })
   assert.equal(s.notes.length, 2)
+})
+
+test('feedback: once the roster is final, members rate it; hosts see all, anonymous without a name', () => {
+  const s = session()
+  const f = { ratings: { fair: 4, overall: 5 }, text: 'Smooth this time', anonymous: false }
+  s.schedule!.status = 'review'
+  assert.throws(() => saveFeedback(s, as('ann'), f), /once the roster is final/)
+  s.schedule!.status = 'final'
+  assert.throws(() => saveFeedback(s, host, f), /Log in/)
+  assert.throws(() => saveFeedback(s, as('ann'), { ratings: {}, text: ' ', anonymous: false }), /Rate something/)
+  saveFeedback(s, as('ann'), { ...f, ratings: { fair: 4, overall: 5, made_up: 3, easy: 9 } })
+  assert.deepEqual(s.feedback[0].ratings, { fair: 4, overall: 5 }, 'only known questions, 1–5')
+  saveFeedback(s, as('ann'), { ...f, text: 'Changed my mind' })
+  assert.equal(s.feedback.length, 1, 'saving again replaces')
+  saveFeedback(s, as('ben'), { ratings: { days: 2 }, text: 'Too many weekends', anonymous: true })
+  assert.deepEqual(visibleFeedback(s, as('ann')).map((x) => x.text), ['Changed my mind'])
+  assert.deepEqual(visibleFeedback(s, as('ben')).map((x) => x.memberId), ['ben'], 'you see your own with your name')
+  assert.deepEqual(visibleFeedback(s, as('cat')), [])
+  assert.deepEqual(visibleFeedback(s, host).map((x) => [x.memberId, x.text]), [['ann', 'Changed my mind'], ['', 'Too many weekends']])
 })

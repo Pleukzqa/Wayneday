@@ -249,6 +249,24 @@ for (const [kind, makeStore] of stores) {
       assert.ok(read.session.notes[0].readAt)
     })
 
+    test('feedback after the roster is final: private to its writer and the hosts', async () => {
+      const alice = await signIn('alice@example.com')
+      const { code } = (await call('POST', '/sessions', { body: {}, account: alice })).body
+      await call('PUT', `/sessions/${code}/config`, { body: { members: [{ id: 'm', name: 'M', type: 'student' }, { id: 'n', name: 'N', type: 'student' }] }, account: alice })
+      const claim = async (id: string) => (await call('POST', `/sessions/${code}/claim`, { body: { memberId: id, pin: '1234' } })).body.memberToken as string
+      const [m, n] = [await claim('m'), await claim('n')]
+      const f = { ratings: { fair: 5, overall: 4 }, text: 'Good', anonymous: true }
+      assert.equal((await call('PUT', `/sessions/${code}/feedback`, { body: f, bearer: m })).status, 409, 'not before it’s final')
+      const schedule = { status: 'final', assignments: [], students: [], presenters: [], generatedAt: Date.now(), reviewUntil: 0, source: 'manual' }
+      await call('PUT', `/sessions/${code}/schedule`, { body: schedule, account: alice })
+      assert.equal((await call('PUT', `/sessions/${code}/feedback`, { body: f, bearer: m })).status, 200)
+      assert.deepEqual((await call('GET', `/sessions/${code}`, { bearer: n })).body.session.feedback, [])
+      assert.deepEqual((await call('GET', `/sessions/${code}`)).body.session.feedback, [])
+      assert.equal((await call('GET', `/sessions/${code}`, { bearer: m })).body.session.feedback[0].memberId, 'm')
+      const asHost = (await call('GET', `/sessions/${code}`, { account: alice })).body.session.feedback
+      assert.deepEqual(asHost.map((x: { memberId: string; ratings: object; text: string }) => [x.memberId, x.ratings, x.text]), [['', { fair: 5, overall: 4 }, 'Good']])
+    })
+
     test('PIN guessing is slowed down per name', async () => {
       const alice = await signIn('alice@example.com')
       const { code } = (await call('POST', '/sessions', { body: {}, account: alice })).body
