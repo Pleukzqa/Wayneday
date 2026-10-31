@@ -612,4 +612,9 @@ export const TH: Record<string, string> = {
   "No shifts run then.": "ไม่มีเวรในวันนั้น",
   "This shift doesn’t run then — tap to unlink it": "เวรนี้ไม่มีในวันนั้น — แตะเพื่อยกเลิกการเชื่อม",
   "{place} · any shift": "{place} · เวรใดก็ได้",
+  "last night": "เมื่อคืน",
+  "{n} days before": "{n} วันก่อน",
+  "{a}–{b} days before": "{a}–{b} วันก่อน",
+  "was on duty": "อยู่เวร",
+  "Shifts {when}": "เวร {when}",
 }

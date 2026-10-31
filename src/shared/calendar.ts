@@ -1,6 +1,6 @@
 // Which shifts run on a date and how many people each position needs, after per-date overrides.
 import { weekday } from './dates.ts'
-import { ANY_SHIFT, DEFAULT_POINTS, type PresentationRule, type PresenterSource, type Requirement, type SessionConfig, type ShiftSlot } from './types.ts'
+import { ANY_SHIFT, DEFAULT_POINTS, LAST_NIGHT, type DaysBack, type PresentationRule, type PresenterSource, type Requirement, type SessionConfig, type ShiftSlot } from './types.ts'
 
 export function overrideFor(config: SessionConfig, date: string, shiftId: string) {
   return config.overrides.find((o) => o.date === date && o.shiftId === shiftId)
@@ -43,6 +43,12 @@ export function ruleSources(rule: PresentationRule): PresenterSource[] {
   return rule.sources ?? (rule.fromCount > 0 ? [{ shiftId: rule.fromShiftId, count: rule.fromCount, when: 'before' }] : [])
 }
 
+/** Days before a presentation a source looks at: 0 for a same-day source, else each day in `daysBack`. */
+export function sourceOffsets(src: PresenterSource, daysBack: DaysBack): number[] {
+  if (src.when === 'same') return [0]
+  return Array.from({ length: daysBack[1] - daysBack[0] + 1 }, (_, i) => daysBack[0] + i)
+}
+
 /** Was someone on this shift (and place) one of the people a source draws from? */
 export function sourceMatches(config: SessionConfig, src: PresenterSource, shiftId: string, placeId?: string) {
   if (src.shiftId !== ANY_SHIFT && src.shiftId !== shiftId) return false
@@ -59,7 +65,7 @@ export function presentationOn(
   config: SessionConfig,
   rule: PresentationRule,
   date: string,
-): { count: number; fromCount: number; sources: PresenterSource[] } | null {
+): { count: number; fromCount: number; sources: PresenterSource[]; daysBack: DaysBack } | null {
   const o = config.presentationOverrides.find((x) => x.date === date && x.ruleId === rule.id)
   const active = o?.active ?? presentationUsually(rule, date)
   if (!active) return null
@@ -73,7 +79,7 @@ export function presentationOn(
     left -= n
     return { ...s, count: n }
   })
-  return { count, fromCount: count - left, sources }
+  return { count, fromCount: count - left, sources, daysBack: o?.daysBack ?? rule.daysBack ?? LAST_NIGHT }
 }
 
 /** Points a date's shifts are worth, before the slot multiplier: that date's own, else weekday or weekend/holiday. */

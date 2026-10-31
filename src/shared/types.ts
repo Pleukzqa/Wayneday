@@ -132,7 +132,13 @@ export interface PresentationRule {
   sources?: PresenterSource[]
   /** Single dates it runs on besides its weekdays. A one-day presentation has no weekdays and one date. */
   dates?: string[]
+  /** How far back "the day before" sources look, in days: [2, 3] = on that shift 2 or 3 days before. Missing = [1, 1]. */
+  daysBack?: DaysBack
 }
+
+/** [nearest, farthest] days before a presentation, each 1–7. */
+export type DaysBack = [number, number]
+export const LAST_NIGHT: DaysBack = [1, 1]
 
 /** A presentation that happens on one date only (e.g. a case discussion), rather than every week. */
 export const isOneDay = (rule: PresentationRule) => rule.days.length === 0 && (rule.dates?.length ?? 0) > 0
@@ -151,6 +157,8 @@ export interface PresentationOverride {
   active: boolean
   count?: number
   fromCount?: number
+  /** This date's own "days before" for the rule's sources. */
+  daysBack?: DaysBack
 }
 
 /**

@@ -4,7 +4,7 @@
 //   locks, minimum interval and spread/grouped preference;
 // - pick presenters for presentation rules, taking the required number from yesterday's shift first.
 
-import { fmtPoints, presentationOn, reqCount, reqMin, shiftPoints, shiftRuns, shiftSpan, shiftTimes, sourceMatches } from './calendar.ts'
+import { fmtPoints, presentationOn, reqCount, reqMin, shiftPoints, shiftRuns, shiftSpan, shiftTimes, sourceMatches, sourceOffsets } from './calendar.ts'
 import { t, weekdayShort } from './i18n.ts'
 import { addDays, dateRange, dayDiff, weekday } from './dates.ts'
 import { preferenceCost, responseFor, rng, shuffled, sortedBy, variance } from './scoring.ts'
@@ -480,18 +480,18 @@ export function pickPresenters(
       const eligible = config.members.filter((m) => types.includes(m.type) && available(m.id, date)).map((m) => m.id)
       const chosen: string[] = []
       const post: string[] = []
-      // Each source first: e.g. one presenter from each ward of last night's shift.
+      // Each source first: e.g. one presenter from each ward of last night's shift (or of 2–3 days before).
       for (const src of today.sources) {
-        const day = src.when === 'same' ? date : addDays(date, -1)
-        if (day < config.startDate || src.count === 0) continue
-        const pool = [...assignments, ...students]
-          .filter((x) => x.date === day && sourceMatches(config, src, x.shiftId, x.requirementId))
-          .map((x) => x.memberId)
-          .filter((id, i, arr) => arr.indexOf(id) === i && eligible.includes(id) && !chosen.includes(id))
+        const days = sourceOffsets(src, today.daysBack).map((n) => addDays(date, -n))
+        if (days.every((d) => d < config.startDate) || src.count === 0) continue
+        const on = (d: string) =>
+          [...assignments, ...students].filter((x) => x.date === d && sourceMatches(config, src, x.shiftId, x.requirementId)).map((x) => x.memberId)
+        const pool = days.flatMap(on).filter((id, i, arr) => arr.indexOf(id) === i && eligible.includes(id) && !chosen.includes(id))
         const picked = byFewest(pool).slice(0, src.count)
         if (picked.length < src.count) short.push(date)
         chosen.push(...picked)
-        if (src.when !== 'same') post.push(...picked)
+        // ● marks presenting straight after a night on: only someone who was on it last night.
+        if (src.when !== 'same') post.push(...picked.filter((id) => on(addDays(date, -1)).includes(id)))
       }
       for (const id of byFewest(eligible.filter((id) => !chosen.includes(id)))) {
         if (chosen.length >= today.count) break

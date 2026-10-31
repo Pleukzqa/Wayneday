@@ -3,9 +3,9 @@ import { useState } from 'react'
 import { api } from '../api.ts'
 import { equalShareFor, studentOccs } from '../shared/students.ts'
 import { t, typeName, weekdayLetter, weekdayLong, weekdayShort } from '../shared/i18n.ts'
-import { dayPoints, fmtPoints, overrideFor, presentationOn, presentationUsually, reqCount, ruleSources, shiftHours, shiftRuns, shiftTimes } from '../shared/calendar.ts'
+import { dayPoints, fmtPoints, overrideFor, presentationOn, presentationUsually, reqCount, ruleSources, shiftHours, shiftRuns, shiftTimes, sourceOffsets } from '../shared/calendar.ts'
 import { addDays, dateRange, shortDate, weekday } from '../shared/dates.ts'
-import { ANY_SHIFT, DEFAULT_POINTS, DUTY_ROLES, isOneDay, type DateOverride, type DutyRole, type MemberResponse, type MemberType, type PresentationOverride, type PresentationRule, type PresenterSource, type SessionConfig } from '../shared/types.ts'
+import { ANY_SHIFT, DEFAULT_POINTS, DUTY_ROLES, isOneDay, LAST_NIGHT, type DateOverride, type DaysBack, type DutyRole, type MemberResponse, type MemberType, type PresentationOverride, type PresentationRule, type PresenterSource, type SessionConfig } from '../shared/types.ts'
 import { uid, type SessionProps } from './props.ts'
 
 type Edit = (fn: (c: SessionConfig) => SessionConfig) => void
@@ -36,8 +36,10 @@ function setPresentation(c: SessionConfig, date: string, ruleId: string, patch: 
     active: next.active,
     ...(next.count !== undefined && next.count !== rule.count ? { count: next.count } : {}),
     ...(next.fromCount !== undefined && next.fromCount !== rule.fromCount ? { fromCount: next.fromCount } : {}),
+    ...(next.daysBack && String(next.daysBack) !== String(rule.daysBack ?? LAST_NIGHT) ? { daysBack: next.daysBack } : {}),
   }
-  const isDefault = clean.active === presentationUsually(rule, date) && clean.count === undefined && clean.fromCount === undefined
+  const isDefault =
+    clean.active === presentationUsually(rule, date) && clean.count === undefined && clean.fromCount === undefined && clean.daysBack === undefined
   const rest = c.presentationOverrides.filter((o) => !(o.date === date && o.ruleId === ruleId))
   return { ...c, presentationOverrides: isDefault ? rest : [...rest, clean] }
 }
@@ -58,7 +60,7 @@ function copyDay(c: SessionConfig, from: string, targets: string[]): SessionConf
     for (const r of c.presentations) {
       if (!r.days.includes(weekday(target)) && !presentationOn(c, r, target)) continue
       const p = presentationOn(c, r, from)
-      next = setPresentation(next, target, r.id, p ? { active: true, count: p.count, fromCount: p.fromCount } : { active: false })
+      next = setPresentation(next, target, r.id, p ? { active: true, count: p.count, fromCount: p.fromCount, daysBack: p.daysBack } : { active: false })
     }
   }
   return next
@@ -225,7 +227,7 @@ export function CalendarCard({ draft, edit, ro }: { draft: SessionConfig; edit: 
                       />
                     </label>
                     {ruleSources(r).length === 1 && (
-                    <label className="inline small">{t("from last")} {from}
+                    <label className="inline small">{String(p.daysBack) === String(LAST_NIGHT) ? t('from last') : t('from')} {from}
                       <input
                         type="number"
                         min={0}
@@ -235,6 +237,9 @@ export function CalendarCard({ draft, edit, ro }: { draft: SessionConfig; edit: 
                         onChange={(e) => edit((c) => setPresentation(c, selected, r.id, { fromCount: Math.min(p.count, Math.max(0, Number(e.target.value) || 0)) }))}
                       />
                     </label>
+                    )}
+                    {ruleSources(r).some((s) => s.when !== 'same') && (
+                      <DaysBackSelect value={p.daysBack} disabled={ro} onChange={(daysBack) => edit((c) => setPresentation(c, selected, r.id, { daysBack }))} />
                     )}
                   </>
                 )}
@@ -488,6 +493,28 @@ type SourceOption = { value: string; label: string }
 const srcValue = (s: Pick<PresenterSource, 'shiftId' | 'placeId' | 'jobId'>) => `${s.shiftId}|${s.placeId ?? ''}|${s.jobId ?? ''}`
 
 /** A new presentation: weekly (a morning report) or, given a date, on that day only (a case discussion). */
+/** "Was on duty" choices for presenter sources: last night, or further back. */
+const DAYS_BACK: DaysBack[] = [[1, 1], [2, 2], [3, 3], [1, 2], [2, 3], [1, 3]]
+const isLastNight = (d: DaysBack) => d[0] === 1 && d[1] === 1
+const daysBackText = (d: DaysBack) =>
+  isLastNight(d) ? t('last night') : d[0] === d[1] ? t('{n} days before', { n: d[0] }) : t('{a}–{b} days before', { a: d[0], b: d[1] })
+/** When a source's presenters were on duty, for summaries: "the day before", "2–3 days before", "the same day". */
+const whenText = (s: PresenterSource, d: DaysBack) => (s.when === 'same' ? t('the same day') : isLastNight(d) ? t('the day before') : daysBackText(d))
+
+function DaysBackSelect({ value, disabled, onChange }: { value: DaysBack; disabled: boolean; onChange: (d: DaysBack) => void }) {
+  const choices = DAYS_BACK.some((d) => String(d) === String(value)) ? DAYS_BACK : [...DAYS_BACK, value]
+  return (
+    <label className="inline small">
+      {t('was on duty')}{' '}
+      <select value={String(value)} disabled={disabled} onChange={(e) => onChange(e.target.value.split(',').map(Number) as DaysBack)}>
+        {choices.map((d) => (
+          <option key={String(d)} value={String(d)}>{daysBackText(d)}</option>
+        ))}
+      </select>
+    </label>
+  )
+}
+
 function newPresentation(c: SessionConfig, date?: string): PresentationRule {
   const base = { id: uid(), fromShiftId: c.shifts[0]?.id ?? ANY_SHIFT, fromCount: 1, types: [c.rosterMode === 'hospital' ? ('student' as const) : ('resident' as const)] }
   return date
@@ -505,6 +532,7 @@ function PresenterFlow({
   running,
   ro,
   setSources,
+  setDaysBack,
 }: {
   rule: PresentationRule
   options: SourceOption[]
@@ -512,7 +540,9 @@ function PresenterFlow({
   running: Record<'before' | 'same', Set<string> | null>
   ro: boolean
   setSources: (p: PresentationRule, sources: PresenterSource[], extra?: Partial<PresentationRule>) => void
+  setDaysBack: (p: PresentationRule, d: DaysBack) => void
 }) {
+  const daysBack = rule.daysBack ?? LAST_NIGHT
   const sources = ruleSources(rule)
   const [showSame, setShowSame] = useState(sources.some((s) => s.when === 'same'))
   const keyOf = (s: Pick<PresenterSource, 'shiftId' | 'placeId' | 'jobId' | 'when'>) => `${s.when ?? 'before'}|${srcValue(s)}`
@@ -542,6 +572,7 @@ function PresenterFlow({
   const group = (when: 'before' | 'same', title: string) => (
     <div className="flow-group">
       <span className="flow-title">{title}</span>
+      {when === 'before' && <DaysBackSelect value={daysBack} disabled={ro} onChange={(d) => setDaysBack(rule, d)} />}
       {options.length > 1 && options.every((o) => !runs(when, o.value) || o.value === `${ANY_SHIFT}||`) && (
         <span className="muted small">{t('No shifts run then.')}</span>
       )}
@@ -587,7 +618,7 @@ function PresenterFlow({
   return (
     <div className="flow">
       <div className="flow-left">
-        {group('before', t('Last night’s shifts'))}
+        {group('before', isLastNight(daysBack) ? t('Last night’s shifts') : t('Shifts {when}', { when: daysBackText(daysBack) }))}
         {showSame ? (
           group('same', t('Same-day shifts'))
         ) : (
@@ -626,7 +657,7 @@ function PresenterFlow({
         <ul>
           {sources.map((s) => (
             <li key={keyOf(s)}>
-              {t('{n} from {place}, {when}', { n: s.count, place: labelOf(s), when: s.when === 'same' ? t('the same day') : t('the day before') })}
+              {t('{n} from {place}, {when}', { n: s.count, place: labelOf(s), when: whenText(s, daysBack) })}
             </li>
           ))}
           {rule.count - linked > 0 && <li className="muted">{t('{n} from anyone', { n: rule.count - linked })}</li>}
@@ -662,14 +693,15 @@ export function PresentationsCard({ draft, edit, ro }: { draft: SessionConfig; e
   const runningFor = (p: PresentationRule): Record<'before' | 'same', Set<string> | null> => {
     const dates = isOneDay(p) ? (p.dates ?? []) : dateRange(draft.startDate, draft.endDate).filter((d) => presentationOn(draft, p, d))
     if (!dates.length) return { before: null, same: null }
-    // Shift ids, and `job:<id>` for each place those shifts have.
-    const on = (offset: number) =>
+    // Shift ids, and `job:<id>` for each place those shifts have, running that many days before.
+    const on = (offsets: (date: string) => number[]) =>
       new Set(
         draft.shifts
-          .filter((s) => dates.some((d) => shiftRuns(draft, s, addDays(d, offset))))
+          .filter((s) => dates.some((d) => offsets(d).some((n) => shiftRuns(draft, s, addDays(d, -n)))))
           .flatMap((s) => [s.id, ...s.requirements.filter((r) => r.jobId).map((r) => `job:${r.jobId}`)]),
       )
-    return { before: on(-1), same: on(0) }
+    const back = (d: string) => sourceOffsets({ shiftId: ANY_SHIFT, count: 1 }, presentationOn(draft, p, d)?.daysBack ?? p.daysBack ?? LAST_NIGHT)
+    return { before: on(back), same: on(() => [0]) }
   }
   const sourcesText = (p: PresentationRule) => {
     const list = ruleSources(p)
@@ -679,7 +711,7 @@ export function PresentationsCard({ draft, edit, ro }: { draft: SessionConfig; e
         t('{n} from {place}, {when}', {
           n: s.count,
           place: sourceOptions.find((o) => o.value === srcValue(s))?.label ?? '?',
-          when: s.when === 'same' ? t('the same day') : t('the day before'),
+          when: whenText(s, p.daysBack ?? LAST_NIGHT),
         }),
       )
       .join(' · ')
@@ -713,7 +745,7 @@ export function PresentationsCard({ draft, edit, ro }: { draft: SessionConfig; e
               <button type="button" className="link danger" onClick={() => edit((c) => ({ ...c, presentations: c.presentations.filter((x) => x.id !== p.id) }))}>{t("Remove")}</button>
             )}
           </div>
-          <PresenterFlow rule={p} options={sourceOptions} running={runningFor(p)} ro={ro} setSources={setSources} />
+          <PresenterFlow rule={p} options={sourceOptions} running={runningFor(p)} ro={ro} setSources={setSources} setDaysBack={(r, daysBack) => set(r.id, { daysBack: isLastNight(daysBack) ? undefined : daysBack })} />
           {draft.rosterMode !== 'hospital' && (
             <div className="row wrap">
               <span className="small">{t("Who can present:")}</span>
@@ -758,7 +790,7 @@ export function PresentationsCard({ draft, edit, ro }: { draft: SessionConfig; e
                 <summary className="small">
                   🎤 {t('{n} presenter(s)', { n: p.count })} · {sourcesText(p)}
                 </summary>
-                <PresenterFlow rule={p} options={sourceOptions} running={runningFor(p)} ro={ro} setSources={setSources} />
+                <PresenterFlow rule={p} options={sourceOptions} running={runningFor(p)} ro={ro} setSources={setSources} setDaysBack={(r, daysBack) => set(r.id, { daysBack: isLastNight(daysBack) ? undefined : daysBack })} />
               </details>
             </div>
           ))}

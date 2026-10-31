@@ -11,6 +11,7 @@ import {
   type Assignment,
   type Concern,
   type DateOverride,
+  type DaysBack,
   type Member,
   type MemberResponse,
   type MemberType,
@@ -77,6 +78,12 @@ const num = (v: unknown, min: number, max: number, fallback: number) => {
 }
 const arr = (v: unknown, max: number): unknown[] => (Array.isArray(v) ? v.slice(0, max) : [])
 const memberType = (v: unknown): MemberType => (v === 'staff' || v === 'student' ? v : 'resident')
+/** [nearest, farthest] days back, 1–7; undefined when not given. */
+const daysBack = (v: unknown): DaysBack | undefined => {
+  if (!Array.isArray(v) || v.length !== 2) return undefined
+  const [a, b] = v.map((x) => int(x, 1, 7, 1))
+  return [Math.min(a, b), Math.max(a, b)]
+}
 const time = (v: unknown) => (typeof v === 'string' && /^\d{2}:\d{2}$/.test(v) ? v : '08:00')
 
 function cleanConfig(raw: unknown): SessionConfig {
@@ -178,6 +185,7 @@ function cleanConfig(raw: unknown): SessionConfig {
       fromCount: int(o.fromCount, 0, count, 0),
       types: [...new Set(arr(o.types, 3).map(memberType))],
       ...(Array.isArray(o.dates) ? { dates: [...new Set(arr(o.dates, 400).filter(isDate))].sort() } : {}),
+      ...(daysBack(o.daysBack) && String(daysBack(o.daysBack)) !== '1,1' ? { daysBack: daysBack(o.daysBack) } : {}),
       ...(Array.isArray(o.sources)
         ? {
             sources: arr(o.sources, 6)
@@ -204,6 +212,7 @@ function cleanConfig(raw: unknown): SessionConfig {
       active: Boolean(o.active),
       ...(o.count === undefined ? {} : { count: int(o.count, 0, 20, 1) }),
       ...(o.fromCount === undefined ? {} : { fromCount: int(o.fromCount, 0, 20, 0) }),
+      ...(daysBack(o.daysBack) ? { daysBack: daysBack(o.daysBack) } : {}),
     }))
   const memberIds = new Set(members.map((m) => m.id))
   const duty: Assignment[] = arr(c.duty, 20_000)

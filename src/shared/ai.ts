@@ -6,7 +6,7 @@ import { endDays, presentationOn, reqCount, ruleSources, shiftRuns, sourceMatche
 import { dateRange, WEEKDAYS } from './dates.ts'
 import { responseFor } from './scoring.ts'
 import { equalShare } from './students.ts'
-import { ANY_SHIFT, coversJob, presenterTypes, type Assignment, type PresenterSource, type MemberResponse, type PresenterAssignment, type Roster, type SessionConfig, type StudentAssignment } from './types.ts'
+import { ANY_SHIFT, coversJob, LAST_NIGHT, presenterTypes, type DaysBack, type Assignment, type PresenterSource, type MemberResponse, type PresenterAssignment, type Roster, type SessionConfig, type StudentAssignment } from './types.ts'
 
 export const AI_FORMAT_TAG = 'wayneday-roster'
 
@@ -42,11 +42,12 @@ export function rosterToJson(config: SessionConfig, roster: Roster) {
 
 export function buildAiPrompt(config: SessionConfig, responses: Record<string, MemberResponse>, roster?: Roster | null): string {
   const job = (id: string) => config.jobs.find((j) => j.id === id)?.name ?? id
-  const describeSource = (src: PresenterSource) => {
+  const back = (d: DaysBack) => (d[0] === 1 && d[1] === 1 ? 'the day before' : d[0] === d[1] ? `${d[0]} days before` : `${d[0]}–${d[1]} days before`)
+  const describeSource = (src: PresenterSource, daysBack: DaysBack = LAST_NIGHT) => {
     const shift = src.shiftId === ANY_SHIFT ? 'any shift' : `"${shiftName(src.shiftId)}"`
     const req = config.shifts.find((x) => x.id === src.shiftId)?.requirements.find((r) => r.id === src.placeId)
     const place = src.jobId ? ` in ${job(src.jobId)}` : req ? ` (${req.jobId ? job(req.jobId) : 'that place'})` : ''
-    return `at least ${src.count} who worked ${shift}${place} ${src.when === 'same' ? 'that same day' : 'the day before'}`
+    return `at least ${src.count} who worked ${shift}${place} ${src.when === 'same' ? 'that same day' : back(daysBack)}`
   }
   const shiftName = (id: string) => config.shifts.find((s) => s.id === id)?.name ?? id
   const days = dateRange(config.startDate, config.endDate)
@@ -145,12 +146,12 @@ export function buildAiPrompt(config: SessionConfig, responses: Record<string, M
     lines.push('## Presentations')
     for (const r of config.presentations) {
       lines.push(
-        `- "${r.name}" on ${[r.days.map((d) => WEEKDAYS[d]).join('/'), (r.dates ?? []).join(', ')].filter(Boolean).join(' and on ') || 'no regular days'}: ${r.count} presenter(s)${ruleSources(r).length ? `, including ${ruleSources(r).map((src) => describeSource(src)).join(' and ')}` : ''}. Presenters can be: ${presenterTypes(config, r).join(', ')}. Share presentations evenly.`,
+        `- "${r.name}" on ${[r.days.map((d) => WEEKDAYS[d]).join('/'), (r.dates ?? []).join(', ')].filter(Boolean).join(' and on ') || 'no regular days'}: ${r.count} presenter(s)${ruleSources(r).length ? `, including ${ruleSources(r).map((src) => describeSource(src, r.daysBack)).join(' and ')}` : ''}. Presenters can be: ${presenterTypes(config, r).join(', ')}. Share presentations evenly.`,
       )
       const changes = config.presentationOverrides.filter((o) => o.ruleId === r.id).sort((x, y) => x.date.localeCompare(y.date))
       for (const o of changes) {
         const p = presentationOn(config, r, o.date)
-        lines.push(`  - ${o.date}: ${p ? `${p.count} presenter(s)${p.sources.length ? `, including ${p.sources.map((src) => describeSource(src)).join(' and ')}` : ''}` : 'no presentation'}`)
+        lines.push(`  - ${o.date}: ${p ? `${p.count} presenter(s)${p.sources.length ? `, including ${p.sources.map((src) => describeSource(src, p.daysBack)).join(' and ')}` : ''}` : 'no presentation'}`)
       }
     }
   }

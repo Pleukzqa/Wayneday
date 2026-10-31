@@ -253,6 +253,32 @@ test('presenters: one from each ward, whichever shift had it', () => {
   assert.match(buildAiPrompt(c, {}), /at least 1 who worked any shift in 17C the day before/)
 })
 
+test('presenters from 2–3 days before, with one date changed back to last night', () => {
+  const c = hospital()
+  c.members.push(...['D', 'E', 'F'].map((n) => ({ id: `st${n}`, name: `Student ${n}`, type: 'student' as const, jobs: [] })))
+  c.students = { ...c.students, auto: true }
+  c.presentations = [{ id: 'mr', name: 'Morning report', days: [1, 2, 3, 4, 5], count: 1, fromShiftId: 'night', fromCount: 1, types: ['student'], daysBack: [2, 3] }]
+  c.presentationOverrides = [{ date: '2026-11-18', ruleId: 'mr', active: true, daysBack: [1, 1] }]
+  const s = arrangeStudents(c, {}, c.duty)
+  assert.ok(s.ok)
+  if (!s.ok) return
+  const p = pickPresenters(c, {}, c.duty, s.students)
+  const on = (date: string, back: number) => s.students.find((x) => x.date === addDays(date, -back))?.memberId
+  const days = p.presenters.filter((x) => x.date >= '2026-11-04')
+  assert.ok(days.length > 15)
+  for (const x of days) {
+    if (x.date === '2026-11-18') {
+      assert.equal(x.memberId, on(x.date, 1), 'that date takes last night’s student')
+      assert.ok(x.postCall)
+    } else {
+      assert.ok([on(x.date, 2), on(x.date, 3)].includes(x.memberId), `${x.date}: ${x.memberId} wasn’t on 2–3 days before`)
+      assert.equal(x.postCall, x.memberId === on(x.date, 1))
+    }
+  }
+  assert.match(buildAiPrompt(c, {}), /who worked "Night" 2–3 days before/)
+  assert.match(buildAiPrompt(c, {}), /2026-11-18: 1 presenter\(s\), including at least 1 who worked "Night" the day before/)
+})
+
 test('dated places: a student covers Ward A until the 15th, then Ward B', () => {
   const c = hospital()
   c.jobs = [{ id: 'a', name: 'Ward A' }, { id: 'b', name: 'Ward B' }]

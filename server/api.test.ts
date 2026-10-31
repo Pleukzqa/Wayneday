@@ -147,11 +147,18 @@ for (const [kind, makeStore] of stores) {
       ]
       const jobs = [{ id: 'j17', name: '17C' }]
       ;(presentations[0].sources as object[]).push({ shiftId: '*', jobId: 'j17', count: 1 }, { shiftId: '*', jobId: 'gone', count: 1 })
-      const v = (await call('PUT', `/sessions/${code}/config`, { account: alice, body: { jobs, shifts, presentations } })).body
+      ;(presentations[0] as Record<string, unknown>).daysBack = [3, '2']
+      const presentationOverrides = [
+        { date: '2026-11-10', ruleId: 'case', active: true, daysBack: [1, 1] },
+        { date: '2026-11-11', ruleId: 'case', active: true, daysBack: [9] },
+      ]
+      const v = (await call('PUT', `/sessions/${code}/config`, { account: alice, body: { jobs, shifts, presentations, presentationOverrides } })).body
       assert.equal(v.session.config.shifts[1].endDays, 1)
       assert.equal(v.session.config.shifts[0].endDays, undefined)
       const r = v.session.config.presentations[0]
       assert.deepEqual(r.dates, ['2026-11-10'])
+      assert.deepEqual(r.daysBack, [2, 3])
+      assert.deepEqual(v.session.config.presentationOverrides.map((o: { daysBack?: number[] }) => o.daysBack), [[1, 1], undefined])
       assert.deepEqual(r.sources, [
         { shiftId: 'n', placeId: 'wa', count: 1, when: 'before' },
         { shiftId: 'n', count: 1, when: 'same' },
