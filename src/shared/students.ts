@@ -99,9 +99,6 @@ export function pointsOver(pts: number[], maxDiff?: number) {
   return Math.max(0, Math.max(...pts) - Math.min(...pts) - (avg * maxDiff) / 100)
 }
 
-/** On a shift a presentation draws presenters from, while ✕ on the presentation day. */
-const PRESENT_AWAY_PENALTY = 600
-
 /** Exact count per shift slot for each student, when the host set one; null = a single total. */
 export function slotQuota(config: SessionConfig): Map<string, number> | null {
   if (config.students.auto) return null
@@ -337,7 +334,6 @@ export function arrangeStudents(
       }
     }
   }
-  const away = (si: number, oi: number) => Boolean(presentsOn.get(oi)?.some((d) => resp[si].unavailable.includes(d)))
   const rand = rng(seed * 7919 + 13)
   // Shifts each student does. Sharing equally, the students with the most open places take the extra
   // ones (with a random tie-break, so each option shares them differently).
@@ -415,7 +411,7 @@ export function arrangeStudents(
       for (const { o } of short) {
         while (placed && load[o.i] < target(o)) {
           const cands = students.map((_, si) => si).filter((si) => mine[si].length < needs[si] && allowed[si].includes(o.i) && fits(si, o.i))
-          if (cands.length) add(sortedBy(cands, (si) => mine[si].length - needs[si] + (rand() - 0.5) * 0.9 + (away(si, o.i) ? 5 : 0))[0], o.i)
+          if (cands.length) add(sortedBy(cands, (si) => mine[si].length - needs[si] + (rand() - 0.5) * 0.9)[0], o.i)
           else if (load[o.i] < o.min) placed = false
           else break
         }
@@ -430,7 +426,7 @@ export function arrangeStudents(
             break
           }
           // Prefer places still under their minimum, then emptier ones, then random.
-          add(si, sortedBy(cands, (oi) => (load[oi] < occs[oi].min ? -10 : 0) + load[oi] + (rand() - 0.5) * 0.9 + (away(si, oi) ? 20 : 0))[0])
+          add(si, sortedBy(cands, (oi) => (load[oi] < occs[oi].min ? -10 : 0) + load[oi] + (rand() - 0.5) * 0.9)[0])
         }
       }
       if (placed && occs.some((o) => load[o.i] < o.min)) placed = false
@@ -516,7 +512,6 @@ export function arrangeStudents(
       // On duty every other day three times running (e.g. Mon–Wed–Fri) is exhausting.
       sc += ALTERNATE_PENALTY * everyOtherDay(ds)
       for (const oi of m) sc += AVOID_PENALTY[avoidLevel(resp[si], occs[oi].date)]
-      for (const oi of m) if (away(si, oi)) sc += PRESENT_AWAY_PENALTY
       if (noRepeat || noRepeatStaff) {
         const seen = new Set<string>()
         for (const oi of m) {
@@ -641,7 +636,7 @@ export function pickPresenters(
 
 function pickPresentersOnce(
   config: SessionConfig,
-  responses: Record<string, MemberResponse>,
+  _responses: Record<string, MemberResponse>,
   assignments: Assignment[],
   students: StudentAssignment[],
   seed: number,
@@ -650,7 +645,6 @@ function pickPresentersOnce(
   const rand = rng(seed * 31 + 7)
   const warnings: string[] = []
   const days = dateRange(config.startDate, config.endDate)
-  const available = (id: string, date: string) => !responseFor(responses, id).unavailable.includes(date)
   // Shared out evenly in total and by type: each weekly presentation is a type, one-day ones are one type together.
   const kind = (ruleId: string) => {
     const rule = config.presentations.find((r) => r.id === ruleId)!
@@ -683,7 +677,8 @@ function pickPresentersOnce(
       if (!today) continue
       const k = kind(rule.id)
       const types = presenterTypes(config, rule)
-      const eligible = config.members.filter((m) => types.includes(m.type) && available(m.id, date)).map((m) => m.id)
+      // ✕ only rules out shifts: someone unavailable for duty that day can still present.
+      const eligible = config.members.filter((m) => types.includes(m.type)).map((m) => m.id)
       const chosen: string[] = []
       // Nobody presents twice in a day: people already presenting today come last, only when nobody else can.
       const busy = new Set(slots.filter((x) => x.date === date).map((x) => x.who))
@@ -1404,7 +1399,7 @@ export function repairRoster(
         if (!ward) continue
         for (const x of cur.filter((x) => x.date === addDays(date, -1) && !sameDay.has(x.memberId))) {
           const job = config.shifts.find((sh) => sh.id === x.shiftId)?.requirements.find((r) => r.id === x.requirementId)?.jobId
-          if (job === ward && !resp.get(x.memberId)!.unavailable.includes(date)) wardFill.push({ date, ruleId, memberId: x.memberId, postCall: true })
+          if (job === ward) wardFill.push({ date, ruleId, memberId: x.memberId, postCall: true })
         }
       }
     }
@@ -1442,7 +1437,6 @@ export function repairRoster(
       const can = (p: PresenterAssignment) => {
         if (p.ruleId !== rule.id || has(p.memberId) < 2) return false
         if (presenters.some((q) => q.date === p.date && q.memberId === m.id)) return false
-        if (resp.get(m.id)!.unavailable.includes(p.date)) return false
         const today = presentationOn(config, rule, p.date)
         return Boolean(today?.sources.some((src) => cur.some((x) => x.memberId === m.id && x.date === addDays(p.date, -1) && sourceMatches(config, src, x.shiftId, x.requirementId))))
       }

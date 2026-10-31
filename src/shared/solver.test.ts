@@ -567,19 +567,19 @@ test('nobody presents twice in a day', () => {
   assert.match(studentRuleReport(c, {}, { assignments: c.duty, students: s.students, presenters: twice }).summary.join(' '), /presents twice in a day/)
 })
 
-test('someone away on a presentation day isn’t put on the night it takes presenters from', () => {
-  // One student a night; a case discussion on the 17th needs last night's student, and Student A is ✕ that day.
+test('✕ only rules out shifts: someone unavailable that day can still present', () => {
+  // One student a night; a case discussion on the 17th needs last night's student, who is ✕ on the 17th.
   const c = hospital()
   c.students = { ...c.students, auto: true }
   c.presentations = [{ id: 'ccr', name: 'CCR', days: [], dates: ['2026-11-17'], count: 1, fromShiftId: 'night', fromCount: 1, types: ['student'] }]
-  const responses = { stA: resp({ unavailable: ['2026-11-17'] }) }
-  for (let seed = 1; seed <= 6; seed++) {
-    const s = arrangeStudents(c, responses, c.duty, seed)
-    assert.ok(s.ok)
-    if (!s.ok) return
-    assert.notEqual(s.students.find((x) => x.date === '2026-11-16')?.memberId, 'stA', `seed ${seed}`)
-    assert.deepEqual(pickPresenters(c, responses, c.duty, s.students).warnings, [])
-  }
+  const s = arrangeStudents(c, {}, c.duty, 1)
+  assert.ok(s.ok)
+  if (!s.ok) return
+  const lastNight = s.students.find((x) => x.date === '2026-11-16')!.memberId
+  const responses = { [lastNight]: resp({ unavailable: ['2026-11-17'] }) }
+  const p = pickPresenters(c, responses, c.duty, s.students)
+  assert.equal(p.presenters.find((x) => x.date === '2026-11-17')?.memberId, lastNight)
+  assert.deepEqual(p.warnings, [])
 })
 
 test('dated places: a student covers Ward A until the 15th, then Ward B', () => {
