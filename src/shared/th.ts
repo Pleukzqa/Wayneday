@@ -650,4 +650,9 @@ export const TH: Record<string, string> = {
   "Send to": "ส่งถึง",
   "Everyone ({n})": "ทุกคน ({n})",
   "Only people who aren’t ready yet ({n})": "เฉพาะคนที่ยังไม่กดพร้อม ({n})",
+  "{n} ready": "พร้อม {n}",
+  "{n} filling in": "กำลังกรอก {n}",
+  "{n} not logged in yet": "ยังไม่เข้าระบบ {n}",
+  "Logged in, not ready yet": "เข้าระบบแล้ว ยังไม่กดพร้อม",
+  "Hasn’t logged in yet": "ยังไม่ได้เข้าระบบ",
 }

@@ -14,6 +14,12 @@ type MarkLevel = 0 | AvoidLevel
 const AVOID_LABEL = ['', 'Rather not', 'Important', 'Really need it off']
 const MARK_LABEL = ['Can’t', ...AVOID_LABEL.slice(1)]
 
+const STATUS = {
+  ready: { icon: '✅', label: '{n} ready' },
+  filling: { icon: '⏳', label: '{n} filling in' },
+  away: { icon: '💤', label: '{n} not logged in yet' },
+} as const
+
 export default function AvailabilityTab({ code, session, me, mutate }: SessionProps) {
   const { config } = session
   const [pending, setPending] = useState<Record<string, MemberResponse>>({})
@@ -162,6 +168,9 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
   // In hospital mode residents/staff come from the hospital's roster; only students answer here.
   const hospital = config.rosterMode === 'hospital'
   const answering = config.members.filter((m) => !hospital || m.type === 'student')
+  // Ready, logged in and still filling in, or not logged in yet (an answer the host filled in counts as filling in).
+  const statusOf = (id: string): keyof typeof STATUS =>
+    respOf(id).ready ? 'ready' : session.claimed.includes(id) || session.responses[id] ? 'filling' : 'away'
   const members = [...answering].sort((a, b) => Number(b.id === me.memberId) - Number(a.id === me.memberId))
   const iAnswer = Boolean(me.memberId && answering.some((m) => m.id === me.memberId))
   const mine = me.memberId && iAnswer ? respOf(me.memberId) : null
@@ -421,8 +430,12 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
       <section className="card">
         <div className="row wrap between">
           <h2>👥 {t('Everyone’s answers')}</h2>
-          <span className="small">
-            {t('{r} of {n} ready', { r: answering.filter((m) => respOf(m.id).ready).length, n: answering.length })}
+          <span className="small status-legend">
+            {(['ready', 'filling', 'away'] as const).map((k) => (
+              <span key={k}>
+                {STATUS[k].icon} {t(STATUS[k].label, { n: answering.filter((m) => statusOf(m.id) === k).length })}
+              </span>
+            ))}
           </span>
         </div>
         <div className="scroll-x">
@@ -446,11 +459,17 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
                 return (
                   <tr key={m.id} className={m.id === me.memberId ? 'me' : ''}>
                     <td className="nowrap">
-                      {r.ready ? (
-                        <span title={t('Ready since {time}', { time: new Date(r.ready).toLocaleString() })}>✅ </span>
-                      ) : (
-                        <span className="muted" title={t('Not ready yet')}>⏳ </span>
-                      )}
+                      <span
+                        title={
+                          r.ready
+                            ? t('Ready since {time}', { time: new Date(r.ready).toLocaleString() })
+                            : statusOf(m.id) === 'filling'
+                              ? t('Logged in, not ready yet')
+                              : t('Hasn’t logged in yet')
+                        }
+                      >
+                        {STATUS[statusOf(m.id)].icon}{' '}
+                      </span>
                       {m.name} <span className="muted tiny">{typeName(m.type)}</span>
                     </td>
                     {answered || pending[m.id] ? (
