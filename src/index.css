@@ -1794,3 +1794,25 @@ button.big {
 .feedback .comments p {
   margin: 0.1rem 0 0;
 }
+/* A shift on a day the student asked to avoid */
+.who-chip.avoided {
+  outline: 2px solid var(--warn);
+  outline-offset: -1px;
+}
+.who-chip.avoided-3 {
+  outline-color: var(--danger, #d64545);
+}
+.avoid-mark {
+  font-weight: 700;
+  color: var(--warn);
+}
+.avoided-3 .avoid-mark {
+  color: var(--danger, #d64545);
+}
+.unmet-3 {
+  color: var(--danger, #d64545);
+  font-weight: 600;
+}
+.unmet-list li {
+  margin-bottom: 0.2rem;
+}

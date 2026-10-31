@@ -1,7 +1,7 @@
 import { accountToken, type Account } from './account.ts'
 import type { MySession, SessionView } from './apiTypes.ts'
 import type { SwapAction } from './shared/ops.ts'
-import type { MemberResponse, MemberType, Schedule, SessionConfig } from './shared/types.ts'
+import type { MemberResponse, MemberType, Roster, Schedule, SessionConfig } from './shared/types.ts'
 
 export type { HostInfo, Me, MySession, SessionView } from './apiTypes.ts'
 
@@ -75,6 +75,9 @@ export const api = {
   saveSchedule: (code: string, s: Schedule | null) => call<SessionView>(code, 'PUT', `/sessions/${code}/schedule`, s),
   addConcern: (code: string, text: string, date?: string, shiftId?: string) =>
     call<SessionView>(code, 'POST', `/sessions/${code}/concerns`, { text, date, shiftId }),
+  /** Hosts: keep (or with null, drop) the arrangement being tried out. */
+  saveDraft: (code: string, draft: { roster: Roster; source: Schedule['source']; notes: string[] } | null) =>
+    call<SessionView>(code, 'PUT', `/sessions/${code}/draft`, draft ?? {}),
   saveFeedback: (code: string, f: { ratings: Record<string, number>; text: string; anonymous: boolean }) =>
     call<SessionView>(code, 'PUT', `/sessions/${code}/feedback`, f),
   addNote: (code: string, memberId: string, text: string) => call<SessionView>(code, 'POST', `/sessions/${code}/notes`, { memberId, text }),

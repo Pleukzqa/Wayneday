@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type RefObject } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { api } from '../api.ts'
 import { googleClientId } from '../google.ts'
 import { t } from '../shared/i18n.ts'
@@ -7,8 +7,9 @@ import { findArrangements, rearrangeStudents } from '../runSolver.ts'
 import { buildAiPrompt, importAiResult } from '../shared/ai.ts'
 import { shortDate } from '../shared/dates.ts'
 import { reqCount } from '../shared/calendar.ts'
-import { validate, type CountResult } from '../shared/solver.ts'
+import { responseFor, validate, type CountResult } from '../shared/solver.ts'
 import {
+  avoidLevel,
   pickPresenters,
   placeKey,
   studentCellIssues,
@@ -109,7 +110,32 @@ function differs(a: Roster, b: Roster): number {
 export default function RosterTab({ code, session, me, mutate }: SessionProps) {
   const { config, responses, schedule } = session
   const now = useNow()
-  const [preview, setPreview] = useState<Preview | null>(null)
+  // The arrangement being tried out comes back from the server (hosts only), so it's here every time.
+  const [preview, setPreview] = useState<Preview | null>(() =>
+    me.isHost && session.draft ? { roster: session.draft.roster, source: session.draft.source, notes: session.draft.notes } : null,
+  )
+  const savedDraft = useRef<Preview | null>(preview)
+  const latestPreview = useRef<Preview | null>(preview)
+  const saveDraft = useCallback(
+    (p: Preview | null) => {
+      savedDraft.current = p
+      void mutate(() => api.saveDraft(code, p ? { roster: p.roster, source: p.source, notes: p.notes } : null)).catch(() => {})
+    },
+    [code, mutate],
+  )
+  useEffect(() => {
+    latestPreview.current = preview
+    if (!me.isHost || preview === savedDraft.current) return
+    const timer = setTimeout(() => saveDraft(preview), 600)
+    return () => clearTimeout(timer)
+  }, [preview, me.isHost, saveDraft])
+  // Leaving the tab before the save fires: save now.
+  useEffect(
+    () => () => {
+      if (me.isHost && latestPreview.current !== savedDraft.current) saveDraft(latestPreview.current)
+    },
+    [me.isHost, saveDraft],
+  )
   const [options, setOptions] = useState<StudentOption[] | null>(null)
   const [count, setCount] = useState<CountResult | null>(null)
   const [problems, setProblems] = useState<string[] | null>(null)
@@ -413,7 +439,7 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
             </div>
           )}
           {preview && (
-            <p className="muted small">{t("Previewing a")} {preview.source === 'ai' ? t("AI-made") : preview.source === 'manual' ? t("edited") : t("generated")} {t("roster — nobody else sees it until you publish.")} {preview.notes.map((n) => (
+            <p className="muted small">{t("Previewing a")} {preview.source === 'ai' ? t("AI-made") : preview.source === 'manual' ? t("edited") : t("generated")} {t("roster — nobody else sees it until you publish.")} {t('It’s kept for you and your co-hosts, so it’s still here next time.')} {preview.notes.map((n) => (
                 <span key={n} className="block">
                   {n}
                 </span>
@@ -540,6 +566,7 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
               arrange={arrange}
               config={config}
               roster={shown}
+              avoidOf={(id, date) => avoidLevel(responseFor(responses, id), date)}
               myId={me.memberId}
               concerns={session.concerns}
               swaps={session.swaps}
@@ -790,17 +817,57 @@ function RulesCheck({ config, responses, roster }: { config: SessionConfig; resp
   const r = studentRuleReport(config, responses, roster)
   if (!r.summary.length) return null
   const ok = r.details.length === 0
+  const name = (id: string) => config.members.find((m) => m.id === id)?.name ?? '?'
+  const level = (n: number) => '!'.repeat(n)
   return (
     <section className={`card rules-check ${ok ? 'ok' : ''}`}>
       <h2>{ok ? '✅' : '⚠️'} {t('Rules check')}</h2>
       <p className="small">{r.summary.join(' · ')}</p>
-      {!ok && (
-        <ul className="small">
-          {r.details.slice(0, 15).map((d) => (
-            <li key={d}>{d}</li>
-          ))}
-          {r.details.length > 15 && <li>{t("…and")} {r.details.length - 15} {t("more")}</li>}
-        </ul>
+      {r.unmet.length > 0 && (
+        <div className="stack-tight">
+          <h3>🙅 {t('Days people asked to avoid but got ({n} people)', { n: r.unmet.length })}</h3>
+          <p className="muted small">{t('Marked in the roster below. Wayneday gives !!! days off first, then !!, then !.')}</p>
+          <ul className="small unmet-list">
+            {[...r.unmet]
+              .sort((a, b) => Math.max(...b.days.map((d) => d.level)) - Math.max(...a.days.map((d) => d.level)))
+              .map((u) => (
+                <li key={u.memberId}>
+                  <b>{name(u.memberId)}</b>:{' '}
+                  {u.days.map((d, i) => (
+                    <span key={d.date} className={`unmet unmet-${d.level}`}>
+                      {i > 0 && ', '}
+                      {shortDate(d.date)} {level(d.level)}
+                    </span>
+                  ))}
+                </li>
+              ))}
+          </ul>
+        </div>
+      )}
+      {r.pairRepeats.length > 0 && (
+        <details>
+          <summary className="small">
+            👥 {t('{n} pair(s) of students together more than once', { n: r.pairRepeats.length })}
+          </summary>
+          <p className="muted small">
+            {t('You asked never to put the same two students on a shift together twice. With this many students per shift some pairs meet again; Wayneday keeps it as low as it can. These pairs share a shift more than once:')}
+          </p>
+          <ul className="small">
+            {r.pairRepeats.map((p) => (
+              <li key={`${p.a}|${p.b}`}>{t('{a} & {b} — {n} shifts together', { a: name(p.a), b: name(p.b), n: p.n })}</li>
+            ))}
+          </ul>
+        </details>
+      )}
+      {r.meets.length > 0 && (
+        <details>
+          <summary className="small">🔁 {t('{n} time(s) a student meets the same resident or staff again', { n: r.meets.length })}</summary>
+          <ul className="small">
+            {r.meets.map((d) => (
+              <li key={d}>{d}</li>
+            ))}
+          </ul>
+        </details>
       )}
     </section>
   );
@@ -825,8 +892,8 @@ function StudentSummary({ config, roster, myId }: { config: SessionConfig; roste
             {table.rows.map((r, i) => (
               <tr key={students[i].id} className={students[i].id === myId ? 'me' : ''}>
                 {r.map((v, j) => (
-                  <td key={j} className={j >= 2 && (j - 2) % 6 === 0 ? 'nowrap' : ''}>
-                    {j >= 2 && (j - 2) % 6 === 0 && v ? shortDate(v) : v}
+                  <td key={j} className={j >= table.lead && (j - table.lead) % 6 === 0 ? 'nowrap' : ''}>
+                    {j >= table.lead && (j - table.lead) % 6 === 0 && v ? shortDate(v) : v}
                   </td>
                 ))}
               </tr>

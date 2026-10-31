@@ -8,7 +8,7 @@ import { fmtPoints, presentationOn, reqCount, reqMin, shiftPoints, shiftRuns, sh
 import { t, weekdayShort } from './i18n.ts'
 import { addDays, dateRange, dayDiff, weekday } from './dates.ts'
 import { preferenceCost, responseFor, rng, shuffled, sortedBy, variance } from './scoring.ts'
-import { coversJob, dutyOf, presenterTypes, type Assignment, type Member, type MemberResponse, type PresenterAssignment, type SessionConfig, type StudentAssignment } from './types.ts'
+import { coversJob, dutyOf, isOneDay, presenterTypes, type Assignment, type Member, type MemberResponse, type PresenterAssignment, type SessionConfig, type StudentAssignment } from './types.ts'
 
 /** A place students can take: one shift on one date (and, in hospital mode, one job within it). */
 export interface Occ {
@@ -290,7 +290,12 @@ export function arrangeStudents(
   // Places a presentation takes its presenters from, with the dates those presenters present: someone
   // who's ✕ that day shouldn't take the place, or the presentation may be short (e.g. the only one on a night).
   const presentsOn = new Map<number, string[]>()
+  // The same places by type of presentation (each weekly one, and one-day ones together): shifts that lead to
+  // presenting are spread evenly too, so presentations can be shared out evenly afterwards.
+  const presentKinds = new Map<string, Set<number>>()
   for (const rule of config.presentations) {
+    const kind = isOneDay(rule) ? 'one-day' : rule.id
+    if (!presentKinds.has(kind)) presentKinds.set(kind, new Set())
     for (const date of days) {
       const today = presentationOn(config, rule, date)
       if (!today) continue
@@ -298,7 +303,11 @@ export function arrangeStudents(
         if (!src.count) continue
         for (const n of sourceOffsets(src, today.daysBack)) {
           const day = addDays(date, -n)
-          for (const o of occs) if (o.date === day && sourceMatches(config, src, o.shiftId, o.requirementId)) presentsOn.set(o.i, [...(presentsOn.get(o.i) ?? []), date])
+          for (const o of occs) {
+            if (o.date !== day || !sourceMatches(config, src, o.shiftId, o.requirementId)) continue
+            presentsOn.set(o.i, [...(presentsOn.get(o.i) ?? []), date])
+            presentKinds.get(kind)!.add(o.i)
+          }
         }
       }
     }
@@ -441,6 +450,7 @@ export function arrangeStudents(
       sc += 100 * variance(ids.map((id) => exposure.get(id) ?? 0))
     }
     if (pointsOn) sc += 80 * variance(mine.map((m) => m.reduce((n, oi) => n + occs[oi].pts, 0)))
+    for (const places of presentKinds.values()) if (places.size) sc += 300 * variance(mine.map((m) => m.filter((oi) => places.has(oi)).length))
     else sc += 30 * variance(mine.map((m) => m.filter((oi) => occs[oi].weekend).length))
     if (auto) for (const id of slotIds) sc += 40 * variance(mine.map((m) => m.filter((oi) => occs[oi].shiftId === id).length))
     mine.forEach((m, si) => {
@@ -491,11 +501,13 @@ export function arrangeStudents(
         add(si, from)
       }
     } else {
-      // Trade places with another student (keeps every place's count, so minimums hold).
-      const sj = Math.floor(rand() * students.length)
-      if (sj === si || mine[sj].length === 0) continue
-      const to = mine[sj][Math.floor(rand() * mine[sj].length)]
-      if (to === from || fixed.has(`${sj}:${to}`) || !allowed[si].includes(to) || !allowed[sj].includes(from)) continue
+      // Trade places with another student (keeps every place's count, so minimums hold): a place this student
+      // may take, with whoever is on it — so trades stay within students who can take the same places.
+      const to = allowed[si][Math.floor(rand() * allowed[si].length)]
+      const there = students.map((_, j) => j).filter((j) => j !== si && mine[j].includes(to))
+      if (!there.length) continue
+      const sj = there[Math.floor(rand() * there.length)]
+      if (to === from || fixed.has(`${sj}:${to}`) || !allowed[sj].includes(from)) continue
       if (quota && occs[to].shiftId !== occs[from].shiftId) continue
       if (!spaced(si, to, from) || !spaced(sj, from, to)) continue
       drop(si, from)
@@ -555,50 +567,104 @@ export function pickPresenters(
   seed = 1,
 ): { presenters: PresenterAssignment[]; warnings: string[] } {
   const rand = rng(seed * 31 + 7)
-  const presenters: PresenterAssignment[] = []
   const warnings: string[] = []
-  const count = new Map<string, number>()
   const days = dateRange(config.startDate, config.endDate)
   const available = (id: string, date: string) => !responseFor(responses, id).unavailable.includes(date)
-  const byFewest = (ids: string[]) =>
-    ids.map((id) => ({ id, k: (count.get(id) ?? 0) + rand() * 0.5 })).sort((a, b) => a.k - b.k).map((x) => x.id)
+  // Shared out evenly in total and by type: each weekly presentation is a type, one-day ones are one type together.
+  const kind = (ruleId: string) => {
+    const rule = config.presentations.find((r) => r.id === ruleId)!
+    return isOneDay(rule) ? 'one-day' : rule.id
+  }
+  const total = new Map<string, number>()
+  const byKind = new Map<string, number>()
+  const bump = (id: string, k: string, d: number) => {
+    total.set(id, (total.get(id) ?? 0) + d)
+    byKind.set(`${k}|${id}`, (byKind.get(`${k}|${id}`) ?? 0) + d)
+  }
+  const load = (id: string, k: string) => 2 * (byKind.get(`${k}|${id}`) ?? 0) + (total.get(id) ?? 0)
+  const byFewest = (ids: string[], k: string) => sortedBy(ids, (id) => load(id, k) + rand() * 0.5)
 
-  for (const rule of config.presentations) {
-    const short: string[] = []
-    for (const date of days) {
+  /** One presenter place: who could take it (`pool`) and who did. */
+  type Slot = { date: string; ruleId: string; kind: string; pool: string[]; lastNight: string[]; who: string }
+  const slots: Slot[] = []
+  const short = new Map<string, Set<string>>()
+  // Day by day across all presentations, the one-day ones (fewest chances) first.
+  const order = sortedBy(config.presentations, (r) => (isOneDay(r) ? 0 : 1))
+  for (const date of days) {
+    for (const rule of order) {
       const today = presentationOn(config, rule, date)
       if (!today) continue
+      const k = kind(rule.id)
       const types = presenterTypes(config, rule)
       const eligible = config.members.filter((m) => types.includes(m.type) && available(m.id, date)).map((m) => m.id)
       const chosen: string[] = []
-      const post: string[] = []
+      const take = (pool: string[], lastNight: string[], n: number) => {
+        for (const id of byFewest(pool.filter((x) => !chosen.includes(x)), k).slice(0, n)) {
+          chosen.push(id)
+          bump(id, k, 1)
+          slots.push({ date, ruleId: rule.id, kind: k, pool, lastNight, who: id })
+        }
+      }
       // Each source first: e.g. one presenter from each ward of last night's shift (or of 2–3 days before).
       for (const src of today.sources) {
-        const days = sourceOffsets(src, today.daysBack).map((n) => addDays(date, -n))
-        if (days.every((d) => d < config.startDate) || src.count === 0) continue
+        const back = sourceOffsets(src, today.daysBack).map((n) => addDays(date, -n))
+        if (back.every((d) => d < config.startDate) || src.count === 0) continue
         const on = (d: string) =>
           [...assignments, ...students].filter((x) => x.date === d && sourceMatches(config, src, x.shiftId, x.requirementId)).map((x) => x.memberId)
-        const pool = days.flatMap(on).filter((id, i, arr) => arr.indexOf(id) === i && eligible.includes(id) && !chosen.includes(id))
-        const picked = byFewest(pool).slice(0, src.count)
-        if (picked.length < src.count) short.push(date)
-        chosen.push(...picked)
+        const pool = [...new Set(back.flatMap(on))].filter((id) => eligible.includes(id))
+        const before = chosen.length
         // ● marks presenting straight after a night on: only someone who was on it last night.
-        if (src.when !== 'same') post.push(...picked.filter((id) => on(addDays(date, -1)).includes(id)))
+        take(pool, src.when === 'same' ? [] : on(addDays(date, -1)), src.count)
+        if (chosen.length - before < src.count) short.set(rule.id, (short.get(rule.id) ?? new Set()).add(date))
       }
-      for (const id of byFewest(eligible.filter((id) => !chosen.includes(id)))) {
-        if (chosen.length >= today.count) break
-        chosen.push(id)
-      }
+      take(eligible, [], today.count - chosen.length)
       if (chosen.length < today.count) warnings.push(t('{date} {rule}: only {n} of {need} presenters available.', { date, rule: rule.name, n: chosen.length, need: today.count }))
-      for (const id of chosen) {
-        count.set(id, (count.get(id) ?? 0) + 1)
-        presenters.push({ date, ruleId: rule.id, memberId: id, postCall: post.includes(id) })
+    }
+  }
+
+  // Even it out: hand a place to someone else who could take it whenever that makes the counts more even.
+  const cost = (id: string, k: string) => (total.get(id) ?? 0) ** 2 + 2 * (byKind.get(`${k}|${id}`) ?? 0) ** 2
+  for (let pass = 0; pass < 20; pass++) {
+    let better = false
+    for (const slot of slots) {
+      const taken = new Set(slots.filter((x) => x.date === slot.date && x.ruleId === slot.ruleId).map((x) => x.who))
+      let best: string | null = null
+      let gain = 0
+      for (const id of slot.pool) {
+        if (taken.has(id)) continue
+        // Moving this place from its presenter to `id`: how much more even does it get?
+        const now = cost(slot.who, slot.kind) + cost(id, slot.kind)
+        bump(slot.who, slot.kind, -1)
+        bump(id, slot.kind, 1)
+        const after = cost(slot.who, slot.kind) + cost(id, slot.kind)
+        bump(id, slot.kind, -1)
+        bump(slot.who, slot.kind, 1)
+        if (now - after > gain) {
+          gain = now - after
+          best = id
+        }
+      }
+      if (best) {
+        bump(slot.who, slot.kind, -1)
+        bump(best, slot.kind, 1)
+        slot.who = best
+        better = true
       }
     }
-    const shortDays = [...new Set(short)]
-    if (shortDays.length) {
+    if (!better) break
+  }
+
+  const presenters: PresenterAssignment[] = sortedBy(slots, (x) => days.indexOf(x.date)).map((x) => ({
+    date: x.date,
+    ruleId: x.ruleId,
+    memberId: x.who,
+    postCall: x.lastNight.includes(x.who),
+  }))
+  for (const rule of config.presentations) {
+    const dates = [...(short.get(rule.id) ?? [])]
+    if (dates.length) {
       warnings.push(
-        t('{rule}: not enough of the people it must include on {n} day(s) ({dates}).', { rule: rule.name, n: shortDays.length, dates: `${shortDays.slice(0, 3).join(', ')}${shortDays.length > 3 ? '…' : ''}` }),
+        t('{rule}: not enough of the people it must include on {n} day(s) ({dates}).', { rule: rule.name, n: dates.length, dates: `${dates.slice(0, 3).join(', ')}${dates.length > 3 ? '…' : ''}` }),
       )
     }
   }
@@ -936,7 +1002,11 @@ export function studentTargets(
 }
 
 /** Plain-language check of the soft rules for a student roster, so the host is told what couldn't be met. */
-export function studentRuleReport(config: SessionConfig, responses: Record<string, MemberResponse>, roster: { assignments: Assignment[]; students: StudentAssignment[] }) {
+export function studentRuleReport(
+  config: SessionConfig,
+  responses: Record<string, MemberResponse>,
+  roster: { assignments: Assignment[]; students: StudentAssignment[]; presenters?: PresenterAssignment[] },
+) {
   const st = config.students
   const name = (id: string) => config.members.find((m) => m.id === id)?.name ?? '?'
   const type = (id: string) => config.members.find((m) => m.id === id)?.type
@@ -945,17 +1015,24 @@ export function studentRuleReport(config: SessionConfig, responses: Record<strin
   const notes: string[] = []
   const repeats: string[] = []
   const pairs = new Map<string, number>()
+  /** Per student, the days they asked to avoid but are on. */
+  const unmet: { memberId: string; days: { date: string; level: number }[] }[] = []
+  /** Resident/staff repeats, as sentences. */
+  const meets: string[] = []
   let alone = 0
   for (const m of config.members.filter((x) => x.type === 'student')) {
     const r = studentResponse(config, responses, m.id)
     const mine = roster.students.filter((s) => s.memberId === m.id)
+    const missed: { date: string; level: number }[] = []
     for (const a of r.avoid ?? []) {
       avoidAsked[a.level]++
       if (mine.some((s) => s.date === a.date)) {
         avoidHits[a.level]++
+        missed.push({ date: a.date, level: a.level })
         notes.push(t('{name} is on {date}, which they asked to avoid ({level}).', { name: m.name, date: a.date, level: '!'.repeat(a.level) }))
       }
     }
+    if (missed.length) unmet.push({ memberId: m.id, days: missed.sort((x, y) => y.level - x.level || x.date.localeCompare(y.date)) })
     const met = new Map<string, number>()
     let withSomeone = false
     for (const s of mine) {
@@ -971,14 +1048,21 @@ export function studentRuleReport(config: SessionConfig, responses: Record<strin
       if (n < 2) continue
       if (type(w) === 'resident' && st.avoidRepeatResident) repeats.push(t('{name} meets resident {other} {n} times.', { name: m.name, other: name(w), n }))
       if (type(w) === 'staff' && st.avoidRepeatStaff) repeats.push(t('{name} meets {other} {n} times.', { name: m.name, other: name(w), n }))
+      if ((type(w) === 'resident' && st.avoidRepeatResident) || (type(w) === 'staff' && st.avoidRepeatStaff)) meets.push(repeats[repeats.length - 1])
     }
     if (mine.length > 1 && !withSomeone) alone++
   }
+  const pairRepeats: { a: string; b: string; n: number }[] = []
   if (st.avoidRepeatPartner) {
     for (const [key, n] of pairs) {
       // Each shared shift is counted from both sides.
-      if (n / 2 >= 2) repeats.push(t('{a} and {b} share {n} shifts.', { a: name(key.split('|')[0]), b: name(key.split('|')[1]), n: n / 2 }))
+      if (n / 2 >= 2) {
+        const [a, b] = key.split('|')
+        pairRepeats.push({ a, b, n: n / 2 })
+        repeats.push(t('{a} and {b} share {n} shifts.', { a: name(a), b: name(b), n: n / 2 }))
+      }
     }
+    pairRepeats.sort((x, y) => y.n - x.n)
   }
   const summary: string[] = []
   if (st.auto) {
@@ -997,6 +1081,23 @@ export function studentRuleReport(config: SessionConfig, responses: Record<strin
       summary.push(`🎯 ${a === b ? t('{a} points each', { a: fmtPoints(a) }) : t('{a}–{b} points each', { a: fmtPoints(a), b: fmtPoints(b) })}`)
     }
   }
+  if (config.presentations.length && roster.presenters?.length) {
+    // Presentations each, in all and (when there are several types) by type.
+    const studs = config.members.filter((m) => m.type === 'student')
+    const range = (f: (p: PresenterAssignment) => boolean) => {
+      const n = studs.map((m) => roster.presenters!.filter((p) => p.memberId === m.id && f(p)).length)
+      const [a, b] = [Math.min(...n), Math.max(...n)]
+      return a === b ? String(a) : `${a}–${b}`
+    }
+    const oneDay = new Set(config.presentations.filter(isOneDay).map((r) => r.id))
+    const kinds = [
+      ...config.presentations.filter((r) => !isOneDay(r)).map((r) => ({ name: r.name, f: (p: PresenterAssignment) => p.ruleId === r.id })),
+      ...(oneDay.size ? [{ name: t('one-day'), f: (p: PresenterAssignment) => oneDay.has(p.ruleId) }] : []),
+    ]
+    summary.push(
+      `🎤 ${t('{n} presentations each', { n: range(() => true) })}${kinds.length > 1 ? ` (${kinds.map((k) => `${k.name} ${range(k.f)}`).join(', ')})` : ''}`,
+    )
+  }
   const asked = avoidAsked[1] + avoidAsked[2] + avoidAsked[3]
   if (asked) {
     const hits = avoidHits[1] + avoidHits[2] + avoidHits[3]
@@ -1007,23 +1108,50 @@ export function studentRuleReport(config: SessionConfig, responses: Record<strin
     )
   }
   const checked = [st.avoidRepeatResident && 'residents', st.avoidRepeatStaff && 'staff', st.avoidRepeatPartner && 'student pairs'].filter(Boolean)
-  if (checked.length) summary.push(repeats.length ? `⚠️ ${t('{n} repeat(s)', { n: repeats.length })}` : `✅ ${t('no repeats ({what})', { what: checked.map((c) => t(c as string)).join(', ') })}`)
+  if (checked.length && !repeats.length) summary.push(`✅ ${t('no repeats ({what})', { what: checked.map((c) => t(c as string)).join(', ') })}`)
+  if (pairRepeats.length) summary.push(`👥 ${t('{n} pair(s) of students together more than once', { n: pairRepeats.length })}`)
+  if (meets.length) summary.push(`🔁 ${t('{n} time(s) a student meets the same resident or staff again', { n: meets.length })}`)
   if (st.wantPartner) summary.push(alone ? `⚠️ ${t('{n} student(s) alone on every shift', { n: alone })}` : `✅ ${t('everyone has a partner at least once')}`)
-  return { summary, details: [...notes, ...repeats], avoidHits, repeats: repeats.length, alone }
+  return { summary, details: [...notes, ...repeats], avoidHits, repeats: repeats.length, alone, unmet, pairRepeats, meets }
 }
 
-/** One row per student: each shift's date, weekday, slot, fellow students, residents and staff. */
-export function studentSummaryTable(config: SessionConfig, roster: { assignments: Assignment[]; students: StudentAssignment[] }) {
+/**
+ * One row per student: shifts, points, presentations (in all and by type), then each shift's date, weekday,
+ * slot, fellow students, residents and staff. `lead` = how many columns come before the first shift's date.
+ */
+export function studentSummaryTable(config: SessionConfig, roster: { assignments: Assignment[]; students: StudentAssignment[]; presenters?: PresenterAssignment[] }) {
   const name = (id: string) => config.members.find((m) => m.id === id)?.name ?? '?'
   const type = (id: string) => config.members.find((m) => m.id === id)?.type
   const students = config.members.filter((m) => m.type === 'student')
   const most = Math.max(0, ...students.map((m) => roster.students.filter((s) => s.memberId === m.id).length))
   const pointsOn = Boolean(config.students.points?.on)
-  const header = [t('Student'), t('Shifts'), ...(pointsOn ? [t('Points')] : [])]
+  // Presentations: each weekly one is a type, one-day ones count together.
+  const weekly = config.presentations.filter((r) => !isOneDay(r))
+  const oneDay = new Set(config.presentations.filter(isOneDay).map((r) => r.id))
+  const presents = config.presentations.length > 0 && roster.presenters !== undefined
+  const header = [
+    t('Student'),
+    t('Shifts'),
+    ...(pointsOn ? [t('Points')] : []),
+    ...(presents ? [t('Presentations'), ...(weekly.length > 1 || oneDay.size ? weekly.map((r) => r.name) : []), ...(oneDay.size ? [t('One-day presentations')] : [])] : []),
+  ]
+  const lead = header.length
   for (let i = 1; i <= most; i++) header.push(t('Shift {i} date', { i }), t('Day'), t('Shift'), t('With'), t('Resident'), t('Staff'))
   const rows = students.map((m) => {
     const mine = roster.students.filter((s) => s.memberId === m.id).sort((a, b) => a.date.localeCompare(b.date))
-    const row = [m.name, String(mine.length), ...(pointsOn ? [fmtPoints(mine.reduce((n, s) => n + shiftPoints(config, s.shiftId, s.date), 0))] : [])]
+    const gives = (roster.presenters ?? []).filter((p) => p.memberId === m.id)
+    const row = [
+      m.name,
+      String(mine.length),
+      ...(pointsOn ? [fmtPoints(mine.reduce((n, s) => n + shiftPoints(config, s.shiftId, s.date), 0))] : []),
+      ...(presents
+        ? [
+            String(gives.length),
+            ...(weekly.length > 1 || oneDay.size ? weekly.map((r) => String(gives.filter((p) => p.ruleId === r.id).length)) : []),
+            ...(oneDay.size ? [String(gives.filter((p) => oneDay.has(p.ruleId)).length)] : []),
+          ]
+        : []),
+    ]
     for (let i = 0; i < most; i++) {
       const s = mine[i]
       if (!s) {
@@ -1044,5 +1172,5 @@ export function studentSummaryTable(config: SessionConfig, roster: { assignments
     }
     return row
   })
-  return { header, rows }
+  return { header, rows, lead }
 }

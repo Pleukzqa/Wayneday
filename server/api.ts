@@ -11,6 +11,7 @@ import {
   type Assignment,
   type Concern,
   type DateOverride,
+  type Draft,
   type DaysBack,
   type Member,
   type MemberResponse,
@@ -430,7 +431,7 @@ export function createApi(opts: ApiOptions) {
     const organizers = s.hosts.map((h) => ({ name: h.name.includes('@') ? '' : h.name, role: h.role }))
     // Notes are private: each member only gets their own.
     return {
-      session: { ...toPublic(s), notes: visibleNotes(s, me), feedback: visibleFeedback(s, me) },
+      session: { ...toPublic(s), notes: visibleNotes(s, me), feedback: visibleFeedback(s, me), draft: me.isHost ? (s.draft ?? null) : null },
       me,
       organizers,
       ...(me.isHost ? { hosts: s.hosts } : {}),
@@ -662,6 +663,28 @@ export function createApi(opts: ApiOptions) {
       return mutate(req, code(req), (s, me) => {
         if (!me.isHost) throw new HttpError(403, 'Only the host can publish a roster')
         s.schedule = schedule
+        // What was being tried out is now published (or replaced).
+        s.draft = null
+      })
+    }),
+  )
+
+  router.put(
+    '/sessions/:code/draft',
+    handle((req) => {
+      const b = req.body as Record<string, unknown> | null
+      const roster = b && b.roster ? cleanSchedule(b.roster) : null
+      const draft: Draft | null = roster
+        ? {
+            roster: { assignments: roster.assignments, students: roster.students, presenters: roster.presenters },
+            source: b!.source === 'ai' || b!.source === 'manual' ? b!.source : 'solver',
+            notes: arr(b!.notes, 20).map((n) => str(n, 300)),
+            savedAt: Date.now(),
+          }
+        : null
+      return mutate(req, code(req), (s, me) => {
+        if (!me.isHost) throw new HttpError(403, 'Only hosts keep a draft')
+        s.draft = draft
       })
     }),
   )

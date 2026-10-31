@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import { addDays, dateRange, dayDiff } from './dates.ts'
 import { shiftHours, shiftPoints, shiftTimes } from './calendar.ts'
 import { countArrangements, solve, solveMany, validate } from './solver.ts'
-import { arrangeStudents, countStudentArrangements, equalShare, shareGroups, shiftsNeeded, pickPresenters, placeKey, studentCellIssues, studentExposure, studentOptions, studentRuleReport, studentTargets } from './students.ts'
+import { arrangeStudents, countStudentArrangements, equalShare, shareGroups, shiftsNeeded, pickPresenters, placeKey, studentCellIssues, studentExposure, studentOptions, studentRuleReport, studentSummaryTable, studentTargets } from './students.ts'
 import { buildAiPrompt, importAiResult } from './ai.ts'
 import { explainNoArrangement } from './explain.ts'
 import { ANY_SHIFT, DEFAULT_RESPONSE, DEFAULT_STUDENTS, dutyOf, type MemberResponse, type SessionConfig, type StudentAssignment } from './types.ts'
@@ -383,6 +383,31 @@ test('a presenter source can count another shift the same, e.g. the weekend nigh
     assert.equal(p.presenters.find((x) => x.date === monday)?.memberId, sunday.memberId)
   }
   assert.match(buildAiPrompt(c, {}), /who worked "Night" or "Night \(weekend\)" \(19C\) the day before/)
+})
+
+test('presentations are shared out evenly, in all and by type', () => {
+  const c = hospital()
+  c.members.push(...['D', 'E'].map((n) => ({ id: `st${n}`, name: `Student ${n}`, type: 'student' as const, jobs: [] })))
+  c.students = { ...c.students, auto: true }
+  const base = { fromShiftId: 'night', fromCount: 1, types: ['student' as const] }
+  c.presentations = [
+    { ...base, id: 'mr', name: 'Morning report', days: [1, 2, 3, 4, 5], count: 1 },
+    ...['2026-11-06', '2026-11-12', '2026-11-18', '2026-11-24', '2026-11-27'].map((d, i) => ({ ...base, id: `cc${i}`, name: `CCR ${i}`, days: [], dates: [d], count: 1 })),
+  ]
+  const studs = ['stA', 'stB', 'stC', 'stD', 'stE']
+  const spread = (xs: number[]) => Math.max(...xs) - Math.min(...xs)
+  for (let seed = 1; seed <= 4; seed++) {
+    const s = arrangeStudents(c, {}, c.duty, seed)
+    assert.ok(s.ok)
+    if (!s.ok) return
+    const p = pickPresenters(c, {}, c.duty, s.students, seed).presenters
+    const count = (f: (x: (typeof p)[number]) => boolean) => studs.map((id) => p.filter((x) => x.memberId === id && f(x)).length)
+    assert.ok(spread(count(() => true)) <= 1, `seed ${seed}: total ${count(() => true)}`)
+    assert.ok(spread(count((x) => x.ruleId === 'mr')) <= 1, `seed ${seed}: morning ${count((x) => x.ruleId === 'mr')}`)
+    assert.ok(spread(count((x) => x.ruleId.startsWith('cc'))) <= 1, `seed ${seed}: one-day ${count((x) => x.ruleId.startsWith('cc'))}`)
+  }
+  const table = studentSummaryTable(c, { assignments: c.duty, students: [], presenters: [] })
+  assert.deepEqual(table.header.slice(0, table.lead), ['Student', 'Shifts', 'Presentations', 'Morning report', 'One-day presentations'])
 })
 
 test('someone away on a presentation day isn’t put on the night it takes presenters from', () => {

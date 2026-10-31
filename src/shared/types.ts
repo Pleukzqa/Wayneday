@@ -404,6 +404,16 @@ export interface PublicSession {
   notes: HostNote[]
   /** Feedback this viewer may see: everyone's for hosts (anonymous ones without a name), their own for a member. */
   feedback: Feedback[]
+  /** The hosts' unpublished arrangement (a practice run or preview), kept for next time. Only sent to hosts. */
+  draft?: Draft | null
+}
+
+export interface Draft {
+  roster: Roster
+  source: Schedule['source']
+  /** The arranger's notes about it (e.g. presentations short on some days). */
+  notes: string[]
+  savedAt: number
 }
 
 export const DEFAULT_RESPONSE: MemberResponse = {

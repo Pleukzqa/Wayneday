@@ -10,6 +10,8 @@ interface Props {
   config: SessionConfig
   roster: Roster
   myId: string | null
+  /** How much a student asked to avoid a date (0 = not at all, 1–3 = ! to !!!): those shifts are marked. */
+  avoidOf?: (memberId: string, date: string) => number
   /** Host manual editing of resident/staff positions. */
   onEdit?: (date: string, shiftId: string, requirementId: string, slot: number, memberId: string) => void
   /** Host manual editing of students on a shift. */
@@ -37,13 +39,22 @@ export interface Arrange {
   onPlace: (date: string, shiftId: string, requirementId?: string) => void
 }
 
-export default function RosterTable({ config, roster, myId, onEdit, onEditStudent, onPick, concerns = [], swaps = [], tableRef, arrange }: Props) {
+export default function RosterTable({ config, roster, myId, avoidOf, onEdit, onEditStudent, onPick, concerns = [], swaps = [], tableRef, arrange }: Props) {
   const studentList = config.members.filter((m) => m.type === 'student')
   const cols = columnsFor(config)
   const holidays = new Set(config.holidays)
   const open = concerns.filter((c) => !c.resolved && c.date)
   const swapOpen = swaps.filter((s) => s.status === 'open' || s.status === 'agreed')
   const nameOf = (id: string) => config.members.find((m) => m.id === id)?.name ?? '?'
+  // A shift on a day the student asked to avoid: marked with its level.
+  const avoided = (id: string, date: string) => avoidOf?.(id, date) ?? 0
+  const avoidMark = (id: string, date: string) =>
+    avoided(id, date) > 0 && (
+      <span className="avoid-mark" title={t('{name} asked to avoid this day ({level})', { name: nameOf(id), level: '!'.repeat(avoided(id, date)) })}>
+        {' '}
+        {'!'.repeat(avoided(id, date))}
+      </span>
+    )
 
   return (
     <div className="scroll-x" ref={tableRef}>
@@ -122,7 +133,7 @@ export default function RosterTable({ config, roster, myId, onEdit, onEditStuden
                             <button
                               key={x.memberId}
                               type="button"
-                              className={`who-chip small-chip chip-btn ${picked ? 'picked' : ''} ${swap ? 'swap-ok' : ''}`}
+                              className={`who-chip small-chip chip-btn ${picked ? 'picked' : ''} ${swap ? 'swap-ok' : ''} ${avoided(x.memberId, date) ? `avoided avoided-${avoided(x.memberId, date)}` : ''}`}
                               aria-pressed={picked}
                               onClick={(e) => {
                                 e.stopPropagation()
@@ -130,6 +141,7 @@ export default function RosterTable({ config, roster, myId, onEdit, onEditStuden
                               }}
                             >
                               {nameOf(x.memberId)}
+                              {avoidMark(x.memberId, date)}
                             </button>
                           )
                         })}
@@ -149,8 +161,12 @@ export default function RosterTable({ config, roster, myId, onEdit, onEditStuden
                       >
                         {ids.length === 0 && <span className="muted tiny">—</span>}
                         {ids.map((id, k) => (
-                          <span key={k} className={`who-chip small-chip ${id === myId ? 'mine' : ''}`}>
+                          <span
+                            key={k}
+                            className={`who-chip small-chip ${id === myId ? 'mine' : ''} ${studentCol && avoided(id, date) ? `avoided avoided-${avoided(id, date)}` : ''}`}
+                          >
                             {nameOf(id)}
+                            {studentCol && avoidMark(id, date)}
                             {c.kind === 'presenters' &&
                               roster.presenters.find((p) => p.date === date && p.ruleId === c.ruleId && p.memberId === id)?.postCall && (
                                 <span title={t("Was on last night’s shift")}> ●</span>

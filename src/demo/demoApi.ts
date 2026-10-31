@@ -11,6 +11,7 @@ import {
   type MemberResponse,
   type MemberType,
   type PublicSession,
+  type Roster,
   type Schedule,
   type SessionConfig,
 } from '../shared/types.ts'
@@ -84,7 +85,7 @@ function view(code: string): SessionView {
   const s = store.sessions[code]
   if (!s) throw new Error('Session not found on this device. Demo sessions only exist in this browser.')
   return {
-    session: { ...clone(s), notes: visibleNotes(s, actorFor(code)), feedback: visibleFeedback(s, actorFor(code)) },
+    session: { ...clone(s), notes: visibleNotes(s, actorFor(code)), feedback: visibleFeedback(s, actorFor(code)), draft: actorFor(code).isHost ? (s.draft ?? null) : null },
     me: actorFor(code),
     organizers: code === SAMPLE_CODE ? [{ name: 'Dr. Wipa', role: 'owner' }, { name: 'Ploy', role: 'cohost' }] : [],
   }
@@ -186,6 +187,11 @@ export const api = {
   saveSchedule: (code: string, schedule: Schedule | null) =>
     mutate(code, true, (s) => {
       s.schedule = clone(schedule)
+      s.draft = null
+    }),
+  saveDraft: (code: string, draft: { roster: Roster; source: Schedule['source']; notes: string[] } | null) =>
+    mutate(code, true, (s) => {
+      s.draft = draft ? { ...clone(draft), savedAt: Date.now() } : null
     }),
   addConcern: (code: string, text: string, date?: string, shiftId?: string) =>
     mutate(code, false, (s) => {

@@ -267,6 +267,23 @@ for (const [kind, makeStore] of stores) {
       assert.deepEqual(asHost.map((x: { memberId: string; ratings: object; text: string }) => [x.memberId, x.ratings, x.text]), [['', { fair: 5, overall: 4 }, 'Good']])
     })
 
+    test('the hosts’ draft arrangement is kept for hosts only and cleared on publishing', async () => {
+      const alice = await signIn('alice@example.com')
+      const { code } = (await call('POST', '/sessions', { body: {}, account: alice })).body
+      await call('PUT', `/sessions/${code}/config`, { body: { members: [{ id: 'm', name: 'M', type: 'student' }] }, account: alice })
+      const m = (await call('POST', `/sessions/${code}/claim`, { body: { memberId: 'm', pin: '1234' } })).body.memberToken as string
+      const roster = { assignments: [], students: [{ date: '2026-11-02', shiftId: 'n', memberId: 'm' }], presenters: [] }
+      assert.equal((await call('PUT', `/sessions/${code}/draft`, { body: { roster, source: 'solver', notes: [] }, bearer: m })).status, 403)
+      await call('PUT', `/sessions/${code}/draft`, { body: { roster, source: 'manual', notes: ['Morning report short once'] }, account: alice })
+      const draft = (await call('GET', `/sessions/${code}`, { account: alice })).body.session.draft
+      assert.deepEqual([draft.roster.students, draft.source, draft.notes], [roster.students, 'manual', ['Morning report short once']])
+      assert.equal((await call('GET', `/sessions/${code}`, { bearer: m })).body.session.draft, null, 'members never get it')
+      assert.equal((await call('GET', `/sessions/${code}`)).body.session.draft, null)
+      const schedule = { status: 'review', ...roster, generatedAt: Date.now(), reviewUntil: Date.now() + 1e6, source: 'manual' }
+      await call('PUT', `/sessions/${code}/schedule`, { body: schedule, account: alice })
+      assert.equal((await call('GET', `/sessions/${code}`, { account: alice })).body.session.draft, null, 'published: nothing left to try out')
+    })
+
     test('PIN guessing is slowed down per name', async () => {
       const alice = await signIn('alice@example.com')
       const { code } = (await call('POST', '/sessions', { body: {}, account: alice })).body
