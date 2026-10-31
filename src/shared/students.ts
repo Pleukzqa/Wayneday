@@ -1260,77 +1260,102 @@ export function studentRuleReport(
   return { summary, details: [...notes, ...repeats], avoidHits, repeats: repeats.length, alone, unmet, pairRepeats, meets, pointsOk, pointsSpread, missingWeekly }
 }
 
-/**
- * One row per student: shifts, points, presentations (in all and by type), then each shift's date, weekday,
- * slot, fellow students, residents and staff. `lead` = how many columns come before the first shift's date.
- */
-export function studentSummaryTable(config: SessionConfig, roster: { assignments: Assignment[]; students: StudentAssignment[]; presenters?: PresenterAssignment[] }) {
+/** Each student's shifts (with who they're with), points and presentations: the Per student view and its export. */
+export function studentDetails(config: SessionConfig, roster: { assignments: Assignment[]; students: StudentAssignment[]; presenters?: PresenterAssignment[] }) {
   const name = (id: string) => config.members.find((m) => m.id === id)?.name ?? '?'
   const type = (id: string) => config.members.find((m) => m.id === id)?.type
-  const students = config.members.filter((m) => m.type === 'student')
-  const most = Math.max(0, ...students.map((m) => roster.students.filter((s) => s.memberId === m.id).length))
+  const fromTalks = presentationsCount(config) && roster.presenters ? presentationLoad(config, roster.presenters) : {}
+  const oneDay = new Set(config.presentations.filter(isOneDay).map((r) => r.id))
+  // The student place (and its ward) someone is in.
+  const jobOf = (x: StudentAssignment) => config.shifts.find((sh) => sh.id === x.shiftId)?.requirements.find((r) => r.id === x.requirementId)?.jobId ?? ''
+  const jobName = (id: string) => config.jobs.find((j) => j.id === id)?.name ?? ''
+  const shiftName = (id: string) => config.shifts.find((sh) => sh.id === id)?.name ?? ''
+  return config.members
+    .filter((m) => m.type === 'student')
+    .map((m) => {
+      const mine = roster.students.filter((s) => s.memberId === m.id).sort((a, b) => a.date.localeCompare(b.date))
+      const gives = (roster.presenters ?? []).filter((p) => p.memberId === m.id).sort((a, b) => a.date.localeCompare(b.date))
+      const shifts = mine.map((s) => {
+        const shift = config.shifts.find((x) => x.id === s.shiftId)
+        const ward = jobOf(s)
+        const on = roster.assignments.filter((a) => a.date === s.date && a.shiftId === s.shiftId).map((a) => a.memberId)
+        // Who they're with: the same ward that day first — on another shift marked "→ shift" — then the same
+        // shift in another ward, marked "· ward".
+        const others = roster.students.filter((x) => x.date === s.date && x.memberId !== m.id)
+        const sameWard = sortedBy(
+          others.filter((x) => jobOf(x) === ward),
+          (x) => (x.shiftId === s.shiftId ? 0 : 1),
+        )
+        const elsewhere = others.filter((x) => jobOf(x) !== ward && x.shiftId === s.shiftId)
+        return {
+          date: s.date,
+          shift: shift?.name ?? '',
+          ward: ward && config.jobs.length > 1 ? jobName(ward) : '',
+          times: shift ? shiftTimes(shift) : '',
+          with: [
+            ...sameWard.map((x) => (x.shiftId === s.shiftId ? name(x.memberId) : `${name(x.memberId)} → ${shiftName(x.shiftId)}`)),
+            ...elsewhere.map((x) => `${name(x.memberId)} · ${jobName(jobOf(x)) || shiftName(x.shiftId)}`),
+          ],
+          residents: on.filter((w) => type(w) === 'resident').map(name),
+          staff: on.filter((w) => type(w) === 'staff').map(name),
+        }
+      })
+      return {
+        member: m,
+        shifts,
+        points: mine.reduce((n, s) => n + shiftPoints(config, s.shiftId, s.date), fromTalks[m.id] ?? 0),
+        presents: gives.map((p) => ({ ...p, name: config.presentations.find((r) => r.id === p.ruleId)?.name ?? '' })),
+        byRule: (ruleId: string) => gives.filter((p) => p.ruleId === ruleId).length,
+        oneDay: gives.filter((p) => oneDay.has(p.ruleId)).length,
+      }
+    })
+}
+
+/**
+ * The Per student view as a spreadsheet: one row per student with shifts, points, presentations (in all and by
+ * type), then each shift's date, weekday, slot, who they're with, and residents and staff when there are any.
+ * `lead` = columns before the first shift's date; `per` = columns per shift.
+ */
+export function studentSummaryTable(config: SessionConfig, roster: { assignments: Assignment[]; students: StudentAssignment[]; presenters?: PresenterAssignment[] }) {
+  const details = studentDetails(config, roster)
+  const most = Math.max(0, ...details.map((d) => d.shifts.length))
   const pointsOn = Boolean(config.students.points?.on)
   // Presentations: each weekly one is a type, one-day ones count together.
   const weekly = config.presentations.filter((r) => !isOneDay(r))
-  const oneDay = new Set(config.presentations.filter(isOneDay).map((r) => r.id))
+  const anyOneDay = config.presentations.some(isOneDay)
   const presents = config.presentations.length > 0 && roster.presenters !== undefined
-  const fromTalks = presentationsCount(config) && roster.presenters ? presentationLoad(config, roster.presenters) : {}
   const header = [
     t('Student'),
     t('Shifts'),
     ...(pointsOn ? [presentationsCount(config) ? t('Points (shifts + presentations)') : t('Points')] : []),
-    ...(presents ? [t('Presentations'), ...(weekly.length > 1 || oneDay.size ? weekly.map((r) => r.name) : []), ...(oneDay.size ? [t('One-day presentations')] : [])] : []),
+    ...(presents ? [t('Presentations'), ...(weekly.length > 1 || anyOneDay ? weekly.map((r) => r.name) : []), ...(anyOneDay ? [t('One-day presentations')] : [])] : []),
   ]
   const lead = header.length
   // Residents and staff only when the roster has any.
   const doctors = roster.assignments.length > 0
   const per = doctors ? 6 : 4
   for (let i = 1; i <= most; i++) header.push(t('Shift {i} date', { i }), t('Day'), t('Shift'), t('With'), ...(doctors ? [t('Resident'), t('Staff')] : []))
-  // The student place (and its ward) someone is in.
-  const jobOf = (x: StudentAssignment) => config.shifts.find((sh) => sh.id === x.shiftId)?.requirements.find((r) => r.id === x.requirementId)?.jobId ?? ''
-  const jobName = (id: string) => config.jobs.find((j) => j.id === id)?.name ?? ''
-  const shiftName = (id: string) => config.shifts.find((sh) => sh.id === id)?.name ?? ''
-  const rows = students.map((m) => {
-    const mine = roster.students.filter((s) => s.memberId === m.id).sort((a, b) => a.date.localeCompare(b.date))
-    const gives = (roster.presenters ?? []).filter((p) => p.memberId === m.id)
+  const rows = details.map((d) => {
     const row = [
-      m.name,
-      String(mine.length),
-      ...(pointsOn ? [fmtPoints(mine.reduce((n, s) => n + shiftPoints(config, s.shiftId, s.date), fromTalks[m.id] ?? 0))] : []),
+      d.member.name,
+      String(d.shifts.length),
+      ...(pointsOn ? [fmtPoints(d.points)] : []),
       ...(presents
-        ? [
-            String(gives.length),
-            ...(weekly.length > 1 || oneDay.size ? weekly.map((r) => String(gives.filter((p) => p.ruleId === r.id).length)) : []),
-            ...(oneDay.size ? [String(gives.filter((p) => oneDay.has(p.ruleId)).length)] : []),
-          ]
+        ? [String(d.presents.length), ...(weekly.length > 1 || anyOneDay ? weekly.map((r) => String(d.byRule(r.id))) : []), ...(anyOneDay ? [String(d.oneDay)] : [])]
         : []),
     ]
     for (let i = 0; i < most; i++) {
-      const s = mine[i]
+      const s = d.shifts[i]
       if (!s) {
         row.push(...Array(per).fill(''))
         continue
       }
-      const shift = config.shifts.find((x) => x.id === s.shiftId)
-      const on = roster.assignments.filter((a) => a.date === s.date && a.shiftId === s.shiftId).map((a) => a.memberId)
-      // Who they're with: the same ward that day first — on another shift marked "→ shift" — then the same
-      // shift in another ward, marked "· ward".
-      const ward = jobOf(s)
-      const others = roster.students.filter((x) => x.date === s.date && x.memberId !== m.id)
-      const sameWard = others.filter((x) => jobOf(x) === ward)
-      const sameShiftElsewhere = others.filter((x) => jobOf(x) !== ward && x.shiftId === s.shiftId)
-      const mates = [
-        ...sortedBy(sameWard, (x) => (x.shiftId === s.shiftId ? 0 : 1)).map((x) => (x.shiftId === s.shiftId ? name(x.memberId) : `${name(x.memberId)} → ${shiftName(x.shiftId)}`)),
-        ...sameShiftElsewhere.map((x) => `${name(x.memberId)} · ${jobName(jobOf(x)) || shiftName(x.shiftId)}`),
-      ]
       row.push(
         s.date,
         weekdayShort()[weekday(s.date)],
-        shift ? `${shift.name}${ward && config.jobs.length > 1 ? ` · ${jobName(ward)}` : ''} (${shiftTimes(shift)})` : '',
-        mates.join(', ') || '-',
-        ...(doctors
-          ? [on.filter((w) => type(w) === 'resident').map(name).join(', ') || '-', on.filter((w) => type(w) === 'staff').map(name).join(', ') || '-']
-          : []),
+        `${s.shift}${s.ward ? ` · ${s.ward}` : ''} (${s.times})`,
+        s.with.join(', ') || '-',
+        ...(doctors ? [s.residents.join(', ') || '-', s.staff.join(', ') || '-'] : []),
       )
     }
     return row

@@ -815,4 +815,10 @@ export const TH: Record<string, string> = {
   "showing": "กำลังแสดง",
   "Close full screen": "ปิดเต็มจอ",
   "Full screen": "เต็มจอ",
+  "Tap a student to see each shift and who they’re with.": "แตะชื่อนิสิตเพื่อดูแต่ละเวรและคนที่อยู่ด้วย",
+  "One-day": "เฉพาะวัน",
+  "Dates": "วันที่",
+  "with": "อยู่กับ",
+  "{n} shifts": "{n} เวร",
+  "{p} pts": "{p} แต้ม",
 }

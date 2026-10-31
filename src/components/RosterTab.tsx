@@ -6,7 +6,7 @@ import { exportCsv, exportPng, exportToDrive, exportXlsx, personTable } from '..
 import { findArrangements, rearrangeStudents } from '../runSolver.ts'
 import { buildAiPrompt, importAiResult } from '../shared/ai.ts'
 import { shortDate } from '../shared/dates.ts'
-import { reqCount } from '../shared/calendar.ts'
+import { fmtPoints, reqCount } from '../shared/calendar.ts'
 import { responseFor, validate, type CountResult } from '../shared/solver.ts'
 import {
   avoidLevel,
@@ -15,15 +15,16 @@ import {
   studentCellIssues,
   studentExposure,
   studentRuleReport,
-  studentSummaryTable,
+  studentDetails,
   studentTargets,
   type StudentOption,
 } from '../shared/students.ts'
-import { dutyOf, STUDENT_SLOT, type MemberResponse, type Roster, type SavedArrangement, type Schedule, type SessionConfig, type StudentAssignment } from '../shared/types.ts'
+import { dutyOf, isOneDay, STUDENT_SLOT, type MemberResponse, type Roster, type SavedArrangement, type Schedule, type SessionConfig, type StudentAssignment } from '../shared/types.ts'
 import { MOST_SAVED } from '../shared/ops.ts'
 import CalendarExport from './CalendarExport.tsx'
 import ConfirmButton from './ConfirmButton.tsx'
 import FeedbackCard from './Feedback.tsx'
+import Expandable from './Expandable.tsx'
 import type { Explanation } from '../shared/explain.ts'
 import RosterTable, { type Arrange } from './RosterTable.tsx'
 import Swaps, { type SwapDraft } from './Swaps.tsx'
@@ -1029,33 +1030,71 @@ function RulesCheck({ config, responses, roster }: { config: SessionConfig; resp
 }
 
 function StudentSummary({ config, roster, myId }: { config: SessionConfig; roster: Roster; myId: string | null }) {
-  const table = studentSummaryTable(config, roster)
-  const students = config.members.filter((m) => m.type === 'student')
+  const details = studentDetails(config, roster)
+  const [open, setOpen] = useState<string | null>(null)
+  const pointsOn = Boolean(config.students.points?.on)
+  const weekly = config.presentations.filter((r) => !isOneDay(r))
+  const anyOneDay = config.presentations.some(isOneDay)
+  const label = (s: (typeof details)[number]['shifts'][number]) => `${s.shift}${s.ward ? ` · ${s.ward}` : ''}`
+  // One compact block per student (a table gets too wide on a phone); tap to see every shift and who's there.
   return (
     <section className="card">
       <h2>🎓 {t('Per student')}</h2>
-      <div className="scroll-x table-wrap first-sticky">
-        <table className="mini">
-          <thead>
-            <tr>
-              {table.header.map((h, i) => (
-                <th key={i}>{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {table.rows.map((r, i) => (
-              <tr key={students[i].id} className={students[i].id === myId ? 'me' : ''}>
-                {r.map((v, j) => (
-                  <td key={j} className={j >= table.lead && (j - table.lead) % table.per === 0 ? 'nowrap' : ''}>
-                    {j >= table.lead && (j - table.lead) % table.per === 0 && v ? shortDate(v) : v}
-                  </td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <Expandable title={t('Per student')}>
+        <p className="muted small">{t('Tap a student to see each shift and who they’re with.')}</p>
+        <ul className="per-student">
+          {details.map((d) => {
+            const isOpen = open === d.member.id
+            const talks = [
+              ...(weekly.length > 1 || anyOneDay ? weekly.map((r) => `${r.name} ${d.byRule(r.id)}`) : []),
+              ...(anyOneDay ? [`${t('one-day')} ${d.oneDay}`] : []),
+            ]
+            return (
+              <li key={d.member.id} className={`${isOpen ? 'open' : ''} ${d.member.id === myId ? 'me' : ''}`}>
+                <button type="button" className="ps-head" aria-expanded={isOpen} onClick={() => setOpen(isOpen ? null : d.member.id)}>
+                  <span className="ps-name">
+                    <span aria-hidden>{isOpen ? '▾' : '▸'}</span> {d.member.name}
+                  </span>
+                  <span className="ps-stats small">
+                    {t('{n} shifts', { n: d.shifts.length })}
+                    {pointsOn && ` · ${t('{p} pts', { p: fmtPoints(d.points) })}`}
+                    {config.presentations.length > 0 && ` · 🎤 ${d.presents.length}${talks.length ? ` (${talks.join(', ')})` : ''}`}
+                  </span>
+                </button>
+                {!isOpen && (
+                  <div className="ps-dates">
+                    {d.shifts.map((s) => (
+                      <span key={s.date + s.shift} className="date-chip" title={`${label(s)}${s.with.length ? ` — ${t('with')} ${s.with.join(', ')}` : ''}`}>
+                        {shortDate(s.date)}
+                        {s.ward && <span className="muted"> {s.ward}</span>}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {isOpen && (
+                  <ul className="shift-list small">
+                    {d.shifts.map((s) => (
+                      <li key={s.date + s.shift}>
+                        <b>{shortDate(s.date)}</b> · {label(s)} <span className="muted">({s.times})</span>
+                        <div className="muted">
+                          {t('with')} {s.with.join(', ') || '—'}
+                          {(s.residents.length > 0 || s.staff.length > 0) && ` · ${[...s.residents, ...s.staff].join(', ')}`}
+                        </div>
+                      </li>
+                    ))}
+                    {d.presents.map((p) => (
+                      <li key={p.date + p.ruleId}>
+                        🎤 <b>{shortDate(p.date)}</b> · {p.name}
+                        {p.postCall && <span title={t("Was on last night’s shift")}> ●</span>}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </li>
+            )
+          })}
+        </ul>
+      </Expandable>
     </section>
   )
 }

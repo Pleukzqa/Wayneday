@@ -1942,3 +1942,75 @@ button.big {
 body.no-scroll {
   overflow: hidden;
 }
+/* ---------- Per student (compact list) ---------- */
+.per-student {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 75vh;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.expandable.full .per-student {
+  flex: 1;
+  max-height: none;
+}
+.per-student > li {
+  border-bottom: 1px solid var(--border);
+  padding: 0.45rem 0.7rem;
+}
+.per-student > li.open {
+  background: var(--accent-soft);
+}
+.per-student > li.me .ps-name {
+  color: var(--accent);
+}
+.ps-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.1rem 0.8rem;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 0;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+  min-height: 0;
+}
+.ps-name {
+  font-weight: 600;
+}
+.ps-stats {
+  color: var(--muted);
+}
+.ps-dates {
+  margin-top: 0.25rem;
+}
+.date-chip {
+  display: inline-block;
+  margin: 0.1rem 0.25rem 0.1rem 0;
+  padding: 0.05rem 0.45rem;
+  border-radius: 999px;
+  background: var(--surface-2);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+.shift-list {
+  margin: 0.3rem 0 0;
+  padding-left: 1.1rem;
+}
+.shift-list li {
+  margin: 0.25rem 0;
+}
+.ps-head,
+.ps-stats {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.per-student {
+  overflow-x: hidden;
+}
