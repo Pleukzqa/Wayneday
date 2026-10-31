@@ -1844,3 +1844,7 @@ button.big {
 .save-later input {
   min-width: 14rem;
 }
+.option .both-ok {
+  color: var(--accent);
+  font-weight: 600;
+}

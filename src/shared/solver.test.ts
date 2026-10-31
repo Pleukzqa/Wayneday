@@ -614,6 +614,29 @@ test('points stay within the host’s limit on how far apart they may be', () =>
   assert.match(studentRuleReport(c, {}, { assignments: [], students: r.students }).summary.join(' '), /within 15%/)
 })
 
+test('suggested arrangements: both satisfied first, then fairest points, then fewest missed avoid requests', () => {
+  const c = pointsRotation(true)
+  c.students.points = { ...c.students.points!, maxDiff: 15 }
+  // Several people want weekends off, at different strengths.
+  const responses = Object.fromEntries(
+    ['s0', 's1', 's2', 's3', 's4'].map((id, i) => [id, resp({ avoid: ['2025-11-01', '2025-11-08', '2025-11-15'].map((date) => ({ date, level: ((i % 3) + 1) as 1 | 2 | 3 })) })]),
+  )
+  const r = studentOptions(c, responses, [], { count: 5 })
+  assert.ok(r.ok)
+  if (!r.ok) return
+  const keys = r.alternatives.map((o) => {
+    const rep = studentRuleReport(c, responses, o.roster)
+    const missed = rep.avoidHits[1] + rep.avoidHits[2] + rep.avoidHits[3]
+    const both = rep.pointsOk && missed === 0 ? 0 : rep.pointsOk && rep.avoidHits[3] === 0 ? 1 : 2
+    return [both, rep.pointsOk ? 0 : 1, rep.pointsSpread, rep.avoidHits[3], rep.avoidHits[2], rep.avoidHits[1]]
+  })
+  for (let i = 1; i < keys.length; i++) {
+    const [a, b] = [keys[i - 1], keys[i]]
+    const j = a.findIndex((x, k) => x !== b[k])
+    assert.ok(j === -1 || a[j] <= b[j], `option ${i} (${a}) should come before option ${i + 1} (${b})`)
+  }
+})
+
 test('points set by hand for one shift leave the others alone', () => {
   const c = pointsRotation(true)
   c.shifts = [c.shifts[0], { ...c.shifts[0], id: 'day', name: 'Day', start: '08:00', end: '16:00' }]

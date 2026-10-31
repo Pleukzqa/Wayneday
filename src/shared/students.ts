@@ -69,7 +69,7 @@ const overlaps = (a: Occ, b: Occ) => a.startMin < b.endMin && b.startMin < a.end
 
 const canDo = (m: Member, o: Occ) => coversJob(m, o.jobId, o.date)
 
-/** Penalty for working a date someone asked to avoid, by level: a !!! weighs more than a point over the host's points limit. */
+/** Penalty for working a date someone asked to avoid, by level (second to keeping points fair and within the limit). */
 export const AVOID_PENALTY = [0, 150, 800, 3000]
 const REPEAT_RESIDENT_PENALTY = 400
 
@@ -77,7 +77,7 @@ const REPEAT_STAFF_PENALTY = 300
 const REPEAT_PARTNER_PENALTY = 350
 const ALONE_PENALTY = 150
 /** Per point above the host's limit on how far apart students' points may be. */
-const POINTS_OVER_PENALTY = 2000
+const POINTS_OVER_PENALTY = 5000
 
 /** How many points the spread (most − fewest) is above `maxDiff` percent of the average; 0 when within it or no limit. */
 export function pointsOver(pts: number[], maxDiff?: number) {
@@ -784,8 +784,8 @@ export function studentOptions(
   const seed0 = opts.seed ?? 1
   const seen = new Set<string>()
   const out: StudentOption[] = []
-  // Twice as many to choose from as are shown, so the best fits can be picked.
-  const candidates = want * 2
+  // Three times as many to choose from as are shown, so the best fits can be picked.
+  const candidates = want * 3
   for (let k = 0; k < candidates * 3 && out.length < candidates; k++) {
     const seed = seed0 + k * 101
     const r = arrangeStudents(config, responses, assignments, seed)
@@ -805,12 +805,15 @@ export function studentOptions(
     }
     out.push({ id: `st-${seed}`, score: placed.score, roster: { assignments, students: placed.students, presenters: p.presenters }, warnings: [...placed.warnings, ...p.warnings] })
   }
-  // Best fits first: within the points limit, then fewest avoid requests not met (!!! before !! before !),
-  // then the arranger's own score.
+  // Best fits first. Those that satisfy both — points within the limit and every avoid request met, then within
+  // the limit with no !!! missed — and after them, fairest points first (within the limit, then the closest),
+  // then fewest avoid requests not met (!!! before !! before !), then the arranger's own score.
   const fit = new Map(
     out.map((o) => {
       const r = studentRuleReport(config, responses, o.roster)
-      return [o, [r.pointsOk ? 0 : 1, r.avoidHits[3], r.avoidHits[2], r.avoidHits[1], o.score]] as const
+      const missed = r.avoidHits[1] + r.avoidHits[2] + r.avoidHits[3]
+      const both = r.pointsOk && missed === 0 ? 0 : r.pointsOk && r.avoidHits[3] === 0 ? 1 : 2
+      return [o, [both, r.pointsOk ? 0 : 1, r.pointsSpread, r.avoidHits[3], r.avoidHits[2], r.avoidHits[1], o.score]] as const
     }),
   )
   out.sort((a, b) => {
@@ -1171,6 +1174,8 @@ export function studentRuleReport(
   const summary: string[] = []
   /** Within the host's limit on how far apart points may be (true when there's no limit). */
   let pointsOk = true
+  /** Most minus fewest points (shifts, plus presentations when they count); 0 when points are off. */
+  let pointsSpread = 0
   if (st.auto) {
     const counts = config.members.filter((m) => m.type === 'student').map((m) => roster.students.filter((s) => s.memberId === m.id).length)
     if (counts.length) {
@@ -1186,6 +1191,7 @@ export function studentRuleReport(
       .map((m) => roster.students.filter((s) => s.memberId === m.id).reduce((n, s) => n + shiftPoints(config, s.shiftId, s.date), fromTalks[m.id] ?? 0))
     if (pts.length) {
       const [a, b] = [Math.min(...pts), Math.max(...pts)]
+      pointsSpread = b - a
       const limit = st.points.maxDiff
       const avg = pts.reduce((x, y) => x + y, 0) / pts.length
       const pct = avg ? Math.round(((b - a) / avg) * 100) : 0
@@ -1237,7 +1243,7 @@ export function studentRuleReport(
   if (pairRepeats.length) summary.push(`👥 ${t('{n} pair(s) of students together more than once', { n: pairRepeats.length })}`)
   if (meets.length) summary.push(`🔁 ${t('{n} time(s) a student meets the same resident or staff again', { n: meets.length })}`)
   if (st.wantPartner) summary.push(alone ? `⚠️ ${t('{n} student(s) alone on every shift', { n: alone })}` : `✅ ${t('everyone has a partner at least once')}`)
-  return { summary, details: [...notes, ...repeats], avoidHits, repeats: repeats.length, alone, unmet, pairRepeats, meets, pointsOk }
+  return { summary, details: [...notes, ...repeats], avoidHits, repeats: repeats.length, alone, unmet, pairRepeats, meets, pointsOk, pointsSpread }
 }
 
 /**
