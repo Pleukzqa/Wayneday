@@ -386,7 +386,7 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
                     }}
                   >
                     <strong>{t("Option")} {i + 1}
-                      {i === 0 ? t(" · fairest") : ''}
+                      {i === 0 ? ` · ${t('best fit')}` : ''}
                     </strong>
                     <span className="small muted">{summary(config, o.roster, responses)}</span>
                     {i > 0 && <span className="small">{differs(options[0].roster, o.roster)} {t("shifts differ from option 1")}</span>}

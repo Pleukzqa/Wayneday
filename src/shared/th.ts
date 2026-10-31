@@ -795,4 +795,5 @@ export const TH: Record<string, string> = {
   "Presenting counts towards points too — whoever presents less gets heavier shifts, and the other way round": "นับการนำเสนอเป็นแต้มด้วย — ใครนำเสนอน้อยจะได้เวรที่หนักขึ้น และกลับกัน",
   "(each presentation’s points are set in its box under Presentations)": "(ตั้งแต้มของแต่ละการนำเสนอได้ในกล่องของมันในส่วนการนำเสนอ)",
   "Points (shifts + presentations)": "แต้ม (เวร + การนำเสนอ)",
+  "best fit": "เหมาะที่สุด",
 }

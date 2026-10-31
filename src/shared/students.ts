@@ -69,8 +69,8 @@ const overlaps = (a: Occ, b: Occ) => a.startMin < b.endMin && b.startMin < a.end
 
 const canDo = (m: Member, o: Occ) => coversJob(m, o.jobId, o.date)
 
-/** Penalty for working a date someone asked to avoid, by level (mirrors "try 20% / 40% / 60%"). */
-export const AVOID_PENALTY = [0, 100, 200, 300]
+/** Penalty for working a date someone asked to avoid, by level: a !!! weighs more than a point over the host's points limit. */
+export const AVOID_PENALTY = [0, 150, 800, 3000]
 const REPEAT_RESIDENT_PENALTY = 400
 
 const REPEAT_STAFF_PENALTY = 300
@@ -784,7 +784,9 @@ export function studentOptions(
   const seed0 = opts.seed ?? 1
   const seen = new Set<string>()
   const out: StudentOption[] = []
-  for (let k = 0; k < want * 3 && out.length < want; k++) {
+  // Twice as many to choose from as are shown, so the best fits can be picked.
+  const candidates = want * 2
+  for (let k = 0; k < candidates * 3 && out.length < candidates; k++) {
     const seed = seed0 + k * 101
     const r = arrangeStudents(config, responses, assignments, seed)
     if (!r.ok) return k === 0 ? { ok: false, problems: r.problems } : { ok: true, alternatives: out }
@@ -803,8 +805,20 @@ export function studentOptions(
     }
     out.push({ id: `st-${seed}`, score: placed.score, roster: { assignments, students: placed.students, presenters: p.presenters }, warnings: [...placed.warnings, ...p.warnings] })
   }
-  out.sort((a, b) => a.score - b.score)
-  return { ok: true, alternatives: out }
+  // Best fits first: within the points limit, then fewest avoid requests not met (!!! before !! before !),
+  // then the arranger's own score.
+  const fit = new Map(
+    out.map((o) => {
+      const r = studentRuleReport(config, responses, o.roster)
+      return [o, [r.pointsOk ? 0 : 1, r.avoidHits[3], r.avoidHits[2], r.avoidHits[1], o.score]] as const
+    }),
+  )
+  out.sort((a, b) => {
+    const [x, y] = [fit.get(a)!, fit.get(b)!]
+    for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return x[i] - y[i]
+    return 0
+  })
+  return { ok: true, alternatives: out.slice(0, want) }
 }
 
 /** Do presentations count towards points (points on, and the host chose so)? */
@@ -1155,6 +1169,8 @@ export function studentRuleReport(
     pairRepeats.sort((x, y) => y.n - x.n)
   }
   const summary: string[] = []
+  /** Within the host's limit on how far apart points may be (true when there's no limit). */
+  let pointsOk = true
   if (st.auto) {
     const counts = config.members.filter((m) => m.type === 'student').map((m) => roster.students.filter((s) => s.memberId === m.id).length)
     if (counts.length) {
@@ -1181,6 +1197,7 @@ export function studentRuleReport(
             : `✅ ${range} — ${t('{p}% apart, within {limit}%', { p: pct, limit })}`
           : `🎯 ${range}`,
       )
+      if (limit && pointsOver(pts, limit) > 0) pointsOk = false
       if (limit && pointsOver(pts, limit) > 0) notes.push(t('Points are {p}% apart ({a}–{b}); your limit is {limit}%.', { p: pct, a: fmtPoints(a), b: fmtPoints(b), limit }))
     }
   }
@@ -1220,7 +1237,7 @@ export function studentRuleReport(
   if (pairRepeats.length) summary.push(`👥 ${t('{n} pair(s) of students together more than once', { n: pairRepeats.length })}`)
   if (meets.length) summary.push(`🔁 ${t('{n} time(s) a student meets the same resident or staff again', { n: meets.length })}`)
   if (st.wantPartner) summary.push(alone ? `⚠️ ${t('{n} student(s) alone on every shift', { n: alone })}` : `✅ ${t('everyone has a partner at least once')}`)
-  return { summary, details: [...notes, ...repeats], avoidHits, repeats: repeats.length, alone, unmet, pairRepeats, meets }
+  return { summary, details: [...notes, ...repeats], avoidHits, repeats: repeats.length, alone, unmet, pairRepeats, meets, pointsOk }
 }
 
 /**
