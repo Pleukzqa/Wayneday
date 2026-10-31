@@ -4,11 +4,11 @@
 //   locks, minimum interval and spread/grouped preference;
 // - pick presenters for presentation rules, taking the required number from yesterday's shift first.
 
-import { fmtPoints, presentationOn, reqCount, reqMin, shiftPoints, shiftRuns } from './calendar.ts'
+import { fmtPoints, presentationOn, reqCount, reqMin, shiftPoints, shiftRuns, shiftSpan, shiftTimes, sourceMatches } from './calendar.ts'
 import { t, weekdayShort } from './i18n.ts'
 import { addDays, dateRange, dayDiff, weekday } from './dates.ts'
 import { preferenceCost, responseFor, rng, variance } from './scoring.ts'
-import { ANY_SHIFT, fromRuleShift, presenterTypes, type Assignment, type Member, type MemberResponse, type PresenterAssignment, type SessionConfig, type StudentAssignment } from './types.ts'
+import { presenterTypes, type Assignment, type Member, type MemberResponse, type PresenterAssignment, type SessionConfig, type StudentAssignment } from './types.ts'
 
 /** A place students can take: one shift on one date (and, in hospital mode, one job within it). */
 export interface Occ {
@@ -26,6 +26,9 @@ export interface Occ {
   weekend: boolean
   /** Points a student earns here (1 when points are off). */
   pts: number
+  /** Start and end in minutes from the first day, so shifts longer than a day can't overlap. */
+  startMin: number
+  endMin: number
   /** Resident/staff member ids on duty in this shift that day. */
   workers: string[]
 }
@@ -44,19 +47,25 @@ export function studentOccs(config: SessionConfig, assignments: Assignment[]): O
       if (!shiftRuns(config, shift, date)) continue
       const workers = assignments.filter((a) => a.date === date && a.shiftId === shift.id).map((a) => a.memberId)
       const pts = shiftPoints(config, shift.id, date)
+      const span = shiftSpan(shift)
+      const startMin = day * 1440 + span.start
+      const endMin = day * 1440 + span.end
       if (config.rosterMode === 'hospital') {
         for (const req of shift.requirements) {
           const cap = reqCount(config, shift, req, date)
           const min = reqMin(config, shift, req, date)
-          if (cap > 0) occs.push({ i: occs.length, day, date, shiftId: shift.id, requirementId: req.id, jobId: req.jobId, cap, min, weekend, pts, workers })
+          if (cap > 0) occs.push({ i: occs.length, day, date, shiftId: shift.id, requirementId: req.id, jobId: req.jobId, cap, min, weekend, pts, startMin, endMin, workers })
         }
       } else if (config.students.shiftIds.includes(shift.id)) {
-        occs.push({ i: occs.length, day, date, shiftId: shift.id, cap: Math.max(1, config.students.maxPerShift), min: 0, weekend, pts, workers })
+        occs.push({ i: occs.length, day, date, shiftId: shift.id, cap: Math.max(1, config.students.maxPerShift), min: 0, weekend, pts, startMin, endMin, workers })
       }
     }
   })
   return occs
 }
+
+/** Do two shifts overlap in time (only possible when one lasts into a later day)? */
+const overlaps = (a: Occ, b: Occ) => a.startMin < b.endMin && b.startMin < a.endMin
 
 const canDo = (m: Member, o: Occ) => !o.jobId || m.jobs.length === 0 || m.jobs.includes(o.jobId)
 
@@ -88,11 +97,11 @@ export function equalShare(config: SessionConfig, total = studentOccs(config, []
 function fitCounts(occs: Occ[], allowed: number[][], gaps: number[]): number[] {
   return allowed.map((list, si) => {
     let n = 0
-    let last = -Infinity
+    let last: Occ | null = null
     for (const oi of list) {
-      if (occs[oi].day - last >= gaps[si]) {
+      if (!last || (occs[oi].day - last.day >= gaps[si] && !overlaps(last, occs[oi]))) {
         n++
-        last = occs[oi].day
+        last = occs[oi]
       }
     }
     return n
@@ -228,7 +237,8 @@ export function arrangeStudents(
   let load: number[] = []
   let fixed: Set<string> = new Set()
   const spaced = (si: number, oi: number, ignore = -1) =>
-    !mine[si].includes(oi) && mine[si].every((x) => x === ignore || Math.abs(occs[x].day - occs[oi].day) >= resp[si].minInterval)
+    !mine[si].includes(oi) &&
+    mine[si].every((x) => x === ignore || (Math.abs(occs[x].day - occs[oi].day) >= resp[si].minInterval && !overlaps(occs[x], occs[oi])))
   // With per-slot counts, a student takes no more of a shift slot than their quota.
   const slotRoom = (si: number, oi: number) =>
     !quota || mine[si].filter((x) => occs[x].shiftId === occs[oi].shiftId).length < (quota.get(occs[oi].shiftId) ?? 0)
@@ -464,23 +474,27 @@ export function pickPresenters(
     ids.map((id) => ({ id, k: (count.get(id) ?? 0) + rand() * 0.5 })).sort((a, b) => a.k - b.k).map((x) => x.id)
 
   for (const rule of config.presentations) {
-    const shiftName = rule.fromShiftId === ANY_SHIFT ? t('any shift') : (config.shifts.find((s) => s.id === rule.fromShiftId)?.name ?? 'that shift')
     const short: string[] = []
     for (const date of days) {
       const today = presentationOn(config, rule, date)
       if (!today) continue
-      const yesterday = addDays(date, -1)
       const types = presenterTypes(config, rule)
       const eligible = config.members.filter((m) => types.includes(m.type) && available(m.id, date)).map((m) => m.id)
-      let post: string[] = []
-      if (yesterday >= config.startDate) {
-        post = [
-          ...assignments.filter((a) => a.date === yesterday && fromRuleShift(rule, a.shiftId)).map((a) => a.memberId),
-          ...students.filter((s) => s.date === yesterday && fromRuleShift(rule, s.shiftId)).map((s) => s.memberId),
-        ].filter((id, i, arr) => arr.indexOf(id) === i && eligible.includes(id))
+      const chosen: string[] = []
+      const post: string[] = []
+      // Each source first: e.g. one presenter from each ward of last night's shift.
+      for (const src of today.sources) {
+        const day = src.when === 'same' ? date : addDays(date, -1)
+        if (day < config.startDate || src.count === 0) continue
+        const pool = [...assignments, ...students]
+          .filter((x) => x.date === day && sourceMatches(src, x.shiftId, x.requirementId))
+          .map((x) => x.memberId)
+          .filter((id, i, arr) => arr.indexOf(id) === i && eligible.includes(id) && !chosen.includes(id))
+        const picked = byFewest(pool).slice(0, src.count)
+        if (picked.length < src.count) short.push(date)
+        chosen.push(...picked)
+        if (src.when !== 'same') post.push(...picked)
       }
-      const chosen = byFewest(post).slice(0, today.fromCount)
-      if (chosen.length < today.fromCount && yesterday >= config.startDate) short.push(date)
       for (const id of byFewest(eligible.filter((id) => !chosen.includes(id)))) {
         if (chosen.length >= today.count) break
         chosen.push(id)
@@ -491,9 +505,10 @@ export function pickPresenters(
         presenters.push({ date, ruleId: rule.id, memberId: id, postCall: post.includes(id) })
       }
     }
-    if (short.length) {
+    const shortDays = [...new Set(short)]
+    if (shortDays.length) {
       warnings.push(
-        t('{rule}: not enough people from the previous {shift} on {n} day(s) ({dates}). Check which member types the rule allows.', { rule: rule.name, shift: shiftName, n: short.length, dates: `${short.slice(0, 3).join(', ')}${short.length > 3 ? '…' : ''}` }),
+        t('{rule}: not enough of the people it must include on {n} day(s) ({dates}).', { rule: rule.name, n: shortDays.length, dates: `${shortDays.slice(0, 3).join(', ')}${shortDays.length > 3 ? '…' : ''}` }),
       )
     }
   }
@@ -600,11 +615,11 @@ export function countStudentArrangements(
   /** Most further picks possible after occurrence i (greedy earliest is optimal for spacing). */
   const room = (si: number, i: number) => {
     let n = 0
-    let lastDay = occs[i].day
+    let last = occs[i]
     for (let j = i + 1; j < occs.length; j++) {
-      if (free(si, j) && occs[j].day - lastDay >= resp[si].minInterval) {
+      if (free(si, j) && occs[j].day - last.day >= resp[si].minInterval && !overlaps(last, occs[j])) {
         n++
-        lastDay = occs[j].day
+        last = occs[j]
       }
     }
     return n
@@ -621,7 +636,8 @@ export function countStudentArrangements(
       .map((_, i) => i)
       .filter((i) => {
         if (i <= last || !free(si, i)) return false
-        if (picked.length && occs[i].day - occs[picked[picked.length - 1]].day < resp[si].minInterval) return false
+        const prev = picked.length ? occs[picked[picked.length - 1]] : null
+        if (prev && (occs[i].day - prev.day < resp[si].minInterval || overlaps(prev, occs[i]))) return false
         if (lockNext !== undefined && i > lockNext) return false
         if (left === locksLeft && lockNext !== undefined && i !== lockNext) return false
         if (quota && picked.filter((x) => occs[x].shiftId === occs[i].shiftId).length >= (quota.get(occs[i].shiftId) ?? 0)) return false
@@ -718,9 +734,15 @@ export function studentCellIssues(
       if (!o) add(placeKey(s), t('{name}: there’s no student place here.', { name: m.name }))
       else if (!canDo(m, o)) add(placeKey(s), t('{name} doesn’t cover this job.', { name: m.name }))
     }
+    const occOf = (s: StudentAssignment) => occs.find((x) => x.date === s.date && x.shiftId === s.shiftId && (x.requirementId ?? '') === (s.requirementId ?? ''))
     for (let i = 1; i < mine.length; i++) {
       const gap = dayDiff(mine[i - 1].date, mine[i].date)
-      if (gap < r.minInterval) {
+      const [a, b] = [occOf(mine[i - 1]), occOf(mine[i])]
+      if (a && b && overlaps(a, b)) {
+        const msg = t('{name}: the shifts on {a} and {b} overlap.', { name: m.name, a: mine[i - 1].date, b: mine[i].date })
+        add(placeKey(mine[i - 1]), msg)
+        add(placeKey(mine[i]), msg)
+      } else if (gap < r.minInterval) {
         const msg = t('{name}: {a} and {b} are closer than {gap} days.', { name: m.name, a: mine[i - 1].date, b: mine[i].date, gap: r.minInterval })
         add(placeKey(mine[i - 1]), msg)
         add(placeKey(mine[i]), msg)
@@ -787,7 +809,11 @@ export function studentTargets(
     // Leaving a locked shift breaks the lock.
     if (r.locks.some((l) => l.date === leaving.date && l.shiftId === leaving.shiftId) && !(to.date === leaving.date && to.shiftId === leaving.shiftId)) return false
     const others = students.filter((s) => s.memberId === memberId && s !== leaving && s !== also)
-    return others.every((s) => Math.abs(dayDiff(s.date, to.date)) >= r.minInterval)
+    const at = (s: StudentAssignment) => occs.find((x) => x.date === s.date && x.shiftId === s.shiftId && (x.requirementId ?? '') === (s.requirementId ?? ''))
+    return others.every((s) => {
+      const o = at(s)
+      return Math.abs(dayDiff(s.date, to.date)) >= r.minInterval && !(o && overlaps(o, to))
+    })
   }
   const fromOcc = occs.find((o) => o.date === from.date && o.shiftId === from.shiftId && (o.requirementId ?? '') === (from.requirementId ?? ''))
   const quota = slotQuota(config)
@@ -910,7 +936,7 @@ export function studentSummaryTable(config: SessionConfig, roster: { assignments
       row.push(
         s.date,
         weekdayShort()[weekday(s.date)],
-        shift ? `${shift.name} (${shift.start}–${shift.end})` : '',
+        shift ? `${shift.name} (${shiftTimes(shift)})` : '',
         mates.join(', ') || '-',
         on.filter((w) => type(w) === 'resident').map(name).join(', ') || '-',
         on.filter((w) => type(w) === 'staff').map(name).join(', ') || '-',

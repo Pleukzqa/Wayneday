@@ -1455,3 +1455,158 @@ h2[id] {
 .cal-points input[type='number'] {
   width: 4.5rem;
 }
+
+.stack-tight {
+  display: grid;
+  gap: 0.35rem;
+}
+.sources {
+  display: grid;
+  gap: 0.4rem;
+  justify-items: start;
+}
+.sources .source input[type='number'] {
+  width: 4rem;
+}
+
+/* Who presents: shifts on the left, wired to the presentation on the right. */
+.flow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(13rem, 17rem);
+  align-items: center;
+  margin: 0.25rem 0;
+}
+.flow-left {
+  display: grid;
+  gap: 0.9rem;
+  justify-items: stretch;
+  min-width: 0;
+}
+.flow-group {
+  display: grid;
+  gap: 0.35rem;
+}
+.flow-title {
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.flow-row {
+  display: grid;
+  grid-template-columns: auto auto minmax(1.5rem, 1fr);
+  align-items: center;
+  gap: 0.4rem;
+}
+.flow-row.place .flow-node {
+  margin-left: 1.1rem;
+  font-size: 0.9rem;
+}
+.flow-node {
+  text-align: left;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 0.3rem 0.65rem;
+  cursor: pointer;
+}
+.flow-row.on .flow-node {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+.flow-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-variant-numeric: tabular-nums;
+}
+.flow-step button {
+  width: 1.7rem;
+  height: 1.7rem;
+  padding: 0;
+  border-radius: 50%;
+  line-height: 1;
+}
+.flow-wire {
+  height: 2px;
+  position: relative;
+}
+.flow-row.on .flow-wire {
+  background: var(--accent);
+}
+.flow-row.on .flow-wire::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: -4px;
+  border-left: 8px solid var(--accent);
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+}
+.flow-box {
+  border: 2px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: 0.8rem 1rem;
+  display: grid;
+  gap: 0.45rem;
+  align-self: center;
+}
+.flow-box ul {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: grid;
+  gap: 0.15rem;
+  font-size: 0.92rem;
+}
+.flow-box input[type='number'] {
+  width: 4rem;
+}
+@media (max-width: 620px) {
+  .flow {
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+  }
+  .flow-wire {
+    display: none;
+  }
+}
+
+@media (max-width: 480px) {
+  table.mini input[type='number'] {
+    width: 3.6rem;
+  }
+  table.mini select {
+    max-width: 9rem;
+  }
+}
+
+/* One-day presentations: one compact line each */
+.oneday-list {
+  display: grid;
+  gap: 0.5rem;
+}
+.oneday-list h3 {
+  font-size: 1rem;
+  margin: 0.5rem 0 0;
+}
+.oneday {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.5rem 0.7rem;
+  display: grid;
+  gap: 0.35rem;
+  background: var(--surface);
+}
+.oneday .grow {
+  flex: 1 1 10rem;
+  min-width: 0;
+}
+.oneday summary {
+  cursor: pointer;
+  color: var(--muted);
+}

@@ -1,6 +1,6 @@
 // Which shifts run on a date and how many people each position needs, after per-date overrides.
 import { weekday } from './dates.ts'
-import { DEFAULT_POINTS, type PresentationRule, type Requirement, type SessionConfig, type ShiftSlot } from './types.ts'
+import { ANY_SHIFT, DEFAULT_POINTS, type PresentationRule, type PresenterSource, type Requirement, type SessionConfig, type ShiftSlot } from './types.ts'
 
 export function overrideFor(config: SessionConfig, date: string, shiftId: string) {
   return config.overrides.find((o) => o.date === date && o.shiftId === shiftId)
@@ -35,12 +35,41 @@ export function shiftsForType(config: SessionConfig, type: string): ShiftSlot[] 
 }
 
 /** Presentation numbers on a date after per-date changes, or null when there is none that day. */
-export function presentationOn(config: SessionConfig, rule: PresentationRule, date: string): { count: number; fromCount: number } | null {
+/** Does a rule run on this date when nothing was changed for it: one of its weekdays, or one of its dates? */
+export const presentationUsually = (rule: PresentationRule, date: string) => rule.days.includes(weekday(date)) || (rule.dates ?? []).includes(date)
+
+/** Who must be among a rule's presenters (rules made before sources had one shift and a count). */
+export function ruleSources(rule: PresentationRule): PresenterSource[] {
+  return rule.sources ?? (rule.fromCount > 0 ? [{ shiftId: rule.fromShiftId, count: rule.fromCount, when: 'before' }] : [])
+}
+
+/** Was someone on this shift (and place) one of the people a source draws from? */
+export const sourceMatches = (src: PresenterSource, shiftId: string, placeId?: string) =>
+  (src.shiftId === ANY_SHIFT || src.shiftId === shiftId) && (!src.placeId || src.placeId === placeId)
+
+/**
+ * A rule on one date, after that date's changes: how many present, and who must be among them.
+ * A date's "from" number applies when the rule has a single source.
+ */
+export function presentationOn(
+  config: SessionConfig,
+  rule: PresentationRule,
+  date: string,
+): { count: number; fromCount: number; sources: PresenterSource[] } | null {
   const o = config.presentationOverrides.find((x) => x.date === date && x.ruleId === rule.id)
-  const active = o?.active ?? rule.days.includes(weekday(date))
+  const active = o?.active ?? presentationUsually(rule, date)
   if (!active) return null
   const count = o?.count ?? rule.count
-  return { count, fromCount: Math.min(count, o?.fromCount ?? rule.fromCount) }
+  let sources = ruleSources(rule)
+  if (o?.fromCount !== undefined && sources.length === 1) sources = [{ ...sources[0], count: o.fromCount }]
+  // Never ask for more than the presentations that day.
+  let left = count
+  sources = sources.map((s) => {
+    const n = Math.max(0, Math.min(s.count, left))
+    left -= n
+    return { ...s, count: n }
+  })
+  return { count, fromCount: count - left, sources }
 }
 
 /** Points a date's shifts are worth, before the slot multiplier: that date's own, else weekday or weekend/holiday. */
@@ -61,3 +90,34 @@ export function shiftPoints(config: SessionConfig, shiftId: string, date: string
 
 /** Points for display: whole numbers as is, others to one decimal. */
 export const fmtPoints = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(1))
+
+// ---------- shift times ----------
+
+const minutes = (hhmm: string) => {
+  const [h, m] = hhmm.split(':').map(Number)
+  return h * 60 + m
+}
+
+/** Days after its start day that a shift ends. */
+export function endDays(shift: Pick<ShiftSlot, 'start' | 'end' | 'endDays'>): number {
+  return shift.endDays ?? (minutes(shift.end) <= minutes(shift.start) ? 1 : 0)
+}
+
+/** Minutes from the start of its first day to its start and end. */
+export function shiftSpan(shift: Pick<ShiftSlot, 'start' | 'end' | 'endDays'>) {
+  const start = minutes(shift.start)
+  return { start, end: endDays(shift) * 1440 + minutes(shift.end) }
+}
+
+/** How long a shift is, in hours. */
+export function shiftHours(shift: Pick<ShiftSlot, 'start' | 'end' | 'endDays'>): number {
+  const { start, end } = shiftSpan(shift)
+  return Math.max(0, end - start) / 60
+}
+
+/** "16:00–08:00", or "08:00–20:00 (+1)" when the end is a different day than you'd guess from the times. */
+export function shiftTimes(shift: Pick<ShiftSlot, 'start' | 'end' | 'endDays'>): string {
+  const days = endDays(shift)
+  const guessed = minutes(shift.end) <= minutes(shift.start) ? 1 : 0
+  return `${shift.start}–${shift.end}${days !== guessed || days > 1 ? ` (+${days})` : ''}`
+}

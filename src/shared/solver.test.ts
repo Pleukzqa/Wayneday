@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { dateRange, dayDiff } from './dates.ts'
-import { shiftPoints } from './calendar.ts'
+import { addDays, dateRange, dayDiff } from './dates.ts'
+import { shiftHours, shiftPoints, shiftTimes } from './calendar.ts'
 import { countArrangements, solve, solveMany, validate } from './solver.ts'
 import { arrangeStudents, countStudentArrangements, equalShare, pickPresenters, placeKey, studentCellIssues, studentExposure, studentOptions, studentRuleReport, studentTargets } from './students.ts'
 import { buildAiPrompt, importAiResult } from './ai.ts'
@@ -321,6 +321,69 @@ test('points: shift counts stay equal and points come out about equal', () => {
     assert.ok(on.points <= 1, `points spread with points on: ${on.points}`)
     assert.ok(on.points <= off.points, `on ${on.points} vs off ${off.points}`)
   }
+})
+
+test('shift lengths: overnight, 24 hours and longer than a day', () => {
+  assert.equal(shiftHours({ start: '16:00', end: '08:00' }), 16)
+  assert.equal(shiftHours({ start: '08:00', end: '08:00' }), 24)
+  assert.equal(shiftHours({ start: '08:00', end: '20:00', endDays: 1 }), 36)
+  assert.equal(shiftHours({ start: '08:00', end: '16:00' }), 8)
+  assert.equal(shiftTimes({ start: '08:00', end: '20:00', endDays: 1 }), '08:00–20:00 (+1)')
+  assert.equal(shiftTimes({ start: '16:00', end: '08:00' }), '16:00–08:00')
+})
+
+test('a student is never on two shifts that overlap in time', () => {
+  const c = hospital()
+  c.jobs = []
+  // A 36-hour shift every day: whoever is on Monday's is still working on Tuesday evening.
+  c.shifts = [{ id: 'long', name: 'Long', start: '08:00', end: '20:00', endDays: 1, days: [0, 1, 2, 3, 4, 5, 6], requirements: [{ id: 'p', jobId: '', memberType: 'any', count: 1 }] }]
+  c.duty = []
+  c.endDate = '2026-11-12'
+  c.students = { ...c.students, auto: true }
+  const responses = Object.fromEntries(['stA', 'stB', 'stC'].map((id) => [id, { ...DEFAULT_RESPONSE, minInterval: 1 }]))
+  const r = arrangeStudents(c, responses, [])
+  assert.ok(r.ok, r.ok ? '' : r.problems.join('; '))
+  if (!r.ok) return
+  for (const id of ['stA', 'stB', 'stC']) {
+    const days = r.students.filter((s) => s.memberId === id).map((s) => s.date).sort()
+    for (let i = 1; i < days.length; i++) assert.ok(dayDiff(days[i - 1], days[i]) >= 2, `${id} on ${days[i - 1]} and ${days[i]}`)
+  }
+  // Placed by hand on two days in a row, the table says why that's wrong.
+  const issues = studentCellIssues(c, responses, [
+    { date: '2026-11-02', shiftId: 'long', requirementId: 'p', memberId: 'stA' },
+    { date: '2026-11-03', shiftId: 'long', requirementId: 'p', memberId: 'stA' },
+  ])
+  assert.match([...issues.values()].flat().join(' '), /overlap/)
+})
+
+test('presenters: one from each ward of last night, or from the same day', () => {
+  const c = hospital()
+  c.jobs = [{ id: 'a', name: 'Ward A' }, { id: 'b', name: 'Ward B' }]
+  c.shifts = [{ ...c.shifts[0], requirements: [{ id: 'wa', jobId: 'a', memberType: 'any', count: 1 }, { id: 'wb', jobId: 'b', memberType: 'any', count: 1 }] }]
+  c.members.push(...['D', 'E', 'F'].map((n) => ({ id: `st${n}`, name: `Student ${n}`, type: 'student' as const, jobs: [] })))
+  c.students = { ...c.students, auto: true }
+  const rule = { id: 'mr', name: 'Morning report', days: [1, 2, 3, 4, 5], count: 2, fromShiftId: 'night', fromCount: 1, types: ['student' as const] }
+  c.presentations = [{ ...rule, sources: [{ shiftId: 'night', placeId: 'wa', count: 1 }, { shiftId: 'night', placeId: 'wb', count: 1 }] }]
+  const s = arrangeStudents(c, {}, c.duty)
+  assert.ok(s.ok)
+  if (!s.ok) return
+  const p = pickPresenters(c, {}, c.duty, s.students)
+  const days = [...new Set(p.presenters.map((x) => x.date))].filter((d) => d > c.startDate)
+  assert.ok(days.length > 15)
+  for (const date of days) {
+    const ids = p.presenters.filter((x) => x.date === date).map((x) => x.memberId)
+    const was = (place: string) => s.students.find((x) => x.date === addDays(date, -1) && x.requirementId === place)?.memberId
+    assert.ok(ids.includes(was('wa')!) && ids.includes(was('wb')!), `${date}: ${ids} should include ${was('wa')} and ${was('wb')}`)
+  }
+  // A one-day case discussion, prepared by someone off last night's shift.
+  c.presentations = [{ ...rule, id: 'case', name: 'Case discussion', days: [], dates: ['2026-11-10'], count: 1, sources: [{ shiftId: 'night', count: 1 }] }]
+  const one = pickPresenters(c, {}, c.duty, s.students).presenters
+  assert.deepEqual(one.map((x) => x.date), ['2026-11-10'])
+  assert.ok(s.students.some((y) => y.date === '2026-11-09' && y.memberId === one[0].memberId) && one[0].postCall)
+  // A weekend round drawn from the people on duty that same day.
+  c.presentations = [{ ...rule, id: 'round', name: 'Round', days: [0, 6], count: 1, sources: [{ shiftId: 'night', count: 1, when: 'same' }] }]
+  const q = pickPresenters(c, {}, c.duty, s.students)
+  for (const x of q.presenters) assert.ok(s.students.some((y) => y.date === x.date && y.memberId === x.memberId), `${x.date} ${x.memberId}`)
 })
 
 test('counts student arrangements exactly when small', () => {

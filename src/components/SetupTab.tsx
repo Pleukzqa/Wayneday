@@ -3,7 +3,7 @@ import { api } from '../api.ts'
 import { addDays, dateRange } from '../shared/dates.ts'
 import type { Member, MemberType, Requirement, SessionConfig, ShiftSlot } from '../shared/types.ts'
 import { IS_DEMO, sessionHash } from '../routes.ts'
-import { reqCount } from '../shared/calendar.ts'
+import { endDays, fmtPoints, reqCount, shiftHours } from '../shared/calendar.ts'
 import { t, weekdayLetter } from '../shared/i18n.ts'
 import ConfirmButton from './ConfirmButton.tsx'
 import { CalendarCard, DutyRosterCard, JoinRequests, PresentationsCard, RosterModeCard, StudentsCard } from './SetupExtras.tsx'
@@ -206,6 +206,15 @@ export default function SetupTab({ code, session, me, mutate }: SessionProps) {
                   <label>{t("Starts")} <input type="time" value={s.start} onChange={(e) => setShift(s.id, (x) => ({ ...x, start: e.target.value }))} />
                   </label>
                   <label>{t("Ends")} <input type="time" value={s.end} onChange={(e) => setShift(s.id, (x) => ({ ...x, end: e.target.value }))} />
+                  </label>
+                  <label>
+                    {t('Ends on')}
+                    <select value={endDays(s)} disabled={ro} onChange={(e) => setShift(s.id, (x) => ({ ...x, endDays: Number(e.target.value) }))}>
+                      <option value={0}>{t('the same day')}</option>
+                      <option value={1}>{t('the next day')}</option>
+                      <option value={2}>{t('2 days later')}</option>
+                    </select>
+                    <span className="muted small">{t('{h} hours', { h: fmtPoints(shiftHours(s)) })}</span>
                   </label>
                   <div className="weekdays" role="group" aria-label={t("Runs on")}>
                     {ALL_DAYS.map((d) => (

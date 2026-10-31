@@ -1,7 +1,7 @@
 // Roster exports: CSV, Excel, PNG, Google Sheets (Drive) and calendars (Google Calendar, .ics, Google CSV).
 import { t } from './shared/i18n.ts'
 import { googleToken } from './google.ts'
-import { presentationOn, reqCount, shiftRuns } from './shared/calendar.ts'
+import { endDays, presentationOn, reqCount, shiftRuns, shiftTimes } from './shared/calendar.ts'
 import { addDays, dateRange, shortDate, weekday } from './shared/dates.ts'
 import { buildProblem, statsFor } from './shared/solver.ts'
 import { studentExposure, studentSummaryTable } from './shared/students.ts'
@@ -40,7 +40,7 @@ export function columnsFor(config: SessionConfig): Column[] {
           requirementId: r.id,
           title:
             s.requirements.length === 1 && config.jobs.length <= 1
-              ? `${s.name} (${s.start}–${s.end})`
+              ? `${s.name} (${shiftTimes(s)})`
               : `${s.name}${r.jobId ? ` · ${job(r.jobId)}` : ''}${r.memberType === 'any' ? '' : ` (${r.memberType})`}`,
         }),
       ),
@@ -273,7 +273,7 @@ export function buildEvents(config: SessionConfig, roster: Roster, memberIds: st
   const make = (date: string, shiftId: string, memberId: string, job: string, role: string) => {
     const shift = config.shifts.find((s) => s.id === shiftId)
     if (!shift) return
-    const endDate = shift.end <= shift.start ? addDays(date, 1) : date
+    const endDate = addDays(date, endDays(shift))
     const others = [
       ...roster.assignments.filter((a) => a.date === date && a.shiftId === shiftId && a.memberId !== memberId).map((a) => name(a.memberId)),
       ...roster.students.filter((s) => s.date === date && s.shiftId === shiftId && s.memberId !== memberId).map((s) => `${name(s.memberId)} (student)`),

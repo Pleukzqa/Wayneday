@@ -2,11 +2,11 @@
 // The prompt carries the whole roster problem plus the current roster in the exact JSON the AI must answer with,
 // and importAiResult turns the reply back into a roster.
 
-import { presentationOn, reqCount, shiftRuns } from './calendar.ts'
+import { endDays, presentationOn, reqCount, ruleSources, shiftRuns, sourceMatches } from './calendar.ts'
 import { dateRange, WEEKDAYS } from './dates.ts'
 import { responseFor } from './scoring.ts'
 import { equalShare } from './students.ts'
-import { ANY_SHIFT, fromRuleShift, presenterTypes, type Assignment, type MemberResponse, type PresenterAssignment, type Roster, type SessionConfig, type StudentAssignment } from './types.ts'
+import { ANY_SHIFT, presenterTypes, type Assignment, type PresenterSource, type MemberResponse, type PresenterAssignment, type Roster, type SessionConfig, type StudentAssignment } from './types.ts'
 
 export const AI_FORMAT_TAG = 'wayneday-roster'
 
@@ -42,6 +42,12 @@ export function rosterToJson(config: SessionConfig, roster: Roster) {
 
 export function buildAiPrompt(config: SessionConfig, responses: Record<string, MemberResponse>, roster?: Roster | null): string {
   const job = (id: string) => config.jobs.find((j) => j.id === id)?.name ?? id
+  const describeSource = (src: PresenterSource) => {
+    const shift = src.shiftId === ANY_SHIFT ? 'any shift' : `"${shiftName(src.shiftId)}"`
+    const req = config.shifts.find((x) => x.id === src.shiftId)?.requirements.find((r) => r.id === src.placeId)
+    const place = req ? ` (${req.jobId ? job(req.jobId) : 'that place'})` : ''
+    return `at least ${src.count} who worked ${shift}${place} ${src.when === 'same' ? 'that same day' : 'the day before'}`
+  }
   const shiftName = (id: string) => config.shifts.find((s) => s.id === id)?.name ?? id
   const days = dateRange(config.startDate, config.endDate)
   const workers = config.members.filter((m) => m.type !== 'student')
@@ -67,7 +73,7 @@ export function buildAiPrompt(config: SessionConfig, responses: Record<string, M
           : `${r.count} × ${r.jobId ? job(r.jobId) : 'any job'} (${r.memberType === 'any' ? 'resident or staff' : r.memberType})`,
       )
       .join(', ')
-    lines.push(`- "${s.name}" ${s.start}–${s.end}, runs on ${s.days.map((d) => WEEKDAYS[d]).join('/') || 'no regular days'}: ${reqs}`)
+    lines.push(`- "${s.name}" ${s.start}–${s.end}${endDays(s) ? ` (ends ${endDays(s) === 1 ? 'the next day' : `${endDays(s)} days later`})` : ''}, runs on ${s.days.map((d) => WEEKDAYS[d]).join('/') || 'no regular days'}: ${reqs}`)
   }
   if (config.overrides.length) {
     lines.push('')
@@ -139,12 +145,12 @@ export function buildAiPrompt(config: SessionConfig, responses: Record<string, M
     lines.push('## Presentations')
     for (const r of config.presentations) {
       lines.push(
-        `- "${r.name}" on ${r.days.map((d) => WEEKDAYS[d]).join('/')}: ${r.count} presenter(s), at least ${r.fromCount} of them must have worked ${r.fromShiftId === ANY_SHIFT ? 'any shift' : `"${shiftName(r.fromShiftId)}"`} the day before. Presenters can be: ${presenterTypes(config, r).join(', ')}. Share presentations evenly.`,
+        `- "${r.name}" on ${[r.days.map((d) => WEEKDAYS[d]).join('/'), (r.dates ?? []).join(', ')].filter(Boolean).join(' and on ') || 'no regular days'}: ${r.count} presenter(s)${ruleSources(r).length ? `, including ${ruleSources(r).map((src) => describeSource(src)).join(' and ')}` : ''}. Presenters can be: ${presenterTypes(config, r).join(', ')}. Share presentations evenly.`,
       )
       const changes = config.presentationOverrides.filter((o) => o.ruleId === r.id).sort((x, y) => x.date.localeCompare(y.date))
       for (const o of changes) {
         const p = presentationOn(config, r, o.date)
-        lines.push(`  - ${o.date}: ${p ? `${p.count} presenter(s), at least ${p.fromCount} from the day before` : 'no presentation'}`)
+        lines.push(`  - ${o.date}: ${p ? `${p.count} presenter(s)${p.sources.length ? `, including ${p.sources.map((src) => describeSource(src)).join(' and ')}` : ''}` : 'no presentation'}`)
       }
     }
   }
@@ -313,9 +319,9 @@ export function importAiResult(text: string, config: SessionConfig): ImportResul
       continue
     }
     const yesterday = new Date(Date.parse(date + 'T00:00:00Z') - 86_400_000).toISOString().slice(0, 10)
-    const postCall =
-      assignments.some((a) => a.date === yesterday && fromRuleShift(rule, a.shiftId) && a.memberId === member.id) ||
-      students.some((s) => s.date === yesterday && fromRuleShift(rule, s.shiftId) && s.memberId === member.id)
+    const fromLastNight = (x: { date: string; shiftId: string; requirementId?: string; memberId: string }) =>
+      x.date === yesterday && x.memberId === member.id && ruleSources(rule).some((src) => src.when !== 'same' && sourceMatches(src, x.shiftId, x.requirementId))
+    const postCall = assignments.some(fromLastNight) || students.some(fromLastNight)
     presenters.push({ date, ruleId: rule.id, memberId: member.id, postCall })
   }
 

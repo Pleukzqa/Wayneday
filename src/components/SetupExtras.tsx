@@ -3,9 +3,9 @@ import { useState } from 'react'
 import { api } from '../api.ts'
 import { equalShareFor, studentOccs } from '../shared/students.ts'
 import { t, typeName, weekdayLetter, weekdayLong, weekdayShort } from '../shared/i18n.ts'
-import { dayPoints, fmtPoints, overrideFor, presentationOn, reqCount, shiftRuns } from '../shared/calendar.ts'
+import { dayPoints, fmtPoints, overrideFor, presentationOn, presentationUsually, reqCount, ruleSources, shiftHours, shiftRuns, shiftTimes } from '../shared/calendar.ts'
 import { dateRange, shortDate, weekday } from '../shared/dates.ts'
-import { ANY_SHIFT, DEFAULT_POINTS, DUTY_ROLES, type DateOverride, type DutyRole, type MemberResponse, type MemberType, type PresentationOverride, type PresentationRule, type SessionConfig } from '../shared/types.ts'
+import { ANY_SHIFT, DEFAULT_POINTS, DUTY_ROLES, isOneDay, type DateOverride, type DutyRole, type MemberResponse, type MemberType, type PresentationOverride, type PresentationRule, type PresenterSource, type SessionConfig } from '../shared/types.ts'
 import { uid, type SessionProps } from './props.ts'
 
 type Edit = (fn: (c: SessionConfig) => SessionConfig) => void
@@ -37,7 +37,7 @@ function setPresentation(c: SessionConfig, date: string, ruleId: string, patch: 
     ...(next.count !== undefined && next.count !== rule.count ? { count: next.count } : {}),
     ...(next.fromCount !== undefined && next.fromCount !== rule.fromCount ? { fromCount: next.fromCount } : {}),
   }
-  const isDefault = clean.active === rule.days.includes(weekday(date)) && clean.count === undefined && clean.fromCount === undefined
+  const isDefault = clean.active === presentationUsually(rule, date) && clean.count === undefined && clean.fromCount === undefined
   const rest = c.presentationOverrides.filter((o) => !(o.date === date && o.ruleId === ruleId))
   return { ...c, presentationOverrides: isDefault ? rest : [...rest, clean] }
 }
@@ -170,7 +170,7 @@ export function CalendarCard({ draft, edit, ro }: { draft: SessionConfig; edit: 
                   />
                   <strong>{s.name}</strong>
                   <span className="muted small">
-                    {s.start}–{s.end}
+                    {shiftTimes(s)}
                   </span>
                 </label>
                 {runs &&
@@ -195,9 +195,10 @@ export function CalendarCard({ draft, edit, ro }: { draft: SessionConfig; edit: 
               </div>
             );
           })}
-          {draft.presentations.map((r) => {
+          {draft.presentations.filter((r) => !isOneDay(r) || presentationUsually(r, selected)).map((r) => {
             const p = presentationOn(draft, r, selected)
-            const from = r.fromShiftId === ANY_SHIFT ? t('any shift') : (draft.shifts.find((s) => s.id === r.fromShiftId)?.name ?? 'shift')
+            const first = ruleSources(r)[0]
+            const from = !first || first.shiftId === ANY_SHIFT ? t('any shift') : (draft.shifts.find((s) => s.id === first.shiftId)?.name ?? 'shift')
             return (
               <div key={r.id} className="cal-shift">
                 <label className="check">
@@ -223,6 +224,7 @@ export function CalendarCard({ draft, edit, ro }: { draft: SessionConfig; edit: 
                         }}
                       />
                     </label>
+                    {ruleSources(r).length === 1 && (
                     <label className="inline small">{t("from last")} {from}
                       <input
                         type="number"
@@ -233,11 +235,17 @@ export function CalendarCard({ draft, edit, ro }: { draft: SessionConfig; edit: 
                         onChange={(e) => edit((c) => setPresentation(c, selected, r.id, { fromCount: Math.min(p.count, Math.max(0, Number(e.target.value) || 0)) }))}
                       />
                     </label>
+                    )}
                   </>
                 )}
               </div>
             );
           })}
+          {!ro && (
+            <button type="button" className="link" onClick={() => edit((c) => ({ ...c, presentations: [...c.presentations, newPresentation(c, selected)] }))}>
+              📌 {t('One-day presentation on this day')}
+            </button>
+          )}
           {pointsOn && (
             <div className="row wrap cal-points">
               <label className="inline">
@@ -287,6 +295,11 @@ function PointsBox({ draft, ro, set, count }: { draft: SessionConfig; ro: boolea
   const slots = draft.shifts.filter((x) => x.requirements.length > 0)
   const occs = studentOccs(draft, [])
   const total = occs.reduce((n, o) => n + o.cap * o.pts, 0)
+  // Suggested multipliers from shift length: the shortest slot counts 1, others by their hours (to the nearest 0.5).
+  const hours = slots.map((x) => shiftHours(x))
+  const shortest = Math.min(...hours.filter((h) => h > 0))
+  const suggested = Object.fromEntries(slots.map((x, i) => [x.id, hours[i] > 0 ? Math.round((hours[i] / shortest) * 2) / 2 : 1]))
+  const usingSuggested = slots.every((x) => (p.shifts?.[x.id] ?? 1) === suggested[x.id])
   const value = (v: number, on: (n: number) => void, label: string) => (
     <input type="number" min={0} max={100} step={0.5} disabled={ro} aria-label={label} value={v} onChange={(e) => on(Math.max(0, Number(e.target.value) || 0))} />
   )
@@ -307,13 +320,21 @@ function PointsBox({ draft, ro, set, count }: { draft: SessionConfig; ro: boolea
             </label>
           </div>
           {slots.length > 1 && (
-            <div className="row wrap">
+            <div className="stack-tight">
               <span className="small">{t('Worth more on some shift slots? Multiply by:')}</span>
-              {slots.map((x) => (
-                <label key={x.id} className="inline">
-                  {x.name} × {value(p.shifts?.[x.id] ?? 1, (n) => setP({ shifts: { ...p.shifts, [x.id]: n } }), x.name)}
-                </label>
+              {slots.map((x, i) => (
+                <div key={x.id} className="row wrap">
+                  <label className="inline">
+                    {x.name} × {value(p.shifts?.[x.id] ?? 1, (n) => setP({ shifts: { ...p.shifts, [x.id]: n } }), x.name)}
+                  </label>
+                  <span className="muted small">{t('{h} hours → suggested × {m}', { h: fmtPoints(hours[i]), m: fmtPoints(suggested[x.id]) })}</span>
+                </div>
               ))}
+              {!ro && !usingSuggested && (
+                <button type="button" className="link" onClick={() => setP({ shifts: suggested })}>
+                  ⏱️ {t('Use the suggested numbers (by hours)')}
+                </button>
+              )}
             </div>
           )}
           <p className="muted small">
@@ -462,16 +483,174 @@ export function StudentsCard({ draft, edit, ro, responses }: { draft: SessionCon
 
 const TYPES: MemberType[] = ['resident', 'staff', 'student']
 
+type SourceOption = { value: string; label: string }
+
+/** A new presentation: weekly (a morning report) or, given a date, on that day only (a case discussion). */
+function newPresentation(c: SessionConfig, date?: string): PresentationRule {
+  const base = { id: uid(), fromShiftId: c.shifts[0]?.id ?? ANY_SHIFT, fromCount: 1, types: [c.rosterMode === 'hospital' ? ('student' as const) : ('resident' as const)] }
+  return date
+    ? { ...base, name: t('Case discussion'), days: [], dates: [date], count: 1 }
+    : { ...base, name: 'Morning report', days: [1, 2, 3, 4, 5], count: 2 }
+}
+
+/**
+ * Who presents, as a small diagram: the shifts (and their places) on the left, the presentation on the
+ * right. Tapping a shift or place links it ("at least 1 from here"); the steppers set how many.
+ */
+function PresenterFlow({
+  rule,
+  options,
+  ro,
+  setSources,
+}: {
+  rule: PresentationRule
+  options: SourceOption[]
+  ro: boolean
+  setSources: (p: PresentationRule, sources: PresenterSource[], extra?: Partial<PresentationRule>) => void
+}) {
+  const sources = ruleSources(rule)
+  const [showSame, setShowSame] = useState(sources.some((s) => s.when === 'same'))
+  const keyOf = (s: Pick<PresenterSource, 'shiftId' | 'placeId' | 'when'>) => `${s.when ?? 'before'}|${s.shiftId}|${s.placeId ?? ''}`
+  const countOf = (key: string) => sources.find((s) => keyOf(s) === key)?.count ?? 0
+  const linked = sources.reduce((n, s) => n + s.count, 0)
+  const labelOf = (s: PresenterSource) => options.find((o) => o.value === `${s.shiftId}|${s.placeId ?? ''}`)?.label ?? '?'
+
+  const setCount = (when: 'before' | 'same', value: string, n: number) => {
+    const [shiftId, placeId] = value.split('|')
+    const key = keyOf({ shiftId, placeId: placeId || undefined, when })
+    const others = sources.filter((s) => keyOf(s) !== key)
+    // Linking more than there are seats adds seats (up to 20 presenters).
+    const taken = others.reduce((x, s) => x + s.count, 0)
+    const count = Math.max(0, Math.min(n, 20 - taken))
+    const next = count > 0 ? [...others, { shiftId, ...(placeId ? { placeId } : {}), count, when }] : others
+    // Same order as the diagram, so the first source is stable.
+    const order = (s: PresenterSource) => (s.when === 'same' ? 1000 : 0) + options.findIndex((o) => o.value === `${s.shiftId}|${s.placeId ?? ''}`)
+    setSources(rule, next.sort((a, b) => order(a) - order(b)), taken + count > rule.count ? { count: taken + count } : {})
+  }
+
+  const group = (when: 'before' | 'same', title: string) => (
+    <div className="flow-group">
+      <span className="flow-title">{title}</span>
+      {options.map((o) => {
+        const key = `${when}|${o.value}`
+        const n = countOf(key)
+        const isPlace = !o.value.endsWith('|')
+        return (
+          <div key={key} className={`flow-row ${n > 0 ? 'on' : ''} ${isPlace ? 'place' : ''}`}>
+            <button type="button" className="flow-node" disabled={ro} aria-pressed={n > 0} onClick={() => setCount(when, o.value, n > 0 ? 0 : 1)}>
+              {o.label}
+            </button>
+            <span className="flow-step">
+              {n > 0 && !ro && (
+                <button type="button" aria-label={t('Fewer')} onClick={() => setCount(when, o.value, n - 1)}>
+                  −
+                </button>
+              )}
+              {n > 0 && <b>{n}</b>}
+              {n > 0 && !ro && (
+                <button type="button" aria-label={t('More')} disabled={linked >= 20} onClick={() => setCount(when, o.value, n + 1)}>
+                  +
+                </button>
+              )}
+            </span>
+            <span className="flow-wire" aria-hidden />
+          </div>
+        )
+      })}
+    </div>
+  )
+
+  return (
+    <div className="flow">
+      <div className="flow-left">
+        {group('before', t('Last night’s shifts'))}
+        {showSame ? (
+          group('same', t('Same-day shifts'))
+        ) : (
+          !ro && (
+            <button type="button" className="link small" onClick={() => setShowSame(true)}>
+              ➕ {t('Also from same-day shifts (e.g. weekend rounds)')}
+            </button>
+          )
+        )}
+      </div>
+      <div className="flow-box">
+        <strong>🎤 {rule.name}</strong>
+        <label className="inline">
+          <input
+            type="number"
+            min={1}
+            max={20}
+            disabled={ro}
+            value={rule.count}
+            onChange={(e) => {
+              const count = Math.max(1, Number(e.target.value) || 1)
+              let left = count
+              setSources(
+                rule,
+                sources.map((s) => {
+                  const n = Math.min(s.count, left)
+                  left -= n
+                  return { ...s, count: n }
+                }).filter((s) => s.count > 0),
+                { count },
+              )
+            }}
+          />{' '}
+          {t('presenter(s) each time')}
+        </label>
+        <ul>
+          {sources.map((s) => (
+            <li key={keyOf(s)}>
+              {t('{n} from {place}, {when}', { n: s.count, place: labelOf(s), when: s.when === 'same' ? t('the same day') : t('the day before') })}
+            </li>
+          ))}
+          {rule.count - linked > 0 && <li className="muted">{t('{n} from anyone', { n: rule.count - linked })}</li>}
+        </ul>
+        {!ro && <span className="muted small">{t('Tap a shift or a place on the left to require presenters from it.')}</span>}
+      </div>
+    </div>
+  )
+}
+
 export function PresentationsCard({ draft, edit, ro }: { draft: SessionConfig; edit: Edit; ro: boolean }) {
   const set = (id: string, patch: Partial<PresentationRule>) =>
     edit((c) => ({ ...c, presentations: c.presentations.map((p) => (p.id === id ? { ...p, ...patch } : p)) }))
+  // The old single "from" fields mirror the first source, so rules stay readable by older code.
+  const setSources = (p: PresentationRule, sources: PresenterSource[], extra: Partial<PresentationRule> = {}) =>
+    set(p.id, { ...extra, sources, fromShiftId: sources[0]?.shiftId ?? p.fromShiftId, fromCount: sources[0]?.count ?? 0 })
+  const job = (id: string) => draft.jobs.find((j) => j.id === id)?.name ?? ''
+  const oneDay = draft.presentations.filter(isOneDay).sort((a, b) => (a.dates?.[0] ?? '').localeCompare(b.dates?.[0] ?? ''))
+  // Any shift, each shift, and each place of a shift that has several.
+  const sourceOptions = [
+    { value: `${ANY_SHIFT}|`, label: t('any shift') },
+    ...draft.shifts.flatMap((s) => [
+      { value: `${s.id}|`, label: s.name },
+      ...(s.requirements.length > 1
+        ? s.requirements.map((r, i) => ({ value: `${s.id}|${r.id}`, label: `${s.name} · ${r.jobId ? job(r.jobId) : t('place {n}', { n: i + 1 })}` }))
+        : []),
+    ]),
+  ]
+  const sourcesText = (p: PresentationRule) => {
+    const list = ruleSources(p)
+    if (!list.length) return t('anyone')
+    return list
+      .map((s) =>
+        t('{n} from {place}, {when}', {
+          n: s.count,
+          place: sourceOptions.find((o) => o.value === `${s.shiftId}|${s.placeId ?? ''}`)?.label ?? '?',
+          when: s.when === 'same' ? t('the same day') : t('the day before'),
+        }),
+      )
+      .join(' · ')
+  }
   return (
     <section className="card">
       <h2 id="sec-presentations">🎤 {t('Presentations')}</h2>
       <p className="muted small">{t(
         "E.g. morning report: on weekdays, 2 cases are presented and at least 1 presenter must be someone coming off last night’s shift. Wayneday picks presenters and shares the load evenly."
       )}</p>
-      {draft.presentations.map((p) => (
+      {draft.presentations.filter((p) => !isOneDay(p)).map((p) => (
         <div key={p.id} className="shift">
           <div className="row wrap">
             <label>{t("Name")} <input value={p.name} disabled={ro} onChange={(e) => set(p.id, { name: e.target.value })} />
@@ -494,20 +673,7 @@ export function PresentationsCard({ draft, edit, ro }: { draft: SessionConfig; e
               <button type="button" className="link danger" onClick={() => edit((c) => ({ ...c, presentations: c.presentations.filter((x) => x.id !== p.id) }))}>{t("Remove")}</button>
             )}
           </div>
-          <div className="row wrap">
-            <label className="inline">
-              <input type="number" min={1} max={20} disabled={ro} value={p.count} onChange={(e) => {
-                const count = Math.max(1, Number(e.target.value) || 1)
-                set(p.id, { count, fromCount: Math.min(p.fromCount, count) })
-              }} /> {t("presentation(s), at least")} <input type="number" min={0} max={p.count} disabled={ro} value={p.fromCount} onChange={(e) => set(p.id, { fromCount: Math.min(p.count, Math.max(0, Number(e.target.value) || 0)) })} /> {t("by people on")} <select value={p.fromShiftId} disabled={ro} onChange={(e) => set(p.id, { fromShiftId: e.target.value })}>
-                <option value={ANY_SHIFT}>{t('any shift')}</option>
-                {draft.shifts.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
-              </select> {t("the day before")}</label>
-          </div>
+          <PresenterFlow rule={p} options={sourceOptions} ro={ro} setSources={setSources} />
           {draft.rosterMode !== 'hospital' && (
             <div className="row wrap">
               <span className="small">{t("Who can present:")}</span>
@@ -526,19 +692,47 @@ export function PresentationsCard({ draft, edit, ro }: { draft: SessionConfig; e
           )}
         </div>
       ))}
+      {oneDay.length > 0 && (
+        <div className="oneday-list">
+          <h3>📌 {t('One-day presentations')}</h3>
+          {oneDay.map((p) => (
+            <div key={p.id} className="oneday">
+              <div className="row wrap">
+                <input
+                  type="date"
+                  aria-label={t('Date')}
+                  value={p.dates?.[0] ?? ''}
+                  min={draft.startDate}
+                  max={draft.endDate}
+                  disabled={ro}
+                  onChange={(e) => e.target.value && set(p.id, { dates: [e.target.value] })}
+                />
+                <input className="grow" aria-label={t('Name')} value={p.name} disabled={ro} onChange={(e) => set(p.id, { name: e.target.value })} />
+                {!ro && (
+                  <button type="button" className="x" aria-label={t('Remove')} onClick={() => edit((c) => ({ ...c, presentations: c.presentations.filter((x) => x.id !== p.id) }))}>
+                    ×
+                  </button>
+                )}
+              </div>
+              <details>
+                <summary className="small">
+                  🎤 {t('{n} presenter(s)', { n: p.count })} · {sourcesText(p)}
+                </summary>
+                <PresenterFlow rule={p} options={sourceOptions} ro={ro} setSources={setSources} />
+              </details>
+            </div>
+          ))}
+        </div>
+      )}
       {!ro && draft.shifts.length > 0 && (
-        <button
-          type="button"
-          onClick={() =>
-            edit((c) => ({
-              ...c,
-              presentations: [
-                ...c.presentations,
-                { id: uid(), name: 'Morning report', days: [1, 2, 3, 4, 5], count: 2, fromShiftId: c.shifts[0].id, fromCount: 1, types: [c.rosterMode === 'hospital' ? 'student' : 'resident'] },
-              ],
-            }))
-          }
-        >{t("➕ Presentation rule")}</button>
+        <div className="row wrap">
+          <button type="button" onClick={() => edit((c) => ({ ...c, presentations: [...c.presentations, newPresentation(c)] }))}>
+            ➕ {t('Weekly presentation')}
+          </button>
+          <button type="button" onClick={() => edit((c) => ({ ...c, presentations: [...c.presentations, newPresentation(c, c.startDate)] }))}>
+            📌 {t('One-day presentation')}
+          </button>
+        </div>
       )}
     </section>
   );

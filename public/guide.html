@@ -320,13 +320,13 @@
         <div class="step-body">
           <ul lang="th">
             <li><b>ช่วงเวลา</b>: วันแรก–วันสุดท้ายของ rotation และวันหยุด (นับเหมือนเสาร์-อาทิตย์เพื่อความยุติธรรม)</li>
-            <li><b>ช่วงเวรและที่ของนิสิต</b>: แต่ละเวรมีชื่อ เวลา วันที่มีเวร และจำนวนนิสิต <i>อย่างน้อย – มากสุด</i> เช่น “ลงเที่ยงคืน 16:00–08:00, 2 คน” และ “ข้ามคืน 08:00–08:00, 1 คน”</li>
+            <li><b>ช่วงเวรและที่ของนิสิต</b>: แต่ละเวรมีชื่อ เวลา (สิ้นสุดวันเดียวกันหรือวันถัดไป) วันที่มีเวร และจำนวนนิสิต <i>อย่างน้อย – มากสุด</i> เช่น “ลงเที่ยงคืน 16:00–08:00, 2 คน” และ “ข้ามคืน 08:00–08:00, 1 คน”</li>
             <li><b>จุดปฏิบัติงาน (ไม่บังคับ)</b>: ใช้เฉพาะเมื่อนิสิตในเวรเดียวกันแยกกันอยู่คนละที่ เช่น Ward × 1 กับ ER × 1</li>
             <li><b>ปฏิทิน</b>: แตะวันที่เพื่อเปลี่ยนเฉพาะวันนั้น เช่น ปิดเวร หรือเปลี่ยนจำนวนคน แล้วคัดลอกไปทั้งสัปดาห์ได้</li>
           </ul>
           <ul lang="en">
             <li><b>Period</b>: first and last day of the rotation, plus holidays (counted like weekends for fairness).</li>
-            <li><b>Shift slots &amp; student places</b>: each shift has a name, times, the weekdays it runs and how many students <i>at least – at most</i>, e.g. “Night 16:00–08:00, 2 students” and “24h 08:00–08:00, 1 student”.</li>
+            <li><b>Shift slots &amp; student places</b>: each shift has a name, times (ending the same day or the next), the weekdays it runs and how many students <i>at least – at most</i>, e.g. “Night 16:00–08:00, 2 students” and “24h 08:00–08:00, 1 student”.</li>
             <li><b>Places (optional)</b>: only when students on one shift split up, e.g. Ward × 1 and ER × 1.</li>
             <li><b>Calendar</b>: tap a date to change just that day (switch a shift off, change the numbers), then copy it to the rest of the week.</li>
           </ul>
@@ -350,7 +350,7 @@
             <li><b>🎯 คิดแต้มเวร</b> (ไม่บังคับ): เช่น เวรวันธรรมดา 1 แต้ม วันหยุด 2 แต้ม และวันพิเศษ เช่น 1 วันก่อนสอบ 3 แต้ม (แตะวันที่ในปฏิทิน) ระบบให้จำนวนวันเท่ากันก่อน แล้วทำให้แต้มใกล้เคียงกันที่สุด ถ้าทุกคนต้องหยุดคืนก่อนสอบ ให้ปิดเวรวันนั้นในปฏิทิน</li>
             <li><b>ระยะห่างขั้นต่ำ</b> ระหว่างเวรของนิสิตคนเดียวกัน</li>
             <li><b>พยายามหลีกเลี่ยง</b>: เจอแพทย์ประจำบ้านคนเดิมซ้ำ เจออาจารย์คนเดิมซ้ำ นิสิตคู่เดิมซ้ำ อยู่เวรคนเดียวทุกเวร</li>
-            <li><b>การนำเสนอ</b>: เช่น morning report วันละ 1–2 เคส อย่างน้อย 1 คนต้องมาจากเวรเมื่อวาน (เลือกเวรหรือ “เวรใดก็ได้”) Wayneday เลือกผู้นำเสนอให้เท่า ๆ กัน</li>
+            <li><b>การนำเสนอ</b>: แบบ <i>ประจำสัปดาห์</i> เช่น morning report หรือ <i>เฉพาะวัน</i> เช่น case discussion วันที่ 10 (เพิ่มจากปฏิทินได้) แตะเวรหรือจุดงานในแผนภาพเพื่อกำหนดว่าต้องมีคนจากไหน เช่น Ward A 1 คน และ Ward B 1 คน จากเวรเมื่อคืน Wayneday เลือกผู้นำเสนอให้ทุกคนได้ใกล้เคียงกัน</li>
             <li><b>เงื่อนไขอื่น</b>: กฎที่ระบบตรวจไม่ได้ จะถูกแปลงเป็นพรอมต์ให้ใช้กับ AI</li>
           </ul>
           <ul lang="en">
@@ -359,7 +359,7 @@
             <li><b>🎯 Count points</b> (optional): e.g. weekday shift 1 point, weekend or holiday 2, and special days such as the day before an exam 3 (tap the date in the calendar). Shift counts stay equal first, then points are made as equal as possible. If everyone is off the night before an exam, switch that night’s shift off in the calendar.</li>
             <li><b>Minimum gap</b> between one student’s shifts.</li>
             <li><b>Try to avoid</b>: meeting the same resident twice, the same อาจารย์ twice, the same two students together twice, and anyone being alone on every shift.</li>
-            <li><b>Presentations</b>: e.g. morning report, 1–2 cases a day, at least 1 presenter from last night’s shift (a shift or “any shift”). Wayneday picks presenters and shares the load.</li>
+            <li><b>Presentations</b>: <i>weekly</i> (e.g. morning report) or <i>one-day</i> (e.g. a case discussion on the 10th; add it from the calendar). Tap shifts or places in the diagram to say who must present, e.g. one from Ward A and one from Ward B off last night’s shift. Wayneday picks presenters and shares the load.</li>
             <li><b>Other conditions</b>: rules the built-in solver can’t check become a prompt for an AI.</li>
           </ul>
           <p lang="th">กด <span class="ui">บันทึกการตั้งค่า</span></p>

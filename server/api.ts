@@ -92,6 +92,7 @@ function cleanConfig(raw: unknown): SessionConfig {
       name: str(o.name, 60) || 'Shift',
       start: time(o.start),
       end: time(o.end),
+      ...(o.endDays === undefined || o.endDays === null ? {} : { endDays: int(o.endDays, 0, 3, 1) }),
       days: [...new Set(arr(o.days, 7).map((d) => int(d, 0, 6, 0)))],
       requirements: arr(o.requirements, 20)
         .map((r) => {
@@ -156,7 +157,7 @@ function cleanConfig(raw: unknown): SessionConfig {
         .map(([k, v]) => [k, int(v, 0, 50, 0)]),
     ),
   }
-  const presentations: PresentationRule[] = arr(c.presentations, 10).map((x) => {
+  const presentations: PresentationRule[] = arr(c.presentations, 200).map((x) => {
     const o = x as Record<string, unknown>
     const count = int(o.count, 1, 20, 1)
     return {
@@ -167,6 +168,20 @@ function cleanConfig(raw: unknown): SessionConfig {
       fromShiftId: o.fromShiftId === ANY_SHIFT || shiftIds.has(str(o.fromShiftId, 40)) ? str(o.fromShiftId, 40) : (shifts[0]?.id ?? ''),
       fromCount: int(o.fromCount, 0, count, 0),
       types: [...new Set(arr(o.types, 3).map(memberType))],
+      ...(Array.isArray(o.dates) ? { dates: [...new Set(arr(o.dates, 400).filter(isDate))].sort() } : {}),
+      ...(Array.isArray(o.sources)
+        ? {
+            sources: arr(o.sources, 6)
+              .map((x) => x as Record<string, unknown>)
+              .filter((x) => x.shiftId === ANY_SHIFT || shiftIds.has(str(x.shiftId, 40)))
+              .map((x) => {
+                const shiftId = str(x.shiftId, 40)
+                const placeId = str(x.placeId, 40)
+                const placeOk = placeId && shifts.find((s) => s.id === shiftId)?.requirements.some((r) => r.id === placeId)
+                return { shiftId, ...(placeOk ? { placeId } : {}), count: int(x.count, 0, count, 1), when: x.when === 'same' ? ('same' as const) : ('before' as const) }
+              }),
+          }
+        : {}),
     }
   })
   const ruleIds = new Set(presentations.map((r) => r.id))

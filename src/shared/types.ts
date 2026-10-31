@@ -34,6 +34,11 @@ export interface ShiftSlot {
   name: string
   start: string // "08:00"
   end: string // "16:00"
+  /**
+   * Days after the start day that the shift ends: 0 same day, 1 next day (08:00 → 20:00 tomorrow is 1).
+   * Missing = worked out from the times (an end at or before the start is the next day).
+   */
+  endDays?: number
   /** Weekdays this shift runs (0 = Sunday). */
   days: number[]
   requirements: Requirement[]
@@ -77,6 +82,17 @@ export interface StudentSettings {
 /** `fromShiftId` meaning "on any shift the day before". */
 export const ANY_SHIFT = '*'
 
+/** "At least `count` presenters from people on this shift (and place) the day before / the same day." */
+export interface PresenterSource {
+  /** A shift slot id, or ANY_SHIFT. */
+  shiftId: string
+  /** One place (requirement) of that shift; missing = any of its places. */
+  placeId?: string
+  count: number
+  /** 'before' (default): on that shift the day before, e.g. post-call. 'same': on it that same day. */
+  when?: 'before' | 'same'
+}
+
 /** "On these days, `count` presentations; at least `fromCount` by people who were on `fromShiftId` the day before." */
 export interface PresentationRule {
   id: string
@@ -88,7 +104,14 @@ export interface PresentationRule {
   fromCount: number
   /** Who may present (generate mode). With a hospital roster, presenters are always students. */
   types: MemberType[]
+  /** Who must be among the presenters; replaces fromShiftId/fromCount when set (those mirror the first source). */
+  sources?: PresenterSource[]
+  /** Single dates it runs on besides its weekdays. A one-day presentation has no weekdays and one date. */
+  dates?: string[]
 }
+
+/** A presentation that happens on one date only (e.g. a case discussion), rather than every week. */
+export const isOneDay = (rule: PresentationRule) => rule.days.length === 0 && (rule.dates?.length ?? 0) > 0
 
 /** Was someone on `shiftId` the shift this rule takes presenters from? */
 export const fromRuleShift = (rule: PresentationRule, shiftId: string) => rule.fromShiftId === ANY_SHIFT || rule.fromShiftId === shiftId
