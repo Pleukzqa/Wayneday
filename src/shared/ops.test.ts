@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { actOnSwap, addNote, createJoin, decideJoin, readNote, removeNote, requestSwap, saveFeedback, saveResponse, visibleFeedback, visibleNotes } from './ops.ts'
+import { actOnSwap, addNote, createJoin, decideJoin, MOST_SAVED, readNote, removeArrangement, removeNote, requestSwap, saveArrangement, saveFeedback, saveResponse, visibleFeedback, visibleNotes } from './ops.ts'
 import { DEFAULT_RESPONSE, DEFAULT_STUDENTS, type PublicSession } from './types.ts'
 
 function session(): PublicSession {
@@ -177,4 +177,18 @@ test('feedback: once the roster is final, members rate it; hosts see all, anonym
   assert.deepEqual(visibleFeedback(s, as('ben')).map((x) => x.memberId), ['ben'], 'you see your own with your name')
   assert.deepEqual(visibleFeedback(s, as('cat')), [])
   assert.deepEqual(visibleFeedback(s, host).map((x) => [x.memberId, x.text]), [['ann', 'Changed my mind'], ['', 'Too many weekends']])
+})
+
+test('saved arrangements: hosts keep up to ten, named, and can delete them', () => {
+  const s = session()
+  const d = { roster: { assignments: [], students: [], presenters: [] }, source: 'solver' as const, notes: [] }
+  assert.throws(() => saveArrangement(s, as('ann'), 'Mine', d), /Only hosts/)
+  saveArrangement(s, host, '  Fewer weekends  ', d)
+  saveArrangement(s, host, '', d)
+  assert.deepEqual(s.saved!.map((x) => x.name), ['Fewer weekends', 'Arrangement 2'])
+  for (let i = 2; i < MOST_SAVED; i++) saveArrangement(s, host, `#${i}`, d)
+  assert.throws(() => saveArrangement(s, host, 'one too many', d), /up to 10/)
+  removeArrangement(s, host, s.saved![0].id)
+  assert.equal(s.saved!.length, MOST_SAVED - 1)
+  assert.throws(() => removeArrangement(s, as('ann'), s.saved![0].id), /Only hosts/)
 })

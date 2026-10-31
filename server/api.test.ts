@@ -282,6 +282,14 @@ for (const [kind, makeStore] of stores) {
       const schedule = { status: 'review', ...roster, generatedAt: Date.now(), reviewUntil: Date.now() + 1e6, source: 'manual' }
       await call('PUT', `/sessions/${code}/schedule`, { body: schedule, account: alice })
       assert.equal((await call('GET', `/sessions/${code}`, { account: alice })).body.session.draft, null, 'published: nothing left to try out')
+      // Saved for later: kept for hosts, never sent to members.
+      await call('POST', `/sessions/${code}/saved`, { body: { action: 'add', name: 'Plan B', roster, source: 'solver', notes: [] }, account: alice })
+      const saved = (await call('GET', `/sessions/${code}`, { account: alice })).body.session.saved
+      assert.deepEqual([saved.length, saved[0].name, saved[0].roster.students], [1, 'Plan B', roster.students])
+      assert.deepEqual((await call('GET', `/sessions/${code}`, { bearer: m })).body.session.saved, [])
+      assert.equal((await call('POST', `/sessions/${code}/saved`, { body: { action: 'add', name: 'x', roster }, bearer: m })).status, 403)
+      await call('POST', `/sessions/${code}/saved`, { body: { action: 'remove', id: saved[0].id }, account: alice })
+      assert.deepEqual((await call('GET', `/sessions/${code}`, { account: alice })).body.session.saved, [])
     })
 
     test('PIN guessing is slowed down per name', async () => {

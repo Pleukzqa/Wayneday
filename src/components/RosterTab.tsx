@@ -19,7 +19,8 @@ import {
   studentTargets,
   type StudentOption,
 } from '../shared/students.ts'
-import { dutyOf, STUDENT_SLOT, type MemberResponse, type Roster, type Schedule, type SessionConfig, type StudentAssignment } from '../shared/types.ts'
+import { dutyOf, STUDENT_SLOT, type MemberResponse, type Roster, type SavedArrangement, type Schedule, type SessionConfig, type StudentAssignment } from '../shared/types.ts'
+import { MOST_SAVED } from '../shared/ops.ts'
 import CalendarExport from './CalendarExport.tsx'
 import ConfirmButton from './ConfirmButton.tsx'
 import FeedbackCard from './Feedback.tsx'
@@ -414,6 +415,10 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
                   setOptions(null)
                 }}
               >{t("Discard preview")}</button>
+              <SaveForLater
+                count={session.saved?.length ?? 0}
+                save={(name) => mutate(() => api.saveArrangement(code, name, { roster: preview.roster, source: preview.source, notes: preview.notes }))}
+              />
             </div>
           )}
           {problems && (
@@ -472,6 +477,19 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
             }}
           />
         </section>
+      )}
+      {me.isHost && (session.saved?.length ?? 0) > 0 && (
+        <SavedArrangements
+          config={config}
+          responses={responses}
+          saved={session.saved ?? []}
+          open={(x) => {
+            setEdit(null)
+            setPreview({ roster: x.roster, source: x.source, notes: x.notes })
+            setTimeout(() => tableRef.current?.scrollIntoView({ behavior: 'smooth' }), 50)
+          }}
+          remove={(id) => void mutate(() => api.removeArrangement(code, id)).catch((e) => setError((e as Error).message))}
+        />
       )}
       {schedule && !preview && (
         <section className={`card status ${schedule.status}`}>
@@ -827,6 +845,85 @@ function Concerns({
       )}
     </section>
   );
+}
+
+/** "Save for later": keep the arrangement on screen under a name, to open again from Saved arrangements. */
+function SaveForLater({ count, save }: { count: number; save: (name: string) => Promise<unknown> }) {
+  const [open, setOpen] = useState(false)
+  const [name, setName] = useState('')
+  const [state, setState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  if (count >= MOST_SAVED && !open) return <span className="muted small">{t('{n} saved — delete one to save another.', { n: count })}</span>
+  if (!open) {
+    return (
+      <button type="button" onClick={() => setOpen(true)}>
+        💾 {state === 'saved' ? t('Saved ✓ — save another') : t('Save for later')}
+      </button>
+    )
+  }
+  return (
+    <span className="row wrap save-later">
+      <input autoFocus maxLength={80} value={name} placeholder={t('Name, e.g. Fewer weekends for group B')} onChange={(e) => setName(e.target.value)} aria-label={t('Name')} />
+      <button
+        type="button"
+        className="primary"
+        disabled={state === 'saving'}
+        onClick={async () => {
+          setState('saving')
+          try {
+            await save(name || t('Arrangement {n}', { n: count + 1 }))
+            setState('saved')
+            setOpen(false)
+            setName('')
+          } catch {
+            setState('error')
+          }
+        }}
+      >
+        {t('Save')}
+      </button>
+      <button type="button" className="link" onClick={() => setOpen(false)}>{t('Cancel')}</button>
+      {state === 'error' && <span className="error small">{t('Couldn’t save — try again.')}</span>}
+    </span>
+  )
+}
+
+/** Arrangements kept for later: what each looks like, and one tap to open it again (or delete it). */
+function SavedArrangements({
+  config,
+  responses,
+  saved,
+  open,
+  remove,
+}: {
+  config: SessionConfig
+  responses: Record<string, MemberResponse>
+  saved: SavedArrangement[]
+  open: (x: SavedArrangement) => void
+  remove: (id: string) => void
+}) {
+  return (
+    <section className="card saved">
+      <h2>📁 {t('Saved arrangements ({n})', { n: saved.length })}</h2>
+      <p className="muted small">{t('Only you and your co-hosts see these. Open one to look at it again, change it or publish it.')}</p>
+      <ul>
+        {[...saved].reverse().map((x) => (
+          <li key={x.id}>
+            <div className="row wrap between">
+              <strong>{x.name}</strong>
+              <span className="row">
+                <button type="button" className="primary" onClick={() => open(x)}>{t('Open')}</button>
+                <ConfirmButton className="link danger" confirmText={t('tap to delete')} onConfirm={() => remove(x.id)}>
+                  {t('Delete')}
+                </ConfirmButton>
+              </span>
+            </div>
+            <span className="muted small">{t('Saved {time}', { time: new Date(x.savedAt).toLocaleString() })}</span>
+            <p className="small">{studentRuleReport(config, responses, x.roster).summary.join(' · ')}</p>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
 }
 
 function RulesCheck({ config, responses, roster }: { config: SessionConfig; responses: Record<string, MemberResponse>; roster: Roster }) {

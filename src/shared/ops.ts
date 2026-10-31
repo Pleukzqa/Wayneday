@@ -1,5 +1,5 @@
 // Session changes shared by the API server and the in-browser demo, so both enforce the same rules.
-import { DEFAULT_RESPONSE, FEEDBACK_QUESTIONS, STUDENT_SLOT, type AnswerChange, type Feedback, type HostNote, type JoinRequest, type MemberResponse, type MemberType, type PublicSession, type Roster, type SwapRequest } from './types.ts'
+import { DEFAULT_RESPONSE, FEEDBACK_QUESTIONS, STUDENT_SLOT, type AnswerChange, type Draft, type Feedback, type HostNote, type JoinRequest, type MemberResponse, type MemberType, type PublicSession, type Roster, type SwapRequest } from './types.ts'
 
 export interface Actor {
   isHost: boolean
@@ -99,6 +99,24 @@ export function readNote(s: PublicSession, actor: Actor, id: string) {
 
 /** The notes a viewer may see: all for hosts, their own for a member, none for anyone else. */
 export const visibleNotes = (s: PublicSession, actor: Actor) => (s.notes ?? []).filter((n) => actor.isHost || n.memberId === actor.memberId)
+
+// ---------- saved arrangements ----------
+
+export const MOST_SAVED = 10
+
+/** Hosts keep an arrangement to look at again later. */
+export function saveArrangement(s: PublicSession, actor: Actor, name: string, d: Omit<Draft, 'savedAt'>) {
+  if (!actor.isHost) throw new OpError(403, 'Only hosts can save arrangements')
+  const saved = s.saved ?? []
+  if (saved.length >= MOST_SAVED) throw new OpError(409, `You can keep up to ${MOST_SAVED} — delete one first`)
+  const n = saved.length + 1
+  s.saved = [...saved, { ...d, id: newId(), name: name.trim().slice(0, 80) || `Arrangement ${n}`, savedAt: Date.now() }]
+}
+
+export function removeArrangement(s: PublicSession, actor: Actor, id: string) {
+  if (!actor.isHost) throw new OpError(403, 'Only hosts can delete saved arrangements')
+  s.saved = (s.saved ?? []).filter((x) => x.id !== id)
+}
 
 // ---------- feedback ----------
 

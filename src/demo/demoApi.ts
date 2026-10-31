@@ -3,7 +3,7 @@
 
 import type { SessionView } from '../apiTypes.ts'
 import { addDays } from '../shared/dates.ts'
-import { actOnSwap, addNote, createJoin, decideJoin, readNote, removeNote, requestSwap, saveFeedback, saveResponse, visibleFeedback, visibleNotes, type Actor, type SwapAction } from '../shared/ops.ts'
+import { actOnSwap, addNote, createJoin, decideJoin, readNote, removeArrangement, removeNote, requestSwap, saveArrangement, saveFeedback, saveResponse, visibleFeedback, visibleNotes, type Actor, type SwapAction } from '../shared/ops.ts'
 import {
   DEFAULT_STUDENTS,
   normalizeSession,
@@ -85,7 +85,7 @@ function view(code: string): SessionView {
   const s = store.sessions[code]
   if (!s) throw new Error('Session not found on this device. Demo sessions only exist in this browser.')
   return {
-    session: { ...clone(s), notes: visibleNotes(s, actorFor(code)), feedback: visibleFeedback(s, actorFor(code)), draft: actorFor(code).isHost ? (s.draft ?? null) : null },
+    session: { ...clone(s), notes: visibleNotes(s, actorFor(code)), feedback: visibleFeedback(s, actorFor(code)), draft: actorFor(code).isHost ? (s.draft ?? null) : null, saved: actorFor(code).isHost ? (s.saved ?? []) : [] },
     me: actorFor(code),
     organizers: code === SAMPLE_CODE ? [{ name: 'Dr. Wipa', role: 'owner' }, { name: 'Ploy', role: 'cohost' }] : [],
   }
@@ -189,6 +189,9 @@ export const api = {
       s.schedule = clone(schedule)
       s.draft = null
     }),
+  saveArrangement: (code: string, name: string, d: { roster: Roster; source: Schedule['source']; notes: string[] }) =>
+    mutate(code, false, (s) => saveArrangement(s, actorFor(code), name, clone(d))),
+  removeArrangement: (code: string, id: string) => mutate(code, false, (s) => removeArrangement(s, actorFor(code), id)),
   saveDraft: (code: string, draft: { roster: Roster; source: Schedule['source']; notes: string[] } | null) =>
     mutate(code, true, (s) => {
       s.draft = draft ? { ...clone(draft), savedAt: Date.now() } : null

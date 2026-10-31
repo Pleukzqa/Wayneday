@@ -408,6 +408,13 @@ export interface PublicSession {
   feedback: Feedback[]
   /** The hosts' unpublished arrangement (a practice run or preview), kept for next time. Only sent to hosts. */
   draft?: Draft | null
+  /** Arrangements the hosts saved to look at again later (newest last). Only sent to hosts. */
+  saved?: SavedArrangement[]
+}
+
+export interface SavedArrangement extends Draft {
+  id: string
+  name: string
 }
 
 export interface Draft {

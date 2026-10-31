@@ -78,6 +78,10 @@ export const api = {
   /** Hosts: keep (or with null, drop) the arrangement being tried out. */
   saveDraft: (code: string, draft: { roster: Roster; source: Schedule['source']; notes: string[] } | null) =>
     call<SessionView>(code, 'PUT', `/sessions/${code}/draft`, draft ?? {}),
+  /** Hosts: keep an arrangement for later, or delete one. */
+  saveArrangement: (code: string, name: string, d: { roster: Roster; source: Schedule['source']; notes: string[] }) =>
+    call<SessionView>(code, 'POST', `/sessions/${code}/saved`, { action: 'add', name, ...d }),
+  removeArrangement: (code: string, id: string) => call<SessionView>(code, 'POST', `/sessions/${code}/saved`, { action: 'remove', id }),
   saveFeedback: (code: string, f: { ratings: Record<string, number>; text: string; anonymous: boolean }) =>
     call<SessionView>(code, 'PUT', `/sessions/${code}/feedback`, f),
   addNote: (code: string, memberId: string, text: string) => call<SessionView>(code, 'POST', `/sessions/${code}/notes`, { memberId, text }),

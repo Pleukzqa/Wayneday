@@ -3,7 +3,7 @@
 import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto'
 import express, { type Request, type Response, type NextFunction } from 'express'
 import { isDate } from '../src/shared/dates.ts'
-import { actOnSwap, addNote, createJoin, decideJoin, OpError, readNote, removeNote, requestSwap, saveFeedback, saveResponse, visibleFeedback, visibleNotes, type SwapAction } from '../src/shared/ops.ts'
+import { actOnSwap, addNote, createJoin, decideJoin, OpError, readNote, removeArrangement, removeNote, requestSwap, saveArrangement, saveFeedback, saveResponse, visibleFeedback, visibleNotes, type SwapAction } from '../src/shared/ops.ts'
 import {
   ANY_SHIFT,
   DEFAULT_STUDENTS,
@@ -432,7 +432,13 @@ export function createApi(opts: ApiOptions) {
     const organizers = s.hosts.map((h) => ({ name: h.name.includes('@') ? '' : h.name, role: h.role }))
     // Notes are private: each member only gets their own.
     return {
-      session: { ...toPublic(s), notes: visibleNotes(s, me), feedback: visibleFeedback(s, me), draft: me.isHost ? (s.draft ?? null) : null },
+      session: {
+        ...toPublic(s),
+        notes: visibleNotes(s, me),
+        feedback: visibleFeedback(s, me),
+        draft: me.isHost ? (s.draft ?? null) : null,
+        saved: me.isHost ? (s.saved ?? []) : [],
+      },
       me,
       organizers,
       ...(me.isHost ? { hosts: s.hosts } : {}),
@@ -686,6 +692,23 @@ export function createApi(opts: ApiOptions) {
       return mutate(req, code(req), (s, me) => {
         if (!me.isHost) throw new HttpError(403, 'Only hosts keep a draft')
         s.draft = draft
+      })
+    }),
+  )
+
+  router.post(
+    '/sessions/:code/saved',
+    handle((req) => {
+      const b = (req.body ?? {}) as Record<string, unknown>
+      const roster = b.roster ? cleanSchedule(b.roster) : null
+      return mutate(req, code(req), (s, me) => {
+        if (b.action === 'remove') return void removeArrangement(s, me, str(b.id, 40))
+        if (!roster) throw new HttpError(400, 'Nothing to save')
+        saveArrangement(s, me, str(b.name, 80), {
+          roster: { assignments: roster.assignments, students: roster.students, presenters: roster.presenters },
+          source: b.source === 'ai' || b.source === 'manual' ? b.source : 'solver',
+          notes: arr(b.notes, 20).map((n) => str(n, 300)),
+        })
       })
     }),
   )
