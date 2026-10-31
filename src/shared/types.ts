@@ -316,6 +316,25 @@ export interface Concern {
   shiftId?: string
   createdAt: number
   resolved: boolean
+  /** Only the poster and the hosts see it. */
+  private?: boolean
+  replies?: ConcernReply[]
+  /** Member id → 1 (agree) or -1 (disagree). Stored in full; a viewer only gets their own (see visibleConcerns). */
+  votes?: Record<string, 1 | -1>
+  /** Filled in for the viewer: how many agree and disagree. */
+  up?: number
+  down?: number
+}
+
+export interface ConcernReply {
+  id: string
+  /** The member who replied, or 'host'. */
+  memberId: string
+  /** A host's name and role, when a host replied. */
+  by?: string
+  role?: 'owner' | 'cohost'
+  text: string
+  at: number
 }
 
 export interface SwapOffer {

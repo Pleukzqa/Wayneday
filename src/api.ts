@@ -73,8 +73,14 @@ export const api = {
   saveResponse: (code: string, memberId: string, r: MemberResponse, hostReason?: string) =>
     call<SessionView>(code, 'PUT', `/sessions/${code}/responses/${memberId}`, hostReason ? { ...r, hostReason } : r),
   saveSchedule: (code: string, s: Schedule | null) => call<SessionView>(code, 'PUT', `/sessions/${code}/schedule`, s),
-  addConcern: (code: string, text: string, date?: string, shiftId?: string) =>
-    call<SessionView>(code, 'POST', `/sessions/${code}/concerns`, { text, date, shiftId }),
+  /** `private`: only the hosts (and the poster) see it. */
+  addConcern: (code: string, body: { text: string; date?: string; shiftId?: string; private?: boolean }) =>
+    call<SessionView>(code, 'POST', `/sessions/${code}/concerns`, body),
+  removeConcern: (code: string, id: string) => call<SessionView>(code, 'DELETE', `/sessions/${code}/concerns/${id}`),
+  replyConcern: (code: string, id: string, text: string) => call<SessionView>(code, 'POST', `/sessions/${code}/concerns/${id}/replies`, { text }),
+  removeReply: (code: string, id: string, replyId: string) => call<SessionView>(code, 'DELETE', `/sessions/${code}/concerns/${id}/replies/${replyId}`),
+  /** 1 agree, -1 disagree, 0 take the vote back. */
+  voteConcern: (code: string, id: string, vote: 1 | -1 | 0) => call<SessionView>(code, 'POST', `/sessions/${code}/concerns/${id}/vote`, { vote }),
   /** Hosts: keep (or with null, drop) the arrangement being tried out. */
   saveDraft: (code: string, draft: { roster: Roster; source: Schedule['source']; notes: string[]; name?: string } | null) =>
     call<SessionView>(code, 'PUT', `/sessions/${code}/draft`, draft ?? {}),

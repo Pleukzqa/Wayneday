@@ -18,7 +18,7 @@ The whole app is in **English or Thai (ไทย)** — switch at the top right;
 5. **Find arrangements (host):** shows how many valid arrangements exist (exact when small, estimated otherwise), lists the best distinct options to compare, or explains why none is possible.
 6. **Students** are placed after residents and staff, so every resident and every staff member is on duty with students about equally often. **Presenters** are picked for each presentation rule, taking the required number from the previous day's shift first and sharing the load.
 7. **AI hand-off:** the prompt includes the whole problem and the roster on screen, in the exact JSON the app reads back; the reply is checked against the hard rules before publishing.
-8. **Publish for review** with a concern period. Members raise concerns (tap a cell) or **ask to swap** one of their shifts or student places: the request is announced to the group, others offer to take it or trade, the asker accepts, and the host approves (the app shows any rule the swap would break).
+8. **Publish for review** with a concern period. Members raise concerns (tap a cell) — for everyone, or 🔒 privately to the hosts only — reply, agree 👍 or disagree 👎, and delete their own; or **ask to swap** one of their shifts or student places: the request is announced to the group, others offer to take it or trade, the asker accepts, and the host approves (the app shows any rule the swap would break).
 9. **Export:** Excel, CSV, PNG, Google Sheets, and **calendar** — pick whose shifts, the event name, a colour and the Google calendar (or a new one), or download .ics / Google Calendar CSV.
 
 ### Solver

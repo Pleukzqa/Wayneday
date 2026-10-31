@@ -1,5 +1,5 @@
 // Session changes shared by the API server and the in-browser demo, so both enforce the same rules.
-import { DEFAULT_RESPONSE, FEEDBACK_QUESTIONS, STUDENT_SLOT, type AnswerChange, type Draft, type Feedback, type HostNote, type JoinRequest, type MemberResponse, type MemberType, type PublicSession, type Roster, type SwapRequest } from './types.ts'
+import { DEFAULT_RESPONSE, FEEDBACK_QUESTIONS, STUDENT_SLOT, type AnswerChange, type Concern, type Draft, type Feedback, type HostNote, type JoinRequest, type MemberResponse, type MemberType, type PublicSession, type Roster, type SwapRequest } from './types.ts'
 
 export interface Actor {
   isHost: boolean
@@ -99,6 +99,99 @@ export function readNote(s: PublicSession, actor: Actor, id: string) {
 
 /** The notes a viewer may see: all for hosts, their own for a member, none for anyone else. */
 export const visibleNotes = (s: PublicSession, actor: Actor) => (s.notes ?? []).filter((n) => actor.isHost || n.memberId === actor.memberId)
+
+// ---------- concerns ----------
+
+/** Members post while the roster is in review; hosts any time. */
+function concernsOpen(s: PublicSession, actor: Actor) {
+  return actor.isHost || (Boolean(s.schedule) && s.schedule!.status === 'review' && Date.now() <= s.schedule!.reviewUntil)
+}
+
+function canSee(c: Concern, actor: Actor) {
+  return !c.private || actor.isHost || c.memberId === actor.memberId
+}
+
+function findConcern(s: PublicSession, actor: Actor, id: string) {
+  const c = s.concerns.find((x) => x.id === id)
+  if (!c || !canSee(c, actor)) throw new OpError(404, 'No such concern')
+  return c
+}
+
+export function addConcern(s: PublicSession, actor: Actor, body: { text: string; date?: string; shiftId?: string; private?: boolean }) {
+  if (!actor.memberId && !actor.isHost) throw new OpError(401, 'Log in to post a concern')
+  if (!concernsOpen(s, actor)) throw new OpError(409, 'The concern period is closed')
+  const text = body.text.trim().slice(0, 1000)
+  if (!text) throw new OpError(400, 'Write something first')
+  const c: Concern = {
+    id: newId(),
+    memberId: actor.memberId ?? 'host',
+    text,
+    ...(body.date ? { date: body.date } : {}),
+    ...(body.shiftId ? { shiftId: body.shiftId } : {}),
+    createdAt: Date.now(),
+    resolved: false,
+    // Private = to the hosts only; a host's own concern is for everyone.
+    ...(body.private && actor.memberId ? { private: true } : {}),
+  }
+  s.concerns = [...s.concerns.slice(-499), c]
+  return c
+}
+
+/** The poster takes their concern back (hosts can remove any). */
+export function removeConcern(s: PublicSession, actor: Actor, id: string) {
+  const c = findConcern(s, actor, id)
+  if (!actor.isHost && c.memberId !== actor.memberId) throw new OpError(403, 'Only the person who posted it can delete it')
+  s.concerns = s.concerns.filter((x) => x !== c)
+}
+
+export function resolveConcern(s: PublicSession, actor: Actor, id: string, resolved: boolean) {
+  if (!actor.isHost) throw new OpError(403, 'Only the host can resolve concerns')
+  findConcern(s, actor, id).resolved = resolved
+}
+
+/** Anyone who can see a concern can reply: hosts any time, members while concerns are open. */
+export function replyConcern(s: PublicSession, actor: Actor, id: string, text: string, by?: Pick<HostNote, 'by' | 'role'>) {
+  const c = findConcern(s, actor, id)
+  if (!actor.memberId && !actor.isHost) throw new OpError(401, 'Log in to reply')
+  if (!concernsOpen(s, actor)) throw new OpError(409, 'The concern period is closed')
+  const clean = text.trim().slice(0, 1000)
+  if (!clean) throw new OpError(400, 'Write something first')
+  c.replies = [
+    ...(c.replies ?? []).slice(-99),
+    { id: newId(), memberId: actor.isHost ? 'host' : actor.memberId!, ...(actor.isHost && by ? { by: by.by, role: by.role } : {}), text: clean, at: Date.now() },
+  ]
+}
+
+export function removeReply(s: PublicSession, actor: Actor, id: string, replyId: string) {
+  const c = findConcern(s, actor, id)
+  const r = (c.replies ?? []).find((x) => x.id === replyId)
+  if (!r) throw new OpError(404, 'No such reply')
+  if (!actor.isHost && r.memberId !== actor.memberId) throw new OpError(403, 'Only the person who wrote it can delete it')
+  c.replies = (c.replies ?? []).filter((x) => x !== r)
+}
+
+/** A member agrees (1), disagrees (-1) or takes their vote back (0). Private concerns have no votes. */
+export function voteConcern(s: PublicSession, actor: Actor, id: string, vote: 1 | -1 | 0) {
+  const c = findConcern(s, actor, id)
+  if (!actor.memberId) throw new OpError(401, 'Log in to vote')
+  if (c.private) throw new OpError(400, 'Private concerns have no votes')
+  if (!concernsOpen(s, actor)) throw new OpError(409, 'The concern period is closed')
+  const votes = { ...(c.votes ?? {}) }
+  if (vote === 0) delete votes[actor.memberId]
+  else votes[actor.memberId] = vote
+  c.votes = votes
+}
+
+/** What a viewer gets: others' private concerns left out, and votes as counts plus their own. */
+export function visibleConcerns(s: PublicSession, actor: Actor): Concern[] {
+  return s.concerns
+    .filter((c) => canSee(c, actor))
+    .map(({ votes, ...c }) => {
+      const all = Object.entries(votes ?? {})
+      const mine = actor.memberId ? votes?.[actor.memberId] : undefined
+      return { ...c, up: all.filter(([, v]) => v === 1).length, down: all.filter(([, v]) => v === -1).length, ...(mine ? { votes: { [actor.memberId!]: mine } } : {}) }
+    })
+}
 
 // ---------- saved arrangements ----------
 

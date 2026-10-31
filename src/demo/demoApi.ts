@@ -3,11 +3,10 @@
 
 import type { SessionView } from '../apiTypes.ts'
 import { addDays } from '../shared/dates.ts'
-import { actOnSwap, addNote, createJoin, decideJoin, readNote, removeArrangement, removeNote, requestSwap, saveArrangement, saveFeedback, saveResponse, visibleFeedback, visibleNotes, type Actor, type SwapAction } from '../shared/ops.ts'
+import { actOnSwap, addConcern, addNote, removeConcern, removeReply, replyConcern, resolveConcern, visibleConcerns, voteConcern, createJoin, decideJoin, readNote, removeArrangement, removeNote, requestSwap, saveArrangement, saveFeedback, saveResponse, visibleFeedback, visibleNotes, type Actor, type SwapAction } from '../shared/ops.ts'
 import {
   DEFAULT_STUDENTS,
   normalizeSession,
-  type Concern,
   type MemberResponse,
   type MemberType,
   type PublicSession,
@@ -85,7 +84,7 @@ function view(code: string): SessionView {
   const s = store.sessions[code]
   if (!s) throw new Error('Session not found on this device. Demo sessions only exist in this browser.')
   return {
-    session: { ...clone(s), notes: visibleNotes(s, actorFor(code)), feedback: visibleFeedback(s, actorFor(code)), draft: actorFor(code).isHost ? (s.draft ?? null) : null, saved: actorFor(code).isHost ? (s.saved ?? []) : [] },
+    session: { ...clone(s), concerns: visibleConcerns(s, actorFor(code)), notes: visibleNotes(s, actorFor(code)), feedback: visibleFeedback(s, actorFor(code)), draft: actorFor(code).isHost ? (s.draft ?? null) : null, saved: actorFor(code).isHost ? (s.saved ?? []) : [] },
     me: actorFor(code),
     organizers: code === SAMPLE_CODE ? [{ name: 'Dr. Wipa', role: 'owner' }, { name: 'Ploy', role: 'cohost' }] : [],
   }
@@ -196,35 +195,20 @@ export const api = {
     mutate(code, true, (s) => {
       s.draft = draft ? { ...clone(draft), savedAt: Date.now() } : null
     }),
-  addConcern: (code: string, text: string, date?: string, shiftId?: string) =>
-    mutate(code, false, (s) => {
-      const who = getActing(code)
-      if (who !== 'host' && (!s.schedule || s.schedule.status !== 'review' || Date.now() > s.schedule.reviewUntil)) {
-        throw new Error('The concern period is closed')
-      }
-      if (!text.trim()) throw new Error('Write something first')
-      const c: Concern = {
-        id: Math.random().toString(36).slice(2, 10),
-        memberId: who,
-        text: text.trim(),
-        ...(date ? { date } : {}),
-        ...(shiftId ? { shiftId } : {}),
-        createdAt: Date.now(),
-        resolved: false,
-      }
-      s.concerns.push(c)
-    }),
+  addConcern: (code: string, body: { text: string; date?: string; shiftId?: string; private?: boolean }) =>
+    mutate(code, false, (s) => void addConcern(s, actorFor(code), body)),
+  removeConcern: (code: string, id: string) => mutate(code, false, (s) => removeConcern(s, actorFor(code), id)),
+  replyConcern: (code: string, id: string, text: string) =>
+    mutate(code, false, (s) => replyConcern(s, actorFor(code), id, text, { by: 'Dr. Wipa', role: 'owner' })),
+  removeReply: (code: string, id: string, replyId: string) => mutate(code, false, (s) => removeReply(s, actorFor(code), id, replyId)),
+  voteConcern: (code: string, id: string, vote: 1 | -1 | 0) => mutate(code, false, (s) => voteConcern(s, actorFor(code), id, vote)),
   saveFeedback: (code: string, f: { ratings: Record<string, number>; text: string; anonymous: boolean }) =>
     mutate(code, false, (s) => saveFeedback(s, actorFor(code), f)),
   addNote: (code: string, memberId: string, text: string) =>
     mutate(code, false, (s) => addNote(s, actorFor(code), memberId, text, { by: 'Dr. Wipa', role: 'owner' })),
   removeNote: (code: string, id: string) => mutate(code, false, (s) => removeNote(s, actorFor(code), id)),
   readNote: (code: string, id: string) => mutate(code, false, (s) => readNote(s, actorFor(code), id)),
-  resolveConcern: (code: string, id: string, resolved: boolean) =>
-    mutate(code, true, (s) => {
-      const c = s.concerns.find((x) => x.id === id)
-      if (c) c.resolved = resolved
-    }),
+  resolveConcern: (code: string, id: string, resolved: boolean) => mutate(code, false, (s) => resolveConcern(s, actorFor(code), id, resolved)),
   requestSwap: (code: string, body: { date: string; shiftId: string; requirementId: string; note: string }) =>
     mutate(code, false, (s) => void requestSwap(s, actorFor(code), body)),
   actOnSwap: (code: string, id: string, action: SwapAction) => mutate(code, false, (s) => actOnSwap(s, actorFor(code), id, action)),

@@ -3,13 +3,12 @@
 import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto'
 import express, { type Request, type Response, type NextFunction } from 'express'
 import { isDate } from '../src/shared/dates.ts'
-import { actOnSwap, addNote, createJoin, decideJoin, OpError, readNote, removeArrangement, removeNote, requestSwap, saveArrangement, saveFeedback, saveResponse, visibleFeedback, visibleNotes, type SwapAction } from '../src/shared/ops.ts'
+import { actOnSwap, addConcern, addNote, createJoin, removeConcern, removeReply, replyConcern, resolveConcern, visibleConcerns, voteConcern, decideJoin, OpError, readNote, removeArrangement, removeNote, requestSwap, saveArrangement, saveFeedback, saveResponse, visibleFeedback, visibleNotes, type SwapAction } from '../src/shared/ops.ts'
 import {
   ANY_SHIFT,
   DEFAULT_STUDENTS,
   normalizeSession,
   type Assignment,
-  type Concern,
   type DateOverride,
   type Draft,
   type DaysBack,
@@ -437,6 +436,7 @@ export function createApi(opts: ApiOptions) {
     return {
       session: {
         ...toPublic(s),
+        concerns: visibleConcerns(s, me),
         notes: visibleNotes(s, me),
         feedback: visibleFeedback(s, me),
         draft: me.isHost ? (s.draft ?? null) : null,
@@ -754,38 +754,43 @@ export function createApi(opts: ApiOptions) {
     '/sessions/:code/concerns',
     handle((req) => {
       const b = (req.body ?? {}) as Record<string, unknown>
-      const text = str(b.text, 1000).trim()
-      if (!text) throw new HttpError(400, 'Write something first')
-      const concernId = id()
-      return mutate(req, code(req), (s, me) => {
-        if (!me.memberId && !me.isHost) throw new HttpError(401, 'Log in to post a concern')
-        if (!me.isHost && (!s.schedule || s.schedule.status !== 'review' || Date.now() > s.schedule.reviewUntil)) {
-          throw new HttpError(409, 'The concern period is closed')
-        }
-        const concern: Concern = {
-          id: concernId,
-          memberId: me.memberId ?? 'host',
-          text,
+      return mutate(req, code(req), (s, me) =>
+        void addConcern(s, me, {
+          text: str(b.text, 1000),
           ...(isDate(b.date) ? { date: b.date } : {}),
           ...(typeof b.shiftId === 'string' && b.shiftId ? { shiftId: str(b.shiftId, 40) } : {}),
-          createdAt: Date.now(),
-          resolved: false,
-        }
-        s.concerns = [...s.concerns.slice(-499), concern]
-      })
+          private: b.private === true,
+        }),
+      )
     }),
   )
 
   router.patch(
     '/sessions/:code/concerns/:id',
-    handle((req) =>
-      mutate(req, code(req), (s, me) => {
-        if (!me.isHost) throw new HttpError(403, 'Only the host can resolve concerns')
-        const c = s.concerns.find((x) => x.id === req.params.id)
-        if (!c) throw new HttpError(404, 'No such concern')
-        c.resolved = Boolean((req.body as { resolved?: boolean })?.resolved)
-      }),
-    ),
+    handle((req) => mutate(req, code(req), (s, me) => resolveConcern(s, me, String(req.params.id), Boolean((req.body as { resolved?: boolean })?.resolved)))),
+  )
+
+  router.delete(
+    '/sessions/:code/concerns/:id',
+    handle((req) => mutate(req, code(req), (s, me) => removeConcern(s, me, String(req.params.id)))),
+  )
+
+  router.post(
+    '/sessions/:code/concerns/:id/replies',
+    handle((req) => mutate(req, code(req), (s, me) => replyConcern(s, me, String(req.params.id), str((req.body as { text?: unknown })?.text, 1000), signature(s, me)))),
+  )
+
+  router.delete(
+    '/sessions/:code/concerns/:id/replies/:replyId',
+    handle((req) => mutate(req, code(req), (s, me) => removeReply(s, me, String(req.params.id), String(req.params.replyId)))),
+  )
+
+  router.post(
+    '/sessions/:code/concerns/:id/vote',
+    handle((req) => {
+      const v = (req.body as { vote?: unknown })?.vote
+      return mutate(req, code(req), (s, me) => voteConcern(s, me, String(req.params.id), v === 1 || v === -1 ? v : 0))
+    }),
   )
 
   const shiftRef = (v: unknown) => {

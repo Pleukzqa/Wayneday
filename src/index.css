@@ -696,6 +696,38 @@ details.ai > * + * {
   opacity: 0.6;
   border-left-color: var(--accent);
 }
+.concerns li.private {
+  border-left-color: var(--lock);
+}
+.concerns .concern-actions {
+  gap: 0.5rem;
+  align-items: center;
+}
+.concerns .vote.on {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+.concerns .replies {
+  list-style: none;
+  padding: 0 0 0 0.75rem;
+  margin: 0.5rem 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.concerns .replies li {
+  border: none;
+  border-left: 2px solid var(--border);
+  border-radius: 0;
+  padding: 0.15rem 0.6rem;
+}
+.concerns .replies p {
+  margin: 0.15rem 0;
+}
+.concerns .reply-form {
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
 
 @media (max-width: 600px) {
   .page {
@@ -1207,6 +1239,12 @@ button.chip-btn.picked:hover:not(:disabled) {
 .segmented.lang button {
   padding: 0.25rem 0.6rem;
   font-size: 0.85rem;
+}
+.theme-switch {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.95rem;
+  line-height: 1.2;
+  flex-shrink: 0;
 }
 
 /* host checklist */
@@ -2080,4 +2118,11 @@ body.no-scroll {
 :root[data-theme='dark'] .who-select[style*='--h'] {
   background-color: hsl(var(--h) 35% 22%);
   color: hsl(var(--h) 70% 85%);
+}
+
+/* A part of a card under its own heading (the hospital roster inside Residents & staff). */
+.subsection {
+  border-top: 1px solid var(--border);
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
 }

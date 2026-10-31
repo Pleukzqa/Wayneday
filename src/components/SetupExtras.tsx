@@ -1179,7 +1179,7 @@ export function JoinRequests({ code, session, mutate, dirty }: SessionProps & { 
 export function RosterModeCard({ draft, edit, ro }: { draft: SessionConfig; edit: Edit; ro: boolean }) {
   return (
     <section className="card">
-      <h2 id="sec-mode">👩‍⚕️ {t('Residents & staff roster')}</h2>
+      <h2 id="sec-mode">👩‍⚕️ {t('Residents & staff')}</h2>
       <div className="segmented wrap-seg" role="radiogroup" aria-label={t("Who makes the resident and staff roster")}>
         {(
           [
@@ -1210,6 +1210,7 @@ export function RosterModeCard({ draft, edit, ro }: { draft: SessionConfig; edit
           "Wayneday schedules residents and staff from their availability and preferences, then arranges the students."
         )}
       </p>
+      {draft.rosterMode === 'hospital' && <DutyRosterCard draft={draft} edit={edit} ro={ro} />}
     </section>
   );
 }
@@ -1399,10 +1400,10 @@ export function DutyRosterCard({ draft, edit, ro }: { draft: SessionConfig; edit
   const template = ['Date\tDay\t' + cols.map((c) => `${c.shift.name} ${ROLE_LABEL[c.role]}`).join('\t'), ...days.map((d) => `${d}\t${shortDate(d).split(' ')[0]}${'\t'.repeat(cols.length)}`)].join('\n')
 
   return (
-    <section className="card">
-      <h2 id="sec-duty">
+    <div className="stack-tight subsection">
+      <h3 id="sec-duty">
         {t("🩺 Hospital roster")} <span className="badge">{draft.noDuty ? t('left blank') : `${daysFilled}/${days.length} ${t('days')}`}</span>
-      </h2>
+      </h3>
       <label className="check">
         <input type="checkbox" disabled={ro} checked={Boolean(draft.noDuty)} onChange={(e) => edit((c) => ({ ...c, noDuty: e.target.checked || undefined }))} />
         {t('Leave it blank — we don’t know the hospital roster (yet)')}
@@ -1507,6 +1508,6 @@ export function DutyRosterCard({ draft, edit, ro }: { draft: SessionConfig; edit
       </div>
       </>
       )}
-    </section>
+    </div>
   );
 }

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { actOnSwap, addNote, createJoin, decideJoin, MOST_SAVED, readNote, removeArrangement, removeNote, requestSwap, saveArrangement, saveFeedback, saveResponse, visibleFeedback, visibleNotes } from './ops.ts'
+import { actOnSwap, addConcern, addNote, removeConcern, removeReply, replyConcern, resolveConcern, visibleConcerns, voteConcern, createJoin, decideJoin, MOST_SAVED, readNote, removeArrangement, removeNote, requestSwap, saveArrangement, saveFeedback, saveResponse, visibleFeedback, visibleNotes } from './ops.ts'
 import { DEFAULT_RESPONSE, DEFAULT_STUDENTS, type PublicSession } from './types.ts'
 
 function session(): PublicSession {
@@ -191,4 +191,44 @@ test('saved arrangements: hosts keep up to ten, named, and can delete them', () 
   removeArrangement(s, host, s.saved![0].id)
   assert.equal(s.saved!.length, MOST_SAVED - 1)
   assert.throws(() => removeArrangement(s, as('ann'), s.saved![0].id), /Only hosts/)
+})
+
+test('concerns: private to the hosts, replies, votes counted without names, the poster can delete', () => {
+  const s = session()
+  const by = { by: 'Dr. Host', role: 'cohost' as const }
+  const open = addConcern(s, as('ann'), { text: 'Can the 2nd move?', date: '2026-11-02' })
+  const secret = addConcern(s, as('ben'), { text: 'I have a family matter on the 3rd', private: true })
+  assert.deepEqual(visibleConcerns(s, as('cat')).map((c) => c.id), [open.id], 'others don’t see a private one')
+  assert.equal(visibleConcerns(s, as('ben')).length, 2)
+  assert.equal(visibleConcerns(s, host).length, 2)
+  assert.throws(() => replyConcern(s, as('cat'), secret.id, 'hi'), /No such concern/)
+  assert.throws(() => voteConcern(s, as('ben'), secret.id, 1), /no votes/)
+  // Votes: one per member, changeable; viewers see counts and only their own vote.
+  voteConcern(s, as('ben'), open.id, 1)
+  voteConcern(s, as('cat'), open.id, -1)
+  voteConcern(s, as('cat'), open.id, 1)
+  const seen = visibleConcerns(s, as('ben')).find((c) => c.id === open.id)!
+  assert.deepEqual([seen.up, seen.down, seen.votes], [2, 0, { ben: 1 }])
+  voteConcern(s, as('ben'), open.id, 0)
+  assert.equal(visibleConcerns(s, host).find((c) => c.id === open.id)!.up, 1)
+  assert.equal(visibleConcerns(s, host).find((c) => c.id === open.id)!.votes, undefined)
+  // Replies: a host signs theirs; each person deletes only their own.
+  replyConcern(s, host, secret.id, 'Noted, we’ll move you', by)
+  replyConcern(s, as('ben'), secret.id, 'Thank you')
+  const [hostReply, benReply] = s.concerns.find((c) => c.id === secret.id)!.replies!
+  assert.deepEqual([hostReply.memberId, hostReply.by, hostReply.role], ['host', 'Dr. Host', 'cohost'])
+  assert.throws(() => removeReply(s, as('ben'), secret.id, hostReply.id), /Only the person/)
+  removeReply(s, as('ben'), secret.id, benReply.id)
+  assert.throws(() => resolveConcern(s, as('ann'), open.id, true), /Only the host/)
+  resolveConcern(s, host, open.id, true)
+  // Deleting: the poster (or a host), nobody else.
+  assert.throws(() => removeConcern(s, as('cat'), open.id), /Only the person/)
+  removeConcern(s, as('ann'), open.id)
+  removeConcern(s, host, secret.id)
+  assert.equal(s.concerns.length, 0)
+  // Members post, reply and vote only while the roster is in review.
+  s.schedule!.reviewUntil = Date.now() - 1
+  assert.throws(() => addConcern(s, as('ann'), { text: 'late' }), /closed/)
+  addConcern(s, host, { text: 'Hosts can still post', private: true })
+  assert.equal(s.concerns[0].private, undefined, 'a host’s concern is for everyone')
 })

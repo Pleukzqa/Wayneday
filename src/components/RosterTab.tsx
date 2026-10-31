@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from 'react'
-import { api } from '../api.ts'
+import { api, type SessionView } from '../api.ts'
 import { googleClientId } from '../google.ts'
 import { t } from '../shared/i18n.ts'
 import { exportCsv, exportPng, exportToDrive, exportXlsx, personTable } from '../export.ts'
@@ -22,7 +22,7 @@ import {
   studentTargets,
   type StudentOption,
 } from '../shared/students.ts'
-import { dutyOf, isOneDay, personHue, STUDENT_SLOT, type MemberResponse, type Roster, type SavedArrangement, type Schedule, type SessionConfig, type StudentAssignment } from '../shared/types.ts'
+import { dutyOf, isOneDay, personHue, STUDENT_SLOT, type Concern, type MemberResponse, type Roster, type SavedArrangement, type Schedule, type SessionConfig, type StudentAssignment } from '../shared/types.ts'
 import { MOST_SAVED } from '../shared/ops.ts'
 import CalendarExport from './CalendarExport.tsx'
 import ConfirmButton from './ConfirmButton.tsx'
@@ -595,6 +595,7 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
         />
       )}
       {schedule && !preview && <Swaps {...{ code, session, me, mutate }} draft={swapDraft} clearDraft={() => setSwapDraft(null)} />}
+      {schedule && <Concerns {...{ code, session, me, mutate }} open={inReview} date={concernDate} setDate={setConcernDate} />}
       {schedule && !preview && <FeedbackCard {...{ code, session, me, mutate }} />}
       {!shown ? (
         <p className="muted">{me.isHost ? t("Tap “Find arrangements” to see the possible rosters.") : t("The host hasn’t published a roster yet.")}</p>
@@ -699,8 +700,8 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
             />
           </section>
           {config.presentations.length > 0 && <p className="muted small">{t("● = presenting after being on the previous night’s shift.")}</p>}
-          {hasStudents && <FairnessTable config={config} responses={responses} roster={shown} />}
           {hasStudents && <RulesCheck config={config} responses={responses} roster={shown} />}
+          {hasStudents && <FairnessTable config={config} responses={responses} roster={shown} />}
           {hasStudents && me.isHost && (
             <Compare
               config={config}
@@ -713,12 +714,11 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
               ]}
             />
           )}
-          <Exports {...{ code, session, me, mutate }} roster={shown} tableRef={tableRef} />
           {hasStudents && <StudentSummary config={config} roster={shown} myId={me.memberId} />}
           {!hospital && <Stats {...{ code, session, me, mutate }} roster={shown} />}
+          <Exports {...{ code, session, me, mutate }} roster={shown} tableRef={tableRef} />
         </>
       )}
-      {schedule && <Concerns {...{ code, session, me, mutate }} open={inReview} date={concernDate} setDate={setConcernDate} />}
     </div>
   );
 }
@@ -859,18 +859,19 @@ function Concerns({
   setDate,
 }: SessionProps & { open: boolean; date: string; setDate: (d: string) => void }) {
   const [text, setText] = useState('')
+  const [only, setOnly] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const name = (id: string) => (id === 'host' ? t('Host') : (session.config.members.find((m) => m.id === id)?.name ?? '?'))
-  const canPost = me.isHost || (open && me.memberId)
-  const list = [...session.concerns].sort((a, b) => Number(a.resolved) - Number(b.resolved) || b.createdAt - a.createdAt)
+  const canPost = Boolean(me.isHost || (open && me.memberId))
+  const run = (fn: () => Promise<SessionView>) => void mutate(fn).catch((e) => setError((e as Error).message))
+  // Open ones first, the most agreed-with at the top, then the newest.
+  const score = (c: Concern) => (c.up ?? 0) - (c.down ?? 0)
+  const list = [...session.concerns].sort((a, b) => Number(a.resolved) - Number(b.resolved) || score(b) - score(a) || b.createdAt - a.createdAt)
+  const openCount = session.concerns.filter((c) => !c.resolved).length
 
   return (
-    <section className="card">
+    <section className="card" id="concerns">
       <h2>
-        💬 {t('Concerns')}{' '}
-        {session.concerns.filter((c) => !c.resolved).length > 0 && (
-          <span className="badge warn">{t('{n} open', { n: session.concerns.filter((c) => !c.resolved).length })}</span>
-        )}
+        💬 {t('Concerns')} {openCount > 0 && <span className="badge warn">{t('{n} open', { n: openCount })}</span>}
       </h2>
       {canPost && me.memberId && <p className="muted small">{t("Tip: tap a cell in the roster to raise a concern about that date.")}</p>}
       {canPost ? (
@@ -880,9 +881,10 @@ function Concerns({
             e.preventDefault()
             setError(null)
             try {
-              await mutate(() => api.addConcern(code, text, date || undefined))
+              await mutate(() => api.addConcern(code, { text, date: date || undefined, private: only || undefined }))
               setText('')
               setDate('')
+              setOnly(false)
             } catch (err) {
               setError((err as Error).message)
             }
@@ -894,36 +896,128 @@ function Concerns({
             <label>{t("About date")} <span className="muted small">{t("(optional)")}</span>
               <input type="date" min={session.config.startDate} max={session.config.endDate} value={date} onChange={(e) => setDate(e.target.value)} />
             </label>
-            <button className="primary">{t("💬 Post")}</button>
+            <button className="primary">{only ? `🔒 ${t('Send privately')}` : t("💬 Post")}</button>
           </div>
-          {error && <span className="error small">{error}</span>}
+          {me.memberId && (
+            <label className="check small">
+              <input type="checkbox" checked={only} onChange={(e) => setOnly(e.target.checked)} />
+              🔒 {t('Only to the host and co-hosts (others won’t see it)')}
+            </label>
+          )}
         </form>
       ) : (
         <p className="muted small">{me.memberId ? t("The concern period is closed.") : t("Log in to raise a concern.")}</p>
       )}
+      {error && <p className="error small">{error}</p>}
       {list.length === 0 ? (
         <p className="muted small">{t("No concerns raised.")}</p>
       ) : (
         <ul className="concerns">
           {list.map((c) => (
-            <li key={c.id} className={c.resolved ? 'resolved' : ''}>
-              <div>
-                <strong>{name(c.memberId)}</strong>
-                {c.date && <span className="badge">{shortDate(c.date)}</span>}
-                <span className="muted tiny"> {new Date(c.createdAt).toLocaleString()}</span>
-              </div>
-              <p>{c.text}</p>
-              {me.isHost && (
-                <button className="link" onClick={() => void mutate(() => api.resolveConcern(code, c.id, !c.resolved))}>
-                  {c.resolved ? t("Reopen") : t("Mark resolved")}
+            <ConcernItem key={c.id} c={c} {...{ code, session, me }} canPost={canPost} run={run} />
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function ConcernItem({
+  c,
+  code,
+  session,
+  me,
+  canPost,
+  run,
+}: Pick<SessionProps, 'code' | 'session' | 'me'> & { c: Concern; canPost: boolean; run: (fn: () => Promise<SessionView>) => void }) {
+  const [reply, setReply] = useState('')
+  const name = (id: string) => (id === 'host' ? t('Host') : (session.config.members.find((m) => m.id === id)?.name ?? '?'))
+  const mine = me.memberId !== null && c.memberId === me.memberId
+  const myVote = me.memberId ? c.votes?.[me.memberId] : undefined
+  const vote = (v: 1 | -1) => run(() => api.voteConcern(code, c.id, myVote === v ? 0 : v))
+  return (
+    <li className={`${c.resolved ? 'resolved' : ''} ${c.private ? 'private' : ''}`}>
+      <div>
+        <strong>{name(c.memberId)}</strong>
+        {c.private && <span className="badge">🔒 {mine ? t('Only you and the hosts') : t('Private')}</span>}
+        {c.date && <span className="badge">{shortDate(c.date)}</span>}
+        <span className="muted tiny"> {new Date(c.createdAt).toLocaleString()}</span>
+      </div>
+      <p>{c.text}</p>
+      <div className="row wrap concern-actions">
+        {!c.private && (
+          <>
+            <button
+              type="button"
+              className={`chip vote ${myVote === 1 ? 'on' : ''}`}
+              aria-pressed={myVote === 1}
+              disabled={!me.memberId || !canPost}
+              title={t('Agree')}
+              onClick={() => vote(1)}
+            >
+              👍 {c.up ?? 0}
+            </button>
+            <button
+              type="button"
+              className={`chip vote ${myVote === -1 ? 'on' : ''}`}
+              aria-pressed={myVote === -1}
+              disabled={!me.memberId || !canPost}
+              title={t('Disagree')}
+              onClick={() => vote(-1)}
+            >
+              👎 {c.down ?? 0}
+            </button>
+          </>
+        )}
+        {me.isHost && (
+          <button type="button" className="link" onClick={() => run(() => api.resolveConcern(code, c.id, !c.resolved))}>
+            {c.resolved ? t("Reopen") : t("Mark resolved")}
+          </button>
+        )}
+        {(mine || me.isHost) && (
+          <ConfirmButton className="link danger" confirmText={t('Tap again to delete')} onConfirm={() => run(() => api.removeConcern(code, c.id))}>
+            {t('Delete')}
+          </ConfirmButton>
+        )}
+      </div>
+      {(c.replies?.length ?? 0) > 0 && (
+        <ul className="replies">
+          {c.replies!.map((r) => (
+            <li key={r.id}>
+              <span className="small">
+                <strong>{r.memberId === 'host' ? (r.by ? `${r.by} (${t(r.role === 'cohost' ? 'Co-host' : 'Host')})` : t(r.role === 'cohost' ? 'Co-host' : 'Host')) : name(r.memberId)}</strong>{' '}
+                <span className="muted tiny">{new Date(r.at).toLocaleString()}</span>
+              </span>
+              <p>{r.text}</p>
+              {(me.isHost || (me.memberId !== null && r.memberId === me.memberId)) && (
+                <button type="button" className="link small" onClick={() => run(() => api.removeReply(code, c.id, r.id))}>
+                  {t('Delete')}
                 </button>
               )}
             </li>
           ))}
         </ul>
       )}
-    </section>
-  );
+      {canPost && (
+        <form
+          className="row reply-form"
+          onSubmit={(e) => {
+            e.preventDefault()
+            if (!reply.trim()) return
+            run(() =>
+              api.replyConcern(code, c.id, reply).then((v) => {
+                setReply('')
+                return v
+              }),
+            )
+          }}
+        >
+          <input className="grow" value={reply} onChange={(e) => setReply(e.target.value)} placeholder={t('Reply…')} aria-label={t('Reply to {name}', { name: name(c.memberId) })} />
+          <button type="submit" disabled={!reply.trim()}>{t('Reply')}</button>
+        </form>
+      )}
+    </li>
+  )
 }
 
 /** The fewest-changes fix: what it would change and what it gets you, before applying it as edits. */

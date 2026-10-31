@@ -6,7 +6,7 @@ import { IS_DEMO, sessionHash } from '../routes.ts'
 import { endDays, fmtPoints, reqCount, shiftHours } from '../shared/calendar.ts'
 import { t, weekdayLetter } from '../shared/i18n.ts'
 import ConfirmButton from './ConfirmButton.tsx'
-import { CalendarCard, DutyRosterCard, JoinRequests, PresentationsCard, RosterModeCard, StudentsCard } from './SetupExtras.tsx'
+import { CalendarCard, JoinRequests, PresentationsCard, RosterModeCard, StudentsCard } from './SetupExtras.tsx'
 import { uid, type SessionProps } from './props.ts'
 
 const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6]
@@ -90,13 +90,13 @@ export default function SetupTab({ code, session, me, mutate }: SessionProps) {
         {(
           [
             ['sec-period', '📆', 'Period'],
-            ['sec-mode', '👩‍⚕️', 'Roster type'],
-            ['sec-shifts', '🏥', 'Shift slots'],
-            ['sec-calendar', '🗓️', 'Calendar'],
+            ['sec-jobs', '🏷️', hospital ? 'Places (optional)' : 'Jobs'],
+            ['sec-mode', '👩‍⚕️', 'Residents & staff'],
             ['sec-people', '🎓', hospital ? 'Students' : 'People'],
-            ...(hospital ? [['sec-duty', '🩺', 'Hospital roster']] : []),
-            ['sec-studentrules', '🎯', 'Student rules'],
+            ['sec-shifts', '🏥', hospital ? 'Shift slots & student places' : 'Shift slots'],
             ['sec-presentations', '🎤', 'Presentations'],
+            ['sec-studentrules', '🎯', 'Student shifts'],
+            ['sec-calendar', '🗓️', 'Calendar'],
             ['sec-other', '📝', 'Other conditions'],
           ] as [string, string, string][]
         ).map(([id, icon, label]) => (
@@ -195,6 +195,151 @@ export default function SetupTab({ code, session, me, mutate }: SessionProps) {
         </section>
 
         <RosterModeCard draft={draft} edit={edit} ro={ro} />
+
+        <section className="card">
+          <h2 id="sec-people">🎓 {hospital ? t('Students') : t('People')}</h2>
+          {hospital && (
+            <p className="muted small">{t(
+                "Only students go here. Residents and staff come from the hospital roster below"
+              )} {doctorCount ? ` ${t('({n} names so far)', { n: doctorCount })}` : ''}.
+                          </p>
+          )}
+          {me.isHost && <JoinRequests code={code} session={session} me={me} mutate={mutate} dirty={dirty} />}
+          {me.isHost && !IS_DEMO && (
+            <p className="muted small">{t(
+              "Already added someone? Send them their personal link (in the Login column) — it opens with their name picked, and they set a PIN. People not on the list can ask to join, and appear above for you to approve."
+            )}</p>
+          )}
+          {me.isHost && !IS_DEMO && (
+            <ShareInvites
+              code={code}
+              title={session.config.title}
+              people={session.config.members.filter((m) => !hospital || m.type === 'student')}
+              claimed={session.claimed}
+              ready={Object.keys(session.responses).filter((id) => session.responses[id].ready)}
+              unsaved={shownPeople.some((m) => !session.config.members.some((x) => x.id === m.id))}
+            />
+          )}
+          {!ro && (
+            <div className="row wrap align-end">
+              <label className="grow">
+                {hospital ? t("Add students — one name per line") : t("Add people — one name per line")}
+                <textarea rows={3} value={bulk} onChange={(e) => setBulk(e.target.value)} placeholder={hospital ? 'Beam\nPraew' : 'Dr. Ann\nDr. Ben'} />
+              </label>
+              {!hospital && (
+                <select value={bulkType} onChange={(e) => setBulkType(e.target.value as MemberType)}>
+                  <option value="resident">{t("as residents")}</option>
+                  <option value="staff">{t("as staff")}</option>
+                  <option value="student">{t("as students")}</option>
+                </select>
+              )}
+              <button
+                type="button"
+                disabled={!bulk.trim()}
+                onClick={() => {
+                  const names = bulk.split('\n').map((n) => n.trim()).filter(Boolean)
+                  edit((c) => ({
+                    ...c,
+                    members: [...c.members, ...names.map((name) => ({ id: uid(), name, type: hospital ? ('student' as const) : bulkType, jobs: [] }))],
+                  }))
+                  setBulk('')
+                }}
+              >{t("Add")}</button>
+            </div>
+          )}
+          {shownPeople.length === 0 ? (
+            <p className="muted">{t("No one yet.")}</p>
+          ) : (
+            <div className="scroll-x">
+              <table className="mini people">
+                <thead>
+                  <tr>
+                    <th>{t("Name")}</th>
+                    {!hospital && <th>{t("Type")}</th>}
+                    {draft.jobs.length > 1 && <th>{t("Can cover")}</th>}
+                    {draft.rosterMode === 'generate' && <th title={t("Optional hard cap")}>{t("Max shifts")}</th>}
+                    <th>{t("Login")}</th>
+                    <th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {shownPeople.map((m) => (
+                    <tr key={m.id}>
+                      <td>
+                        <input value={m.name} onChange={(e) => setMember(m.id, { name: e.target.value })} />
+                      </td>
+                      {!hospital && (
+                      <td>
+                        <select value={m.type} onChange={(e) => setMember(m.id, { type: e.target.value as MemberType })}>
+                          <option value="resident">{t("Resident")}</option>
+                          <option value="staff">{t("Staff")}</option>
+                          <option value="student">{t("Student")}</option>
+                        </select>
+                      </td>
+                      )}
+                      {draft.jobs.length > 1 && (
+                        <td className="nowrap">
+                          {draft.jobs.map((j) => (
+                            <label key={j.id} className="check">
+                              <input
+                                type="checkbox"
+                                checked={m.jobs.length === 0 || m.jobs.includes(j.id)}
+                                onChange={(e) => {
+                                  const cur = m.jobs.length === 0 ? draft.jobs.map((x) => x.id) : m.jobs
+                                  const next = e.target.checked ? [...cur, j.id] : cur.filter((x) => x !== j.id)
+                                  setMember(m.id, { jobs: next.length === draft.jobs.length ? [] : next })
+                                }}
+                              />
+                              {j.name}
+                            </label>
+                          ))}
+                          <PlacePeriods draft={draft} member={m} ro={ro} set={(periods) => setMember(m.id, { periods: periods.length ? periods : undefined })} />
+                        </td>
+                      )}
+                      {draft.rosterMode === 'generate' && (
+                      <td>
+                        <input
+                          type="number"
+                          min={0}
+                          placeholder="—"
+                          value={m.maxShifts ?? ''}
+                          onChange={(e) => setMember(m.id, { maxShifts: e.target.value === '' ? undefined : Math.max(0, Number(e.target.value)) })}
+                        />
+                      </td>
+                      )}
+                      <td className="nowrap small">
+                        {session.claimed.includes(m.id) ? (
+                          <>{t("✓ logged in")}{' '}
+                            {!ro && (
+                              <ConfirmButton
+                                className="link"
+                                title={t("Clear their PIN so they can claim their name again")}
+                                confirmText={t("tap to reset")}
+                                onConfirm={() => void mutate(() => api.resetClaim(code, m.id))}
+                              >{t("reset PIN")}</ConfirmButton>
+                            )}
+                          </>
+                        ) : (
+                          <>
+                            <span className="muted">{t("not yet")}</span>{' '}
+                            {me.isHost && !IS_DEMO && <PersonalLink code={code} memberId={m.id} name={m.name} />}
+                          </>
+                        )}
+                      </td>
+                      <td>
+                        {!ro && (
+                          <button type="button" className="x" onClick={() => edit((c) => ({ ...c, members: c.members.filter((x) => x.id !== m.id) }))}>
+                            ×
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
 
         <section className="card">
           <h2 id="sec-shifts">🏥 {hospital ? t('Shift slots & student places') : t('Shift slots')}</h2>
@@ -353,156 +498,11 @@ export default function SetupTab({ code, session, me, mutate }: SessionProps) {
           </div>
         </section>
 
-        <CalendarCard draft={draft} edit={edit} ro={ro} />
-
-        <section className="card">
-          <h2 id="sec-people">🎓 {hospital ? t('Students') : t('People')}</h2>
-          {hospital && (
-            <p className="muted small">{t(
-                "Only students go here. Residents and staff come from the hospital roster below"
-              )} {doctorCount ? ` ${t('({n} names so far)', { n: doctorCount })}` : ''}.
-                          </p>
-          )}
-          {me.isHost && <JoinRequests code={code} session={session} me={me} mutate={mutate} dirty={dirty} />}
-          {me.isHost && !IS_DEMO && (
-            <p className="muted small">{t(
-              "Already added someone? Send them their personal link (in the Login column) — it opens with their name picked, and they set a PIN. People not on the list can ask to join, and appear above for you to approve."
-            )}</p>
-          )}
-          {me.isHost && !IS_DEMO && (
-            <ShareInvites
-              code={code}
-              title={session.config.title}
-              people={session.config.members.filter((m) => !hospital || m.type === 'student')}
-              claimed={session.claimed}
-              ready={Object.keys(session.responses).filter((id) => session.responses[id].ready)}
-              unsaved={shownPeople.some((m) => !session.config.members.some((x) => x.id === m.id))}
-            />
-          )}
-          {!ro && (
-            <div className="row wrap align-end">
-              <label className="grow">
-                {hospital ? t("Add students — one name per line") : t("Add people — one name per line")}
-                <textarea rows={3} value={bulk} onChange={(e) => setBulk(e.target.value)} placeholder={hospital ? 'Beam\nPraew' : 'Dr. Ann\nDr. Ben'} />
-              </label>
-              {!hospital && (
-                <select value={bulkType} onChange={(e) => setBulkType(e.target.value as MemberType)}>
-                  <option value="resident">{t("as residents")}</option>
-                  <option value="staff">{t("as staff")}</option>
-                  <option value="student">{t("as students")}</option>
-                </select>
-              )}
-              <button
-                type="button"
-                disabled={!bulk.trim()}
-                onClick={() => {
-                  const names = bulk.split('\n').map((n) => n.trim()).filter(Boolean)
-                  edit((c) => ({
-                    ...c,
-                    members: [...c.members, ...names.map((name) => ({ id: uid(), name, type: hospital ? ('student' as const) : bulkType, jobs: [] }))],
-                  }))
-                  setBulk('')
-                }}
-              >{t("Add")}</button>
-            </div>
-          )}
-          {shownPeople.length === 0 ? (
-            <p className="muted">{t("No one yet.")}</p>
-          ) : (
-            <div className="scroll-x">
-              <table className="mini people">
-                <thead>
-                  <tr>
-                    <th>{t("Name")}</th>
-                    {!hospital && <th>{t("Type")}</th>}
-                    {draft.jobs.length > 1 && <th>{t("Can cover")}</th>}
-                    {draft.rosterMode === 'generate' && <th title={t("Optional hard cap")}>{t("Max shifts")}</th>}
-                    <th>{t("Login")}</th>
-                    <th />
-                  </tr>
-                </thead>
-                <tbody>
-                  {shownPeople.map((m) => (
-                    <tr key={m.id}>
-                      <td>
-                        <input value={m.name} onChange={(e) => setMember(m.id, { name: e.target.value })} />
-                      </td>
-                      {!hospital && (
-                      <td>
-                        <select value={m.type} onChange={(e) => setMember(m.id, { type: e.target.value as MemberType })}>
-                          <option value="resident">{t("Resident")}</option>
-                          <option value="staff">{t("Staff")}</option>
-                          <option value="student">{t("Student")}</option>
-                        </select>
-                      </td>
-                      )}
-                      {draft.jobs.length > 1 && (
-                        <td className="nowrap">
-                          {draft.jobs.map((j) => (
-                            <label key={j.id} className="check">
-                              <input
-                                type="checkbox"
-                                checked={m.jobs.length === 0 || m.jobs.includes(j.id)}
-                                onChange={(e) => {
-                                  const cur = m.jobs.length === 0 ? draft.jobs.map((x) => x.id) : m.jobs
-                                  const next = e.target.checked ? [...cur, j.id] : cur.filter((x) => x !== j.id)
-                                  setMember(m.id, { jobs: next.length === draft.jobs.length ? [] : next })
-                                }}
-                              />
-                              {j.name}
-                            </label>
-                          ))}
-                          <PlacePeriods draft={draft} member={m} ro={ro} set={(periods) => setMember(m.id, { periods: periods.length ? periods : undefined })} />
-                        </td>
-                      )}
-                      {draft.rosterMode === 'generate' && (
-                      <td>
-                        <input
-                          type="number"
-                          min={0}
-                          placeholder="—"
-                          value={m.maxShifts ?? ''}
-                          onChange={(e) => setMember(m.id, { maxShifts: e.target.value === '' ? undefined : Math.max(0, Number(e.target.value)) })}
-                        />
-                      </td>
-                      )}
-                      <td className="nowrap small">
-                        {session.claimed.includes(m.id) ? (
-                          <>{t("✓ logged in")}{' '}
-                            {!ro && (
-                              <ConfirmButton
-                                className="link"
-                                title={t("Clear their PIN so they can claim their name again")}
-                                confirmText={t("tap to reset")}
-                                onConfirm={() => void mutate(() => api.resetClaim(code, m.id))}
-                              >{t("reset PIN")}</ConfirmButton>
-                            )}
-                          </>
-                        ) : (
-                          <>
-                            <span className="muted">{t("not yet")}</span>{' '}
-                            {me.isHost && !IS_DEMO && <PersonalLink code={code} memberId={m.id} name={m.name} />}
-                          </>
-                        )}
-                      </td>
-                      <td>
-                        {!ro && (
-                          <button type="button" className="x" onClick={() => edit((c) => ({ ...c, members: c.members.filter((x) => x.id !== m.id) }))}>
-                            ×
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
-
-        {draft.rosterMode === 'hospital' && <DutyRosterCard draft={draft} edit={edit} ro={ro} />}
-        <StudentsCard draft={draft} edit={edit} ro={ro} responses={session.responses} />
         <PresentationsCard draft={draft} edit={edit} ro={ro} />
+
+        <StudentsCard draft={draft} edit={edit} ro={ro} responses={session.responses} />
+
+        <CalendarCard draft={draft} edit={edit} ro={ro} />
 
         <section className="card">
           <h2 id="sec-other">📝 {t('Other conditions')}</h2>

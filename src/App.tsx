@@ -19,6 +19,27 @@ function initialLang(): Lang {
   return navigator.language.toLowerCase().startsWith('th') ? 'th' : 'en'
 }
 
+type Theme = 'auto' | 'light' | 'dark'
+const THEMES: Theme[] = ['auto', 'light', 'dark']
+const THEME_ICON: Record<Theme, string> = { auto: '🌓', light: '☀️', dark: '🌙' }
+const THEME_LABEL: Record<Theme, string> = { auto: 'Theme: like this device', light: 'Theme: light', dark: 'Theme: dark' }
+
+function initialTheme(): Theme {
+  try {
+    const saved = localStorage.getItem('wayneday:theme')
+    if (saved === 'light' || saved === 'dark') return saved
+  } catch {
+    // no storage: follow the device
+  }
+  return 'auto'
+}
+
+/** Light or dark regardless of the device; "auto" follows it. index.html applies the saved one before the first paint. */
+function applyTheme(theme: Theme) {
+  if (theme === 'auto') delete document.documentElement.dataset.theme
+  else document.documentElement.dataset.theme = theme
+}
+
 function useHash() {
   const [hash, setHash] = useState(location.hash)
   useEffect(() => {
@@ -40,6 +61,18 @@ export default function App() {
     document.documentElement.lang = lang
     document.title = `Wayneday — ${t('Duty roster planner')}`
   }, [lang])
+  const [theme, setTheme] = useState<Theme>(initialTheme)
+  useEffect(() => applyTheme(theme), [theme])
+  const nextTheme = () => {
+    const next = THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length]
+    setTheme(next)
+    try {
+      if (next === 'auto') localStorage.removeItem('wayneday:theme')
+      else localStorage.setItem('wayneday:theme', next)
+    } catch {
+      // this tab only
+    }
+  }
   const switchLang = (l: Lang) => {
     setLangState(l)
     try {
@@ -58,6 +91,9 @@ export default function App() {
         <div className="topbar-right">
           {code && <span className="code-pill">{code}</span>}
           <AccountChip />
+          <button type="button" className="theme-switch" onClick={nextTheme} title={t(THEME_LABEL[theme])} aria-label={t(THEME_LABEL[theme])}>
+            {THEME_ICON[theme]}
+          </button>
           <div className="segmented lang" role="radiogroup" aria-label="Language / ภาษา">
             {(['th', 'en'] as const).map((l) => (
               <button key={l} role="radio" aria-checked={lang === l} className={lang === l ? 'on' : ''} onClick={() => switchLang(l)}>
