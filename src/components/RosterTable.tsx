@@ -1,4 +1,4 @@
-import type { Ref } from 'react'
+import { useState, type Ref } from 'react'
 import { t } from '../shared/i18n.ts'
 import { cellIds, cellNames, columnsFor, presenterParts } from '../shared/columns.ts'
 import { reqCount } from '../shared/calendar.ts'
@@ -56,8 +56,28 @@ export default function RosterTable({ config, roster, myId, avoidOf, onEdit, onE
       </span>
     )
 
+  // Hover over a name to light up that person everywhere; click (or tap) to keep it lit.
+  const [pinned, setPinned] = useState<string | null>(null)
+  const [hover, setHover] = useState<string | null>(null)
+  const lit = hover ?? pinned
+  const follow = (id: string) => ({
+    onMouseEnter: () => setHover(id),
+    onMouseLeave: () => setHover(null),
+  })
+  const pin = (id: string) => setPinned((p) => (p === id ? null : id))
+  const litClass = (id?: string | null) => (id && id === lit ? 'lit' : '')
+
   return (
-    <div className="scroll-x table-wrap" ref={tableRef}>
+    <>
+    {pinned && (
+      <p className="small lit-bar">
+        {t('Highlighting {name}', { name: nameOf(pinned) })}{' '}
+        <button type="button" className="link" onClick={() => setPinned(null)} aria-label={t('Stop highlighting')}>
+          ✕
+        </button>
+      </p>
+    )}
+    <div className={`scroll-x table-wrap ${lit ? 'has-lit' : ''}`} ref={tableRef}>
       <table className="roster">
         <thead>
           <tr>
@@ -133,8 +153,9 @@ export default function RosterTable({ config, roster, myId, avoidOf, onEdit, onE
                             <button
                               key={x.memberId}
                               type="button"
-                              className={`who-chip small-chip chip-btn ${picked ? 'picked' : ''} ${swap ? 'swap-ok' : ''} ${avoided(x.memberId, date) ? `avoided avoided-${avoided(x.memberId, date)}` : ''}`}
+                              className={`who-chip small-chip chip-btn ${picked ? 'picked' : ''} ${swap ? 'swap-ok' : ''} ${avoided(x.memberId, date) ? `avoided avoided-${avoided(x.memberId, date)}` : ''} ${litClass(x.memberId)}`}
                               aria-pressed={picked}
+                              {...follow(x.memberId)}
                               onClick={(e) => {
                                 e.stopPropagation()
                                 arrange.onChip(x)
@@ -159,7 +180,7 @@ export default function RosterTable({ config, roster, myId, avoidOf, onEdit, onE
                             {c.ruleIds.length > 1 && <span className="present-label">{rule.name}</span>}
                             {who.length === 0 && <span className="muted tiny">—</span>}
                             {who.map((id) => (
-                              <span key={id} className={`who-chip small-chip ${id === myId ? 'mine' : ''}`}>
+                              <span key={id} className={`who-chip small-chip ${id === myId ? 'mine' : ''} ${litClass(id)}`} {...follow(id)} onClick={() => pin(id)}>
                                 {nameOf(id)}
                                 {roster.presenters.find((p) => p.date === date && p.ruleId === rule.id && p.memberId === id)?.postCall && (
                                   <span title={t("Was on last night’s shift")}> ●</span>
@@ -184,7 +205,9 @@ export default function RosterTable({ config, roster, myId, avoidOf, onEdit, onE
                         {ids.map((id, k) => (
                           <span
                             key={k}
-                            className={`who-chip small-chip ${id === myId ? 'mine' : ''} ${studentCol && avoided(id, date) ? `avoided avoided-${avoided(id, date)}` : ''}`}
+                            className={`who-chip small-chip ${id === myId ? 'mine' : ''} ${studentCol && avoided(id, date) ? `avoided avoided-${avoided(id, date)}` : ''} ${litClass(id)}`}
+                            {...follow(id)}
+                            onClick={() => pin(id)}
                           >
                             {nameOf(id)}
                             {studentCol && avoidMark(id, date)}
@@ -232,7 +255,11 @@ export default function RosterTable({ config, roster, myId, avoidOf, onEdit, onE
                           )
                         }
                         return (
-                          <span key={k} className={`who-chip ${a?.memberId === myId ? 'mine' : ''} ${a ? '' : 'empty'}`}>
+                          <span
+                            key={k}
+                            className={`who-chip ${a?.memberId === myId ? 'mine' : ''} ${a ? '' : 'empty'} ${litClass(a?.memberId)}`}
+                            {...(a ? { ...follow(a.memberId), onClick: () => pin(a.memberId) } : {})}
+                          >
                             {a ? nameOf(a.memberId) : t("unfilled")}
                             {a && swapOpen.some((s) => s.memberId === a.memberId && s.date === date && s.shiftId === c.shiftId) && (
                               <span title={t("Swap requested")}> ⇄</span>
@@ -249,6 +276,7 @@ export default function RosterTable({ config, roster, myId, avoidOf, onEdit, onE
         </tbody>
       </table>
     </div>
+    </>
   );
 }
 

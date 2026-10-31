@@ -1884,3 +1884,20 @@ button.big {
 .table-wrap thead th.duty-col {
   background: var(--surface-2);
 }
+/* One person lit up across the roster table (hover, or click to keep it) */
+.who-chip {
+  cursor: pointer;
+}
+.has-lit .who-chip:not(.lit) {
+  opacity: 0.45;
+}
+.who-chip.lit {
+  background: var(--accent);
+  color: #fff;
+  opacity: 1;
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+.lit-bar {
+  margin: 0 0 0.3rem;
+  font-weight: 600;
+}
