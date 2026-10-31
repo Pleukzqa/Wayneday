@@ -393,8 +393,38 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
           </table>
         </div>
       </section>
+      {mine && me.memberId && (
+        <section className={`card ready-card ${mine.ready ? 'is-ready' : ''}`}>
+          {mine.ready ? (
+            <>
+              <h2>✅ {t('You’re ready!')}</h2>
+              <p className="muted small">
+                {t('The host can see you’ve finished ({time}). You can still change your answers until the roster is made.', {
+                  time: new Date(mine.ready).toLocaleString(),
+                })}
+              </p>
+              <button type="button" className="link" disabled={!canEdit(me.memberId)} onClick={() => setPref((r) => ({ ...r, ready: undefined }))}>
+                {t('Not ready yet — I’m still filling in')}
+              </button>
+            </>
+          ) : (
+            <>
+              <h2>🏁 {t('Finished?')}</h2>
+              <p className="muted small">{t('Mark the days you can’t do or would rather avoid above, then press this so the host knows you’re done.')}</p>
+              <button type="button" className="primary big" disabled={!canEdit(me.memberId)} onClick={() => setPref((r) => ({ ...r, ready: Date.now() }))}>
+                ✅ {t('I’m ready!')}
+              </button>
+            </>
+          )}
+        </section>
+      )}
       <section className="card">
-        <h2>👥 {t('Everyone’s answers')}</h2>
+        <div className="row wrap between">
+          <h2>👥 {t('Everyone’s answers')}</h2>
+          <span className="small">
+            {t('{r} of {n} ready', { r: answering.filter((m) => respOf(m.id).ready).length, n: answering.length })}
+          </span>
+        </div>
         <div className="scroll-x">
           <table className="mini">
             <thead>
@@ -416,6 +446,11 @@ export default function AvailabilityTab({ code, session, me, mutate }: SessionPr
                 return (
                   <tr key={m.id} className={m.id === me.memberId ? 'me' : ''}>
                     <td className="nowrap">
+                      {r.ready ? (
+                        <span title={t('Ready since {time}', { time: new Date(r.ready).toLocaleString() })}>✅ </span>
+                      ) : (
+                        <span className="muted" title={t('Not ready yet')}>⏳ </span>
+                      )}
                       {m.name} <span className="muted tiny">{typeName(m.type)}</span>
                     </td>
                     {answered || pending[m.id] ? (

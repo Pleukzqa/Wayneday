@@ -375,6 +375,7 @@ export default function SetupTab({ code, session, me, mutate }: SessionProps) {
               title={session.config.title}
               people={session.config.members.filter((m) => !hospital || m.type === 'student')}
               claimed={session.claimed}
+              ready={Object.keys(session.responses).filter((id) => session.responses[id].ready)}
               unsaved={shownPeople.some((m) => !session.config.members.some((x) => x.id === m.id))}
             />
           )}
@@ -622,11 +623,30 @@ function PlanSuggestions({ draft, others, pick }: { draft: SessionConfig; others
 const personalUrl = (code: string, memberId: string) => `${location.origin}${location.pathname}${sessionHash(code)}--${memberId}`
 
 /** One message with every name and their own link, to paste into a group chat. */
-function ShareInvites({ code, title, people, claimed, unsaved }: { code: string; title: string; people: Member[]; claimed: string[]; unsaved: boolean }) {
+function ShareInvites({
+  code,
+  title,
+  people,
+  claimed,
+  ready,
+  unsaved,
+}: {
+  code: string
+  title: string
+  people: Member[]
+  claimed: string[]
+  ready: string[]
+  unsaved: boolean
+}) {
   const [open, setOpen] = useState(false)
-  const [onlyNew, setOnlyNew] = useState(false)
+  const [who, setWho] = useState<'all' | 'new' | 'notReady'>('all')
   const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle')
-  const list = people.filter((m) => !onlyNew || !claimed.includes(m.id))
+  const groups = {
+    all: people,
+    new: people.filter((m) => !claimed.includes(m.id)),
+    notReady: people.filter((m) => !ready.includes(m.id)),
+  }
+  const list = groups[who]
   const text = [
     t('{title} — fill in your duty availability on Wayneday. Tap the link next to your name:', { title: title || 'Wayneday' }),
     '',
@@ -649,9 +669,13 @@ function ShareInvites({ code, title, people, claimed, unsaved }: { code: string;
       </button>
       {open && (
         <div className="stack-tight">
-          <label className="check small">
-            <input type="checkbox" checked={onlyNew} onChange={(e) => setOnlyNew(e.target.checked)} />
-            {t('Only people who haven’t logged in yet ({n})', { n: people.filter((m) => !claimed.includes(m.id)).length })}
+          <label className="inline small">
+            {t('Send to')}{' '}
+            <select value={who} onChange={(e) => setWho(e.target.value as typeof who)}>
+              <option value="all">{t('Everyone ({n})', { n: groups.all.length })}</option>
+              <option value="new">{t('Only people who haven’t logged in yet ({n})', { n: groups.new.length })}</option>
+              <option value="notReady">{t('Only people who aren’t ready yet ({n})', { n: groups.notReady.length })}</option>
+            </select>
           </label>
           {unsaved && <span className="warn-text small">{t('Save setup first — names added since aren’t in the list yet.')}</span>}
           <textarea readOnly rows={Math.min(12, list.length + 3)} value={text} onFocus={(e) => e.target.select()} aria-label={t('Invite message')} />

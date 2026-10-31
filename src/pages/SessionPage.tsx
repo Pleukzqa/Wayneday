@@ -147,13 +147,13 @@ function NextSteps({ session, go }: { session: SessionProps['session']; go: (t: 
   const hospital = c.rosterMode === 'hospital'
   const students = c.members.filter((m) => m.type === 'student')
   const answering = hospital ? students : c.members
-  const answered = answering.filter((m) => session.responses[m.id]).length
+  const ready = answering.filter((m) => session.responses[m.id]?.ready).length
   const dutyDays = new Set(c.duty.map((a) => a.date)).size
   const steps: { done: boolean; text: string; tab: Tab }[] = [
     { done: c.shifts.length > 0 && c.shifts.some((s) => s.requirements.length), text: t('Set the period and shift slots'), tab: 'setup' },
     ...(hospital ? [{ done: dutyDays > 0, text: t('Enter the hospital roster ({n} days so far)', { n: dutyDays }), tab: 'setup' as Tab }] : []),
     { done: answering.length > 0, text: hospital ? t('Add students ({n})', { n: students.length }) : t('Add people ({n})', { n: c.members.length }), tab: 'setup' },
-    { done: answering.length > 0 && answered === answering.length, text: t('Everyone fills in availability ({a}/{n} answered)', { a: answered, n: answering.length }), tab: 'availability' },
+    { done: answering.length > 0 && ready === answering.length, text: t('Everyone fills in availability and presses “I’m ready!” ({a}/{n} ready)', { a: ready, n: answering.length }), tab: 'availability' },
     { done: Boolean(session.schedule), text: t('Find arrangements and publish for review'), tab: 'roster' },
     { done: session.schedule?.status === 'final', text: t('Handle concerns and swaps, then finalize'), tab: 'roster' },
   ]

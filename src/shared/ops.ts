@@ -39,6 +39,7 @@ function summarize(before: MemberResponse | null, after: MemberResponse): string
   if (b.minInterval !== after.minInterval) parts.push(`interval ${b.minInterval}→${after.minInterval} days`)
   if (b.preference !== after.preference) parts.push(`pattern → ${after.preference === 'dense' ? 'grouped' : 'spread out'}`)
   if (b.note !== after.note) parts.push('edited the note')
+  if (Boolean(before?.ready) !== Boolean(after.ready)) parts.push(after.ready ? 'marked ready' : 'marked not ready')
   return parts.join(', ') || 'no visible change'
 }
 

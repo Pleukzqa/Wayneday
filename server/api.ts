@@ -270,6 +270,7 @@ function cleanResponse(raw: unknown): MemberResponse {
       .map((a) => a as Record<string, unknown>)
       .filter((a) => isDate(a.date))
       .map((a) => ({ date: a.date as string, level: int(a.level, 1, 3, 1) as 1 | 2 | 3 })),
+    ...(Number(r.ready) > 0 ? { ready: Math.min(Math.floor(Number(r.ready)), Date.now()) } : {}),
     updatedAt: Date.now(),
   }
 }

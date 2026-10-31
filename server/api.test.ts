@@ -195,6 +195,23 @@ for (const [kind, makeStore] of stores) {
       assert.equal(v.session.config.members[1].periods, undefined)
     })
 
+    test('"I’m ready!" is kept with the answers, and can be taken back', async () => {
+      const alice = await signIn('alice@example.com')
+      const { code } = (await call('POST', '/sessions', { body: {}, account: alice })).body
+      await call('PUT', `/sessions/${code}/config`, { body: { members: [{ id: 'm', name: 'M', type: 'student' }, { id: 'n', name: 'N', type: 'student' }] }, account: alice })
+      const claim = async (id: string) => (await call('POST', `/sessions/${code}/claim`, { body: { memberId: id, pin: '1234' } })).body.memberToken as string
+      const [m, n] = [await claim('m'), await claim('n')]
+      const at = Date.now() - 1000
+      await call('PUT', `/sessions/${code}/responses/m`, { body: { minInterval: 3, ready: at }, bearer: m })
+      await call('PUT', `/sessions/${code}/responses/n`, { body: { ready: 'soon' }, bearer: n })
+      let v = (await call('GET', `/sessions/${code}`)).body
+      assert.equal(v.session.responses.m.ready, at)
+      assert.equal(v.session.responses.n.ready, undefined)
+      await call('PUT', `/sessions/${code}/responses/m`, { body: { minInterval: 3 }, bearer: m })
+      v = (await call('GET', `/sessions/${code}`)).body
+      assert.equal(v.session.responses.m.ready, undefined)
+    })
+
     test('PIN guessing is slowed down per name', async () => {
       const alice = await signIn('alice@example.com')
       const { code } = (await call('POST', '/sessions', { body: {}, account: alice })).body

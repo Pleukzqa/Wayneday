@@ -1667,3 +1667,11 @@ h2[id] {
   width: 100%;
   font-size: 0.85rem;
 }
+.ready-card.is-ready {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+button.big {
+  font-size: 1.1rem;
+  padding: 0.7rem 1.4rem;
+}

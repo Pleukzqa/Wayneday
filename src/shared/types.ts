@@ -225,6 +225,8 @@ export interface MemberResponse {
   editedByHost?: number
   /** Dates they'd rather not work, by how much it matters: 3 = really need it off, 2 = important, 1 = would rather not. */
   avoid?: AvoidDate[]
+  /** When they pressed "I'm ready!" (finished filling in); missing = not yet. */
+  ready?: number
 }
 
 export type AvoidLevel = 1 | 2 | 3
