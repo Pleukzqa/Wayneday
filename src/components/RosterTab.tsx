@@ -171,9 +171,11 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
   }, [code, preview, options, count, problems, explain, seed])
   const [reviewHours, setReviewHours] = useState(48)
   const [edit, setEdit] = useState<Roster | null>(null)
-  const [repair, setRepair] = useState<RepairResult | null>(null)
+  // A proposed change to look at before applying: 🔧 Fix with fewest changes, or 🎤 Even out presenters.
+  const [repair, setRepair] = useState<(RepairResult & { kind: 'fix' | 'even' }) | null>(null)
+  // The fixes never change today or earlier; tomorrow only when the host unticks this.
+  const [keepTomorrow, setKeepTomorrow] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [tidied, setTidied] = useState<string | null>(null)
   const [concernDate, setConcernDate] = useState('')
   const [swapDraft, setSwapDraft] = useState<SwapDraft | null>(null)
   const [picked, setPicked] = useState<StudentAssignment | null>(null)
@@ -549,7 +551,8 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
                       onClick={async () => {
                         setRunning('repair')
                         try {
-                          setRepair(await repairInBackground(config, responses, rosterOf(schedule)))
+                          setRepair({ ...(await repairInBackground(config, responses, rosterOf(schedule), changeFrom(keepTomorrow))), kind: 'fix' })
+                          setTimeout(() => document.getElementById('plan')?.scrollIntoView({ behavior: 'smooth' }), 50)
                         } finally {
                           setRunning(null)
                         }
@@ -562,18 +565,19 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
                     <button
                       title={t('Each presenter from the shift their presentation draws from, and each weekly presentation within one of everyone else’s. Shifts stay as they are.')}
                       onClick={() => {
-                        const before = schedule.presenters
-                        const after = polishPresenters(config, [...schedule.assignments, ...schedule.students], before)
-                        const changed = after.filter((p, i) => p.memberId !== before[i].memberId).length
-                        setTidied(changed ? t('{n} presenter(s) changed — check them in the table, then 💾 Save edits.', { n: changed }) : t('Presenters already fit — nothing to change.'))
-                        if (changed) {
-                          setEdit({ ...rosterOf(schedule), presenters: after })
-                          setTimeout(() => tableRef.current?.scrollIntoView({ behavior: 'smooth' }), 50)
-                        }
+                        const after = polishPresenters(config, [...schedule.assignments, ...schedule.students], schedule.presenters, changeFrom(keepTomorrow))
+                        setRepair({ students: schedule.students, presenters: after, swaps: [], presenterDays: [], kind: 'even' })
+                        setTimeout(() => document.getElementById('plan')?.scrollIntoView({ behavior: 'smooth' }), 50)
                       }}
                     >
                       🎤 {t('Even out presenters')}
                     </button>
+                  )}
+                  {hospital && hasStudents && (
+                    <label className="check small">
+                      <input type="checkbox" checked={keepTomorrow} onChange={(e) => setKeepTomorrow(e.target.checked)} />
+                      {t('Keep tomorrow’s shifts and presenters as they are')}
+                    </label>
                   )}
                 </>
               ) : (
@@ -592,14 +596,6 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
         </section>
       )}
       {error && <p className="error">{error}</p>}
-      {tidied && (
-        <p className="small" role="status">
-          🎤 {tidied}{' '}
-          <button type="button" className="link" onClick={() => setTidied(null)}>
-            {t('OK')}
-          </button>
-        </p>
-      )}
       {me.isHost && dutyChanged && !preview && (
         <div className="alert warn">{t("The hospital roster in Setup has changed since you published.")}{' '}
           <button onClick={() => void publish({ ...rosterOf(schedule!), assignments: dutyOf(config) }, 'manual', schedule!.status, true)}>{t("Use the new hospital roster")}</button>{' '}
@@ -1061,26 +1057,115 @@ function RepairPlan({
   config: SessionConfig
   responses: Record<string, MemberResponse>
   before: Roster
-  plan: RepairResult
+  plan: RepairResult & { kind: 'fix' | 'even' }
   apply: () => void
   dismiss: () => void
 }) {
   const name = (id: string) => config.members.find((m) => m.id === id)?.name ?? '?'
   const shift = (id: string) => config.shifts.find((s) => s.id === id)?.name ?? ''
+  const rule = (id: string) => config.presentations.find((r) => r.id === id)?.name ?? ''
   const after = { assignments: before.assignments, students: plan.students, presenters: plan.presenters }
   const [b, a] = [studentRuleReport(config, responses, before), studentRuleReport(config, responses, after)]
   const [ub, ua] = [typeSpread(config, before.students, before.presenters), typeSpread(config, plan.students, plan.presenters)]
+  // Presenter changes, per day and presentation: who stops and who starts.
+  const keys = [...new Set([...before.presenters, ...plan.presenters].map((p) => `${p.date}|${p.ruleId}`))].sort()
+  const presenterChanges = keys.flatMap((k) => {
+    const [date, ruleId] = k.split('|')
+    const was = before.presenters.filter((p) => p.date === date && p.ruleId === ruleId).map((p) => p.memberId)
+    const now = plan.presenters.filter((p) => p.date === date && p.ruleId === ruleId).map((p) => p.memberId)
+    const out = was.filter((id) => !now.includes(id))
+    const into = now.filter((id) => !was.includes(id))
+    return out.length || into.length ? [{ date, ruleId, out, into }] : []
+  })
+  // What it clears and what it brings, from the hosts' alert list.
+  const [alertsBefore, alertsAfter] = [rosterAlerts(config, responses, before), rosterAlerts(config, responses, after)]
+  const fixed = alertsBefore.filter((x) => !alertsAfter.some((y) => y.text === x.text))
+  const added = alertsAfter.filter((x) => !alertsBefore.some((y) => y.text === x.text))
+  const nothing = plan.swaps.length === 0 && presenterChanges.length === 0
+  const mark = (level: 'rule' | 'wish') => (level === 'rule' ? '🚨' : '⚠️')
   return (
-    <section className="card repair">
-      <h2>🔧 {t('Fix with fewest changes')}</h2>
-      {plan.swaps.length === 0 ? (
-        <p>{t('Nothing to fix — no trade between students would make it fairer.')}</p>
+    <section className="card repair" id="plan">
+      <h2>{plan.kind === 'even' ? `🎤 ${t('Even out presenters')}` : `🔧 ${t('Fix with fewest changes')}`}</h2>
+      {nothing ? (
+        <p>{plan.kind === 'even' ? t('Presenters already fit — nothing to change.') : t('Nothing to fix — no trade between students would make it fairer.')}</p>
       ) : (
         <>
           <p className="small">
-            {t('{n} trade(s) between students ({same} on the same day, so nobody’s dates change).', { n: plan.swaps.length, same: plan.swaps.filter((x) => x.a.date === x.b.date).length })}{' '}
-            {plan.presenterDays.length > 0 && t('Presenters change on {n} day(s) because of them.', { n: plan.presenterDays.length })}
+            {plan.swaps.length > 0 && t('{n} trade(s) between students ({same} on the same day, so nobody’s dates change).', { n: plan.swaps.length, same: plan.swaps.filter((x) => x.a.date === x.b.date).length })}{' '}
+            {presenterChanges.length > 0 && t('{n} presenter change(s).', { n: presenterChanges.reduce((n, x) => n + Math.max(x.out.length, x.into.length), 0) })}
           </p>
+          {(fixed.length > 0 || added.length > 0) && (
+            <div className="plan-effects">
+              {fixed.length > 0 && (
+                <>
+                  <h3>✅ {t('Fixes ({n})', { n: fixed.length })}</h3>
+                  <ul className="small alert-list">
+                    {fixed.map((x, i) => (
+                      <li key={i}>
+                        <s>
+                          {mark(x.level)} {x.text}
+                        </s>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+              {added.length > 0 && (
+                <>
+                  <h3>➕ {t('Brings in ({n})', { n: added.length })}</h3>
+                  <ul className="small alert-list">
+                    {added.map((x, i) => (
+                      <li key={i}>
+                        {mark(x.level)} {x.text}
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+            </div>
+          )}
+          {plan.swaps.length > 0 && (
+            <>
+              <h3>🔁 {t('Shift trades')}</h3>
+              <ol className="small repair-list">
+                {plan.swaps.map((x, i) => (
+                  <li key={i}>
+                    {x.a.date === x.b.date
+                      ? t('{date}: {a} takes {b}’s {sb} and {b} takes {a}’s {sa}', {
+                          date: shortDate(x.a.date),
+                          a: name(x.a.memberId),
+                          b: name(x.b.memberId),
+                          sa: shift(x.a.shiftId),
+                          sb: shift(x.b.shiftId),
+                        })
+                      : t('{a} moves from {da} {sa} to {db} {sb}; {b} the other way', {
+                          a: name(x.a.memberId),
+                          b: name(x.b.memberId),
+                          da: shortDate(x.a.date),
+                          db: shortDate(x.b.date),
+                          sa: shift(x.a.shiftId),
+                          sb: shift(x.b.shiftId),
+                        })}
+                  </li>
+                ))}
+              </ol>
+            </>
+          )}
+          {presenterChanges.length > 0 && (
+            <>
+              <h3>🎤 {t('Presenter changes')}</h3>
+              <ul className="small repair-list">
+                {presenterChanges.map((x) => (
+                  <li key={`${x.date}|${x.ruleId}`}>
+                    <b>
+                      {shortDate(x.date)} {rule(x.ruleId)}
+                    </b>
+                    : {x.out.map(name).join(', ') || '—'} → {x.into.map(name).join(', ') || '—'}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
           <table className="mini">
             <thead>
               <tr>
@@ -1111,35 +1196,27 @@ function RepairPlan({
                   <b>{fmtPoints(a.pointsSpread)}</b>
                 </td>
               </tr>
+              <tr>
+                <td>{t('Rules broken')}</td>
+                <td>{alertsBefore.filter((x) => x.level === 'rule').length}</td>
+                <td>
+                  <b>{alertsAfter.filter((x) => x.level === 'rule').length}</b>
+                </td>
+              </tr>
+              <tr>
+                <td>{t('Preferences not met')}</td>
+                <td>{alertsBefore.filter((x) => x.level === 'wish').length}</td>
+                <td>
+                  <b>{alertsAfter.filter((x) => x.level === 'wish').length}</b>
+                </td>
+              </tr>
             </tbody>
           </table>
-          <ol className="small repair-list">
-            {plan.swaps.map((x, i) => (
-              <li key={i}>
-                {x.a.date === x.b.date
-                  ? t('{date}: {a} takes {b}’s {sb} and {b} takes {a}’s {sa}', {
-                      date: shortDate(x.a.date),
-                      a: name(x.a.memberId),
-                      b: name(x.b.memberId),
-                      sa: shift(x.a.shiftId),
-                      sb: shift(x.b.shiftId),
-                    })
-                  : t('{a} moves from {da} {sa} to {db} {sb}; {b} the other way', {
-                      a: name(x.a.memberId),
-                      b: name(x.b.memberId),
-                      da: shortDate(x.a.date),
-                      db: shortDate(x.b.date),
-                      sa: shift(x.a.shiftId),
-                      sb: shift(x.b.shiftId),
-                    })}
-              </li>
-            ))}
-          </ol>
           <p className="muted small">{t('Applying opens them as edits, so you can check the table and change anything before saving.')}</p>
         </>
       )}
       <div className="row wrap">
-        {plan.swaps.length > 0 && (
+        {!nothing && (
           <button type="button" className="primary" onClick={apply}>
             {t('Apply as edits')}
           </button>
@@ -1151,6 +1228,9 @@ function RepairPlan({
     </section>
   )
 }
+
+/** The first day the fixes may change: never today or before; tomorrow too only if it may change. */
+const changeFrom = (keepTomorrow: boolean) => addDays(new Date().toLocaleDateString('en-CA'), keepTomorrow ? 2 : 1)
 
 /** Which arrangement the table below is showing. */
 function ShowingLine({ preview, edit, schedule, options }: { preview: Preview | null; edit: Roster | null; schedule: Schedule | null; options: number }) {

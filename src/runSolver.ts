@@ -45,8 +45,9 @@ export type StudentsResult =
 export type RepairResult = { students: StudentAssignment[]; presenters: PresenterAssignment[]; swaps: RepairSwap[]; presenterDays: string[] }
 
 /** Fix a published roster with as few trades between students as possible. */
-export const repairInBackground = (config: SessionConfig, responses: Record<string, MemberResponse>, roster: Roster) =>
-  run<RepairResult>({ kind: 'repair', lang: getLang(), config, responses, roster })
+/** `from`: the first date it may change (earlier days, e.g. today and tomorrow, stay as they are). */
+export const repairInBackground = (config: SessionConfig, responses: Record<string, MemberResponse>, roster: Roster, from?: string) =>
+  run<RepairResult>({ kind: 'repair', lang: getLang(), config, responses, roster, from })
 
 export const rearrangeStudents = (config: SessionConfig, responses: Record<string, MemberResponse>, assignments: Assignment[], seed: number) =>
   run<StudentsResult>({ kind: 'students', lang: getLang(), config, responses, assignments, seed })

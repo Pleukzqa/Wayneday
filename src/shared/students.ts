@@ -93,6 +93,13 @@ const SLOT_SPREAD_PENALTY = 8000
 const POINTS_OVER_PENALTY = 5000
 
 /** How many points the spread (most − fewest) is above `maxDiff` percent of the average; 0 when within it or no limit. */
+/** How far apart points are, as a % of the average: one decimal when whole numbers would hide going over the limit. */
+export function pctApart(spread: number, avg: number, limit?: number) {
+  if (!avg) return 0
+  const p = (spread / avg) * 100
+  return limit && p > limit && Math.round(p) <= limit ? Math.ceil(p * 10) / 10 : Math.round(p)
+}
+
 export function pointsOver(pts: number[], maxDiff?: number) {
   if (!maxDiff || pts.length < 2) return 0
   const avg = pts.reduce((a, b) => a + b, 0) / pts.length
@@ -678,7 +685,7 @@ export function fromSources(config: SessionConfig, onDuty: StudentAssignment[], 
   return { places: places.length, matched: new Set(owner.filter((i) => i >= 0).map((i) => who[i])) }
 }
 
-export function polishPresenters(config: SessionConfig, onDuty: StudentAssignment[], presenters: PresenterAssignment[]): PresenterAssignment[] {
+export function polishPresenters(config: SessionConfig, onDuty: StudentAssignment[], presenters: PresenterAssignment[], from = ''): PresenterAssignment[] {
   // Everyone on duty: students, and in a roster Wayneday makes, residents and staff too.
   const students = onDuty
   const out = presenters.map((p) => ({ ...p }))
@@ -691,7 +698,7 @@ export function polishPresenters(config: SessionConfig, onDuty: StudentAssignmen
 
   // Hand a weekly turn from someone with more to `id` (who has none): it must be one they were on the shift for.
   const giveTurn = (id: string, ruleId: string) => {
-    const can = out.filter((p) => p.ruleId === ruleId && turns(p.memberId, ruleId) >= 2 && !near(id, p.date, 1))
+    const can = out.filter((p) => p.date >= from && p.ruleId === ruleId && turns(p.memberId, ruleId) >= 2 && !near(id, p.date, 1))
     for (const p of sortedBy(can, (p) => (near(id, p.date, 2) ? 1 : 0))) {
       const before = matched(p.date, ruleId)
       const was0 = p.memberId
@@ -703,7 +710,8 @@ export function polishPresenters(config: SessionConfig, onDuty: StudentAssignmen
   }
 
   // Same-day swaps between presentations, towards each presenter coming from their own source.
-  for (const date of [...new Set(out.map((p) => p.date))]) {
+  // Days before `from` (e.g. today and tomorrow) stay as they are.
+  for (const date of [...new Set(out.map((p) => p.date))].filter((d) => d >= from)) {
     for (let again = true; again; ) {
       again = false
       const today = out.filter((p) => p.date === date)
@@ -727,7 +735,7 @@ export function polishPresenters(config: SessionConfig, onDuty: StudentAssignmen
 
   // Still someone not from the shift it draws from (e.g. picked as a stand-in): someone who was on it and is free
   // that day and the days either side takes their place, if they don't lose their only turn at a weekly one.
-  for (const p of out) {
+  for (const p of out.filter((q) => q.date >= from)) {
     const today = out.filter((q) => q.date === p.date && q.ruleId === p.ruleId)
     const fit = fromSources(config, students, p.date, p.ruleId, today.map((q) => q.memberId))
     if (fit.matched.has(p.memberId) || fit.matched.size >= Math.min(fit.places, today.length)) continue
@@ -751,7 +759,7 @@ export function polishPresenters(config: SessionConfig, onDuty: StudentAssignmen
     for (let moved = true, guard = 0; moved && guard < 200; guard++) {
       moved = false
       const slots = sortedBy(
-        out.filter((p) => p.ruleId === rule.id),
+        out.filter((p) => p.ruleId === rule.id && p.date >= from),
         (p) => -turns(p.memberId, rule.id),
       )
       for (const p of slots) {
@@ -776,7 +784,7 @@ export function polishPresenters(config: SessionConfig, onDuty: StudentAssignmen
   }
 
   // ● again for whoever now presents: straight after being on the shift it draws from the night before.
-  for (const p of out) {
+  for (const p of out.filter((q) => q.date >= from)) {
     const rule = ruleOf(p.ruleId)
     const today = rule && presentationOn(config, rule, p.date)
     p.postCall = Boolean(
@@ -1380,6 +1388,31 @@ export function repairRoster(
   responses: Record<string, MemberResponse>,
   roster: { assignments: Assignment[]; students: StudentAssignment[]; presenters: PresenterAssignment[] },
   most = 40,
+  from = '',
+): { students: StudentAssignment[]; presenters: PresenterAssignment[]; swaps: RepairSwap[]; presenterDays: string[] } {
+  // Never trade into breaking a rule the roster keeps now (e.g. presenters picked again move points, and a type
+  // that was made up for in points no longer is): fewer trades until it doesn't.
+  const rules = (r: typeof roster) => {
+    const n = new Map<string, number>()
+    for (const a of rosterAlerts(config, responses, r)) if (a.level === 'rule') n.set(a.kind, (n.get(a.kind) ?? 0) + 1)
+    return n
+  }
+  const now = rules(roster)
+  let plan = repairOnce(config, responses, roster, most, from)
+  for (let k = plan.swaps.length - 1; k >= 0; k--) {
+    const after = rules({ assignments: roster.assignments, students: plan.students, presenters: plan.presenters })
+    if ([...after].every(([kind, n]) => n <= (now.get(kind) ?? 0))) break
+    plan = repairOnce(config, responses, roster, k, from)
+  }
+  return plan
+}
+
+function repairOnce(
+  config: SessionConfig,
+  responses: Record<string, MemberResponse>,
+  roster: { assignments: Assignment[]; students: StudentAssignment[]; presenters: PresenterAssignment[] },
+  most: number,
+  from: string,
 ): { students: StudentAssignment[]; presenters: PresenterAssignment[]; swaps: RepairSwap[]; presenterDays: string[] } {
   const studs = config.members.filter((m) => m.type === 'student')
   const index = new Map(studs.map((m, i) => [m.id, i]))
@@ -1466,6 +1499,8 @@ export function repairRoster(
         const b = cur.find((x) => x.memberId === memberId && placeKey(x) === place)
         // Each pair once (from the student listed later); trades are allowed both ways or neither.
         if (!b || b.memberId === a.memberId || index.get(b.memberId)! > index.get(a.memberId)!) continue
+        // Days before `from` (e.g. today and tomorrow) stay as they are.
+        if (a.date < from || b.date < from) continue
         const g = gain(a, b)
         if (g > 0 && (!best || g > best.g)) best = { a, b, g }
       }
@@ -1537,6 +1572,7 @@ export function repairRoster(
       }
     }
   }
+  for (const k of [...redo]) if (k.split('|')[0] < from) redo.delete(k)
   const again = pickPresenters(config, responses, roster.assignments, cur).presenters
   const kept = roster.presenters.filter((p) => !redo.has(`${p.date}|${p.ruleId}`))
   const fresh: PresenterAssignment[] = []
@@ -1610,7 +1646,7 @@ export function repairRoster(
       const has = (id: string) => presenters.filter((p) => p.ruleId === rule.id && p.memberId === id).length
       if (has(m.id) > 0) continue
       const can = (p: PresenterAssignment) => {
-        if (p.ruleId !== rule.id || has(p.memberId) < 2) return false
+        if (p.date < from || p.ruleId !== rule.id || has(p.memberId) < 2) return false
         if (presenters.some((q) => q.date === p.date && q.memberId === m.id)) return false
         const today = presentationOn(config, rule, p.date)
         return Boolean(today?.sources.some((src) => cur.some((x) => x.memberId === m.id && x.date === addDays(p.date, -1) && sourceMatches(config, src, x.shiftId, x.requirementId))))
@@ -1623,7 +1659,7 @@ export function repairRoster(
       }
     }
   }
-  const polished = polishPresenters(config, [...roster.assignments, ...cur], presenters)
+  const polished = polishPresenters(config, [...roster.assignments, ...cur], presenters, from)
   for (const [i, p] of polished.entries()) {
     if (p.memberId !== presenters[i].memberId && !presenterDays.includes(p.date)) presenterDays.push(p.date)
     presenters[i] = p
@@ -1770,7 +1806,7 @@ export function studentRuleReport(
       pointsSpread = b - a
       const limit = st.points.maxDiff
       const avg = pts.reduce((x, y) => x + y, 0) / pts.length
-      const pct = avg ? Math.round(((b - a) / avg) * 100) : 0
+      const pct = pctApart(b - a, avg, limit)
       const range = a === b ? t('{a} points each', { a: fmtPoints(a) }) : t('{a}–{b} points each', { a: fmtPoints(a), b: fmtPoints(b) })
       summary.push(
         limit
@@ -1986,6 +2022,8 @@ export function fitsPattern(days: number[], n: number, r: MemberResponse): boole
 /** Something a roster breaks: a rule the host set (`rule`) or a preference Wayneday tries for (`wish`). */
 export interface RosterAlert {
   level: 'rule' | 'wish'
+  /** What kind of problem, to compare two rosters (e.g. 'source', 'points', 'type'). */
+  kind: string
   text: string
 }
 
@@ -2018,6 +2056,7 @@ export function rosterAlerts(
       const night = roster.students.filter((x) => x.memberId === id && x.date === addDays(date, -1)).map((x) => shiftName(x.shiftId))
       out.push({
         level: 'rule',
+        kind: 'source',
         text: t('{date} {rule}: {name} isn’t from the shift it draws from (the night before: {night}).', {
           date: day(date),
           rule: ruleName(ruleId),
@@ -2028,18 +2067,19 @@ export function rosterAlerts(
     }
   }
   p.forEach((x, i) => {
-    if (p.findIndex((y) => y.date === x.date && y.memberId === x.memberId) !== i) out.push({ level: 'rule', text: t('{date}: {name} presents twice.', { date: day(x.date), name: name(x.memberId) }) })
+    if (p.findIndex((y) => y.date === x.date && y.memberId === x.memberId) !== i) out.push({ level: 'rule', kind: 'twice', text: t('{date}: {name} presents twice.', { date: day(x.date), name: name(x.memberId) }) })
   })
-  for (const x of presentsInARow(p)) out.push({ level: 'rule', text: t('{name} presents two days running ({a} and {b}).', { name: name(x.memberId), a: day(addDays(x.date, -1)), b: day(x.date) }) })
-  for (const x of presentsInARow(p, 2)) out.push({ level: 'wish', text: t('{name} presents every other day ({a} and {b}).', { name: name(x.memberId), a: day(addDays(x.date, -2)), b: day(x.date) }) })
+  for (const x of presentsInARow(p)) out.push({ level: 'rule', kind: 'row', text: t('{name} presents two days running ({a} and {b}).', { name: name(x.memberId), a: day(addDays(x.date, -1)), b: day(x.date) }) })
+  for (const x of presentsInARow(p, 2)) out.push({ level: 'wish', kind: 'row2', text: t('{name} presents every other day ({a} and {b}).', { name: name(x.memberId), a: day(addDays(x.date, -2)), b: day(x.date) }) })
   for (const rule of config.presentations.filter((r) => !isOneDay(r) && p.some((x) => x.ruleId === r.id))) {
     const n = new Map(studs.map((m) => [m.id, p.filter((x) => x.ruleId === rule.id && x.memberId === m.id).length]))
     const none = studs.filter((m) => !n.get(m.id))
-    if (none.length) out.push({ level: 'rule', text: t('{rule}: {names} never present.', { rule: rule.name, names: none.map((m) => m.name).join(', ') }) })
+    if (none.length) out.push({ level: 'rule', kind: 'weekly-none', text: t('{rule}: {names} never present.', { rule: rule.name, names: none.map((m) => m.name).join(', ') }) })
     const [lo, hi] = [Math.min(...n.values()), Math.max(...n.values())]
     if (hi - lo > 1) {
       out.push({
         level: 'rule',
+        kind: 'weekly-uneven',
         text: t('{rule}: {most} present {hi} times while {fewest} present {lo} — more than one apart.', {
           rule: rule.name,
           most: studs.filter((m) => n.get(m.id) === hi).map((m) => m.name).join(', '),
@@ -2054,30 +2094,30 @@ export function rosterAlerts(
   // Shifts.
   for (const [key, issues] of studentCellIssues(config, responses, roster.students)) {
     const [date, shiftId] = key.split('|')
-    for (const x of issues) out.push({ level: 'rule', text: `${day(date)} ${shiftName(shiftId)}: ${x}` })
+    for (const x of issues) out.push({ level: 'rule', kind: 'hard', text: `${day(date)} ${shiftName(shiftId)}: ${x}` })
   }
   const report = studentRuleReport(config, responses, roster)
   for (const u of report.unmet) {
     for (const d of u.days) {
-      out.push({ level: d.level >= 2 ? 'rule' : 'wish', text: t('{name} is on {date}, which they asked to avoid ({level}).', { name: name(u.memberId), date: day(d.date), level: '!'.repeat(d.level) }) })
+      out.push({ level: d.level >= 2 ? 'rule' : 'wish', kind: `avoid${d.level}`, text: t('{name} is on {date}, which they asked to avoid ({level}).', { name: name(u.memberId), date: day(d.date), level: '!'.repeat(d.level) }) })
     }
   }
-  if (!report.pointsOk) out.push({ level: 'rule', text: report.summary.find((x) => x.startsWith('⚠️'))?.replace('⚠️ ', '') ?? t('Points are further apart than your limit.') })
+  if (!report.pointsOk) out.push({ level: 'rule', kind: 'points', text: report.summary.find((x) => x.startsWith('⚠️'))?.replace('⚠️ ', '') ?? t('Points are further apart than your limit.') })
   const load = loadPoints(config, roster.students, roster.presenters)
   for (const g of shareGroups(config)) {
     for (const sh of config.shifts.filter((x) => roster.students.some((y) => y.shiftId === x.id))) {
       const counts = g.members.map((si) => roster.students.filter((x) => x.memberId === studs[si].id && x.shiftId === sh.id).length)
       if (!unevenType(counts, load ? g.members.map((si) => load[studs[si].id] ?? 0) : null)) continue
       const [lo, hi] = [Math.min(...counts), Math.max(...counts)]
-      out.push({ level: 'rule', text: t('{shift}: {lo}–{hi} each, more than one apart and not made up for in points.', { shift: sh.name, lo, hi }) })
+      out.push({ level: 'rule', kind: 'type', text: t('{shift}: {lo}–{hi} each, more than one apart and not made up for in points.', { shift: sh.name, lo, hi }) })
     }
   }
   for (const m of studs) {
     const days = [...new Set(roster.students.filter((x) => x.memberId === m.id).map((x) => dayDiff(config.startDate, x.date)))].sort((a, b) => a - b)
     const runs = everyOtherDay(days)
-    if (runs) out.push({ level: 'wish', text: t('{name} is on duty every other day three times running ({n}×).', { name: m.name, n: runs }) })
+    if (runs) out.push({ level: 'wish', kind: 'alt', text: t('{name} is on duty every other day three times running ({n}×).', { name: m.name, n: runs }) })
     if (responses[m.id] && !fitsPattern(days, dayDiff(config.startDate, config.endDate) + 1, studentResponse(config, responses, m.id))) {
-      out.push({ level: 'wish', text: responses[m.id].preference === 'dense' ? t('{name} asked for grouped shifts; these are spread out.', { name: m.name }) : t('{name} asked for spread-out shifts; there’s a long gap.', { name: m.name }) })
+      out.push({ level: 'wish', kind: 'pattern', text: responses[m.id].preference === 'dense' ? t('{name} asked for grouped shifts; these are spread out.', { name: m.name }) : t('{name} asked for spread-out shifts; there’s a long gap.', { name: m.name }) })
     }
   }
   return out
@@ -2139,7 +2179,7 @@ export function fairnessReport(
   if (st.points?.on) {
     const pts = details.map((d) => d.points)
     const avg = pts.reduce((a, b) => a + b, 0) / (pts.length || 1)
-    const pct = avg ? Math.round((spread(pts) / avg) * 100) : 0
+    const pct = pctApart(spread(pts), avg, st.points.maxDiff)
     rows.push({
       key: 'points',
       what: presentationsCount(config) ? t('Points (shifts + presentations)') : t('Points'),

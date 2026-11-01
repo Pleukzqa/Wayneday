@@ -1048,6 +1048,9 @@ test('presenters polished: each from the shift its presentation draws from; week
   const nights = [on('stA', '2026-11-02'), on('stA', '2026-11-06'), on('stB', '2026-11-06'), on('stA', '2026-11-10'), on('stC', '2026-11-14')]
   out = polishPresenters(c, nights, [p('stA', '2026-11-03'), p('stA', '2026-11-07'), p('stA', '2026-11-11'), p('stC', '2026-11-15')])
   assert.deepEqual(out.map((x) => x.memberId), ['stA', 'stB', 'stA', 'stC'])
+  // Days before `from` stay as they are: the 7th can't move, so nothing does.
+  out = polishPresenters(c, nights, [p('stA', '2026-11-03'), p('stA', '2026-11-07'), p('stA', '2026-11-11'), p('stC', '2026-11-15')], '2026-11-08')
+  assert.deepEqual(out.map((x) => x.memberId), ['stA', 'stA', 'stA', 'stC'])
   // Nobody else was on those nights: nothing moves.
   out = polishPresenters(c, nights.filter((x) => x.memberId !== 'stB'), [p('stA', '2026-11-03'), p('stA', '2026-11-07'), p('stA', '2026-11-11'), p('stC', '2026-11-15')])
   assert.deepEqual(out.map((x) => x.memberId), ['stA', 'stA', 'stA', 'stC'])

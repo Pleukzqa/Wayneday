@@ -2174,3 +2174,13 @@ body.no-scroll {
   margin-left: 0.35rem;
   font-size: 0.75rem;
 }
+
+/* A proposed change: what it clears and what it brings. */
+.plan-effects h3,
+.repair h3 {
+  margin: 0.5rem 0 0;
+  font-size: 1rem;
+}
+.plan-effects s {
+  text-decoration-color: var(--muted);
+}
