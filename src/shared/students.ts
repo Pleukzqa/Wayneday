@@ -735,6 +735,28 @@ export function polishPresenters(config: SessionConfig, onDuty: StudentAssignmen
     }
   }
 
+  // Twice in a day, or two days running (e.g. after editing by hand): a place that isn't locked goes to someone
+  // free who fits it as well (from the same shift when it draws from one), keeping weekly turns.
+  for (const p of out.filter((q) => !fixed.has(q))) {
+    if (!near(p.memberId, p.date, 1, p)) continue
+    // Their only turn at a weekly presentation: rather move the other one, unless that's locked.
+    const only = weekly.some((r) => r.id === p.ruleId) && turns(p.memberId, p.ruleId) <= 1
+    if (only && out.some((q) => q !== p && q.memberId === p.memberId && Math.abs(dayDiff(q.date, p.date)) <= 1 && !fixed.has(q))) continue
+    const who = () => out.filter((q) => q.date === p.date && q.ruleId === p.ruleId).map((q) => q.memberId)
+    const before = fromSources(config, students, p.date, p.ruleId, who()).matched.size
+    const rule = ruleOf(p.ruleId)!
+    const pool = sortedBy(
+      config.members.filter((m) => presenterTypes(config, rule).includes(m.type) && !near(m.id, p.date, 1)).map((m) => m.id),
+      (id) => (near(id, p.date, 2) ? 100 : 0) + 10 * out.filter((q) => q.memberId === id).length,
+    )
+    const old = p.memberId
+    for (const id of pool) {
+      p.memberId = id
+      if (fromSources(config, students, p.date, p.ruleId, who()).matched.size >= before) break
+      p.memberId = old
+    }
+  }
+
   // Still someone not from the shift it draws from (e.g. picked as a stand-in): someone who was on it and is free
   // that day and the days either side takes their place, if they don't lose their only turn at a weekly one.
   for (const p of out.filter((q) => !fixed.has(q))) {

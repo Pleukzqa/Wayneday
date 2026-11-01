@@ -1044,6 +1044,10 @@ test('presenters polished: each from the shift its presentation draws from; week
     [['mr', 'stA'], ['ccr', 'stB']],
   )
   assert.ok(out.every((x) => x.postCall))
+  // Twice in a day with the morning round locked: the CCR goes to the other one off the overnight shift.
+  const both = [on('stA', '2026-11-11'), on('stA', '2026-11-11', 'long'), on('stB', '2026-11-11', 'long'), on('stB', '2026-11-04'), on('stC', '2026-11-08')]
+  out = polishPresenters(c, both, [p('stA', '2026-11-12'), p('stA', '2026-11-12', 'ccr'), p('stB', '2026-11-05'), p('stC', '2026-11-09')], '', ['p|2026-11-12|mr|stA'])
+  assert.deepEqual(out.filter((x) => x.date === '2026-11-12').map((x) => [x.ruleId, x.memberId]), [['mr', 'stA'], ['ccr', 'stB']])
   // A has three morning rounds and B none; on the 7th both were on the night before, so B takes that one.
   const nights = [on('stA', '2026-11-02'), on('stA', '2026-11-06'), on('stB', '2026-11-06'), on('stA', '2026-11-10'), on('stC', '2026-11-14')]
   out = polishPresenters(c, nights, [p('stA', '2026-11-03'), p('stA', '2026-11-07'), p('stA', '2026-11-11'), p('stC', '2026-11-15')])
