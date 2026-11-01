@@ -14,6 +14,8 @@ import {
   placeKey,
   polishPresenters,
   rosterAlerts,
+  followShifts,
+  newRuleBreaks,
   studentCellIssues,
   studentExposure,
   studentRuleReport,
@@ -261,6 +263,12 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
       setError((e as Error).message)
     }
   }
+
+  // Rules the edits on screen break that the published roster keeps: saving asks first.
+  const editBreaks = useMemo(
+    () => (me.isHost && edit && schedule && hasStudents ? newRuleBreaks(config, responses, rosterOf(schedule), edit) : []),
+    [me.isHost, edit, schedule, hasStudents, config, responses],
+  )
 
   /** Lock or unlock one slot of the published roster (📌). */
   function toggleLock(key: string) {
@@ -605,7 +613,18 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
                 </>
               ) : (
                 <>
-                  <button className="primary" onClick={() => void publish(edit, 'manual', schedule.status, true)}>{t("💾 Save edits")}</button>
+                  {editBreaks.length ? (
+                    <ConfirmButton
+                      className="primary"
+                      title={editBreaks.map((a) => a.text).join('\n')}
+                      confirmText={t('Breaks {n} rule(s) — tap again to save anyway', { n: editBreaks.length })}
+                      onConfirm={() => void publish(edit, 'manual', schedule.status, true)}
+                    >
+                      {t("💾 Save edits")} ⚠️
+                    </ConfirmButton>
+                  ) : (
+                    <button className="primary" onClick={() => void publish(edit, 'manual', schedule.status, true)}>{t("💾 Save edits")}</button>
+                  )}
                   <button onClick={() => setEdit(null)}>{t("Cancel edits")}</button>
                 </>
               )}
@@ -696,6 +715,16 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
             </div>
           )}
           <ShowingLine preview={preview} edit={edit} schedule={schedule} options={options?.length ?? 0} />
+          {editBreaks.length > 0 && (
+            <div className="alert warn small" role="status">
+              <strong>{t('These edits break {n} rule(s) the published roster keeps:', { n: editBreaks.length })}</strong>
+              <ul>
+                {editBreaks.map((a, i) => (
+                  <li key={i}>{a.text}</li>
+                ))}
+              </ul>
+            </div>
+          )}
           {me.isHost && lockMode && schedule && !preview && !edit && (
             <p className="small lock-bar" role="status">
               📌 {t('Tap a student or presenter to lock them in place; tap again to unlock. 🔧 Fix and 🎤 Even out leave locked ones as they are.')}{' '}
@@ -727,7 +756,13 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
                         const here = list.filter((x) => x.date === date && x.shiftId === shiftId && x.requirementId === requirementId)
                         const target = here[slot]
                         const rest = list.filter((x) => x !== target)
-                        return { ...cur!, students: memberId ? [...rest, { date, shiftId, ...(requirementId ? { requirementId } : {}), memberId }] : rest }
+                        const students = memberId ? [...rest, { date, shiftId, ...(requirementId ? { requirementId } : {}), memberId }] : rest
+                        // A presentation drawn from this place goes with it to whoever takes it (locked ones stay).
+                        const presenters = (cur?.presenters ?? []).map((p) => ({ ...p }))
+                        if (target && memberId && target.memberId !== memberId) {
+                          followShifts(config, [...cur!.assignments, ...list], [...cur!.assignments, ...students], presenters, [target.memberId, memberId], cur!.pinned)
+                        }
+                        return { ...cur!, students, presenters }
                       })
                   : undefined
               }

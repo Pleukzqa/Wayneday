@@ -247,6 +247,8 @@ export const TH: Record<string, string> = {
   "Reject": "ปฏิเสธ",
   "Residents & staff": "แพทย์ประจำบ้านและอาจารย์",
   "Even out presenters": "เกลี่ยผู้นำเสนอ",
+  "Breaks {n} rule(s) — tap again to save anyway": "ผิดกฎ {n} ข้อ — แตะอีกครั้งเพื่อบันทึกต่อ",
+  "These edits break {n} rule(s) the published roster keeps:": "การแก้ไขนี้ผิดกฎ {n} ข้อที่ตารางที่เผยแพร่ไม่ผิด:",
   "What should the AI do?": "อยากให้ AI ทำอะไร?",
   "e.g. R3.32 can’t do Wed 4/11 — find the fewest changes that keep every rule.": "เช่น R3.32 อยู่เวรพุธ 4/11 ไม่ได้ — หาการเปลี่ยนน้อยที่สุดที่ไม่ผิดกฎ",
   "The prompt also carries what the roster breaks now, the locked slots and days that can’t change, and open swap requests and concerns. The reply opens as a preview of its changes.": "คำสั่งนี้รวมสิ่งที่ตารางผิดกฎอยู่ ช่องที่ล็อกและวันที่เปลี่ยนไม่ได้ รวมถึงคำขอแลกเวรและข้อทักท้วงที่ยังเปิดอยู่ คำตอบจะเปิดเป็นตัวอย่างการเปลี่ยนแปลงก่อน",

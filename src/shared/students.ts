@@ -2271,6 +2271,19 @@ export function followShifts(
   return moved
 }
 
+/** The rules `after` breaks that `before` keeps (by kind, e.g. a second "presents twice"), with their alerts. */
+export function newRuleBreaks(
+  config: SessionConfig,
+  responses: Record<string, MemberResponse>,
+  before: { assignments: Assignment[]; students: StudentAssignment[]; presenters: PresenterAssignment[]; pinned?: string[] },
+  after: { assignments: Assignment[]; students: StudentAssignment[]; presenters: PresenterAssignment[]; pinned?: string[] },
+): RosterAlert[] {
+  const was = rosterAlerts(config, responses, before).filter((a) => a.level === 'rule')
+  const now = rosterAlerts(config, responses, after).filter((a) => a.level === 'rule')
+  const count = (list: RosterAlert[], kind: string) => list.filter((a) => a.kind === kind).length
+  return now.filter((a) => count(now, a.kind) > count(was, a.kind) && !was.some((b) => b.text === a.text))
+}
+
 /** Every fairness rule Wayneday accounts for, with this roster's result: for the fairness table and comparing two. */
 export function fairnessReport(
   config: SessionConfig,
