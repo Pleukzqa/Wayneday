@@ -4,7 +4,7 @@
 //   locks, minimum interval and spread/grouped preference;
 // - pick presenters for presentation rules, taking the required number from yesterday's shift first.
 
-import { fmtPoints, presentationOn, reqCount, reqMin, shiftPoints, shiftRuns, shiftSpan, shiftTimes, sourceMatches, sourceOffsets } from './calendar.ts'
+import { fmtPoints, presentationOn, reqCount, reqMin, ruleSources, shiftPoints, shiftRuns, shiftSpan, shiftTimes, sourceMatches, sourceOffsets } from './calendar.ts'
 import { t, weekdayShort } from './i18n.ts'
 import { addDays, dateRange, dayDiff, shortDate, weekday } from './dates.ts'
 import { preferenceCost, responseFor, rng, shuffled, sortedBy, variance } from './scoring.ts'
@@ -2134,6 +2134,119 @@ export function rosterAlerts(
     }
   }
   return out
+}
+
+/** One trade that would grant a swap request: the asker takes `with` and its student takes the asker's place. */
+export interface SwapSuggestion {
+  with: StudentAssignment
+  /** Presentations that move with the shifts (e.g. the morning round after a midnight shift). */
+  presenters: { date: string; ruleId: string; from: string; to: string }[]
+  /** What the trade brings in and clears, from the hosts' alert list. */
+  brings: RosterAlert[]
+  fixes: RosterAlert[]
+  /** Rules it would break that the roster keeps now (0 = fine). */
+  newRules: number
+}
+
+/**
+ * The best single trades for someone who asks to swap their shift on `date`: every legal trade with another
+ * student (their gaps, ✕ days, places and locks kept), with the presentations that go with the shifts, ranked by
+ * rules kept, then preferences, then how little else changes. Days before `from` and locked slots aren't offered.
+ */
+export function swapSuggestions(
+  config: SessionConfig,
+  responses: Record<string, MemberResponse>,
+  roster: { assignments: Assignment[]; students: StudentAssignment[]; presenters: PresenterAssignment[]; pinned?: string[] },
+  memberId: string,
+  date: string,
+  shiftId: string,
+  from = '',
+): SwapSuggestion[] {
+  const a = roster.students.find((x) => x.memberId === memberId && x.date === date && x.shiftId === shiftId)
+  const locked = new Set(roster.pinned ?? [])
+  if (!a || a.date < from || locked.has(lockKey.student(a))) return []
+  const kinds = (al: RosterAlert[]) => {
+    const n = new Map<string, number>()
+    for (const x of al) if (x.level === 'rule') n.set(x.kind, (n.get(x.kind) ?? 0) + 1)
+    return n
+  }
+  const before = rosterAlerts(config, responses, roster)
+  const k0 = kinds(before)
+  const { swaps } = studentTargets(config, responses, roster.students, a)
+  const out: SwapSuggestion[] = []
+  for (const k of swaps) {
+    const other = k.slice(k.lastIndexOf('|') + 1)
+    const b = roster.students.find((x) => x.memberId === other && placeKey(x) === k.slice(0, k.lastIndexOf('|')))
+    if (!b || b.date < from || locked.has(lockKey.student(b))) continue
+    const students = roster.students.map((x) => (x === a ? { ...x, memberId: b.memberId } : x === b ? { ...x, memberId: a.memberId } : x))
+    const presenters = roster.presenters.map((p) => ({ ...p }))
+    const moved = followShifts(config, [...roster.assignments, ...roster.students], [...roster.assignments, ...students], presenters, [a.memberId, b.memberId], roster.pinned)
+    const after = rosterAlerts(config, responses, { ...roster, students, presenters })
+    const k1 = kinds(after)
+    out.push({
+      with: b,
+      presenters: moved,
+      brings: after.filter((x) => !before.some((y) => y.text === x.text)),
+      fixes: before.filter((x) => !after.some((y) => y.text === x.text)),
+      newRules: [...k1].reduce((n, [kind, c]) => n + Math.max(0, c - (k0.get(kind) ?? 0)), 0),
+    })
+  }
+  // Rules kept, then preferences, then fewest presentations moving, the same type of shift, the nearest date.
+  const rank = (x: SwapSuggestion) => [
+    x.newRules,
+    x.brings.filter((y) => y.level === 'rule').length,
+    x.brings.length - x.fixes.length,
+    x.presenters.length,
+    x.with.shiftId === shiftId ? 0 : 1,
+    Math.abs(dayDiff(date, x.with.date)),
+  ]
+  return out
+    .map((x) => [x, rank(x)] as const)
+    .sort(([, p], [, q]) => {
+      for (let i = 0; i < p.length; i++) if (p[i] !== q[i]) return p[i] - q[i]
+      return 0
+    })
+    .map(([x]) => x)
+}
+
+/**
+ * After two people trade places, a presentation drawn from a traded shift goes with it: to the other of the two,
+ * when that makes it fit (e.g. the morning round after the midnight shift they swapped). Changes `presenters` in
+ * place and says what moved. Locked presenters stay.
+ */
+export function followShifts(
+  config: SessionConfig,
+  dutyBefore: StudentAssignment[],
+  dutyAfter: StudentAssignment[],
+  presenters: PresenterAssignment[],
+  [a, b]: [string, string],
+  pinned: string[] = [],
+): { date: string; ruleId: string; from: string; to: string }[] {
+  const locked = new Set(pinned)
+  const moved: { date: string; ruleId: string; from: string; to: string }[] = []
+  for (const p of presenters) {
+    if ((p.memberId !== a && p.memberId !== b) || locked.has(lockKey.presenter(p))) continue
+    const who = () => presenters.filter((q) => q.date === p.date && q.ruleId === p.ruleId).map((q) => q.memberId)
+    if (fromSources(config, dutyAfter, p.date, p.ruleId, who()).matched.has(p.memberId)) continue
+    if (!fromSources(config, dutyBefore, p.date, p.ruleId, who()).matched.has(p.memberId)) continue
+    const to = p.memberId === a ? b : a
+    if (presenters.some((q) => q.date === p.date && q.memberId === to)) continue
+    const from = p.memberId
+    p.memberId = to
+    if (fromSources(config, dutyAfter, p.date, p.ruleId, who()).matched.has(to)) moved.push({ date: p.date, ruleId: p.ruleId, from, to })
+    else p.memberId = from
+  }
+  // ● again for the two of them: straight after being on the shift it draws from the night before.
+  for (const x of presenters.filter((q) => q.memberId === a || q.memberId === b)) {
+    const rule = config.presentations.find((r) => r.id === x.ruleId)
+    x.postCall = Boolean(
+      rule &&
+        ruleSources(rule).some(
+          (src) => src.when !== 'same' && dutyAfter.some((y) => y.memberId === x.memberId && y.date === addDays(x.date, -1) && sourceMatches(config, src, y.shiftId, y.requirementId)),
+        ),
+    )
+  }
+  return moved
 }
 
 /** Every fairness rule Wayneday accounts for, with this roster's result: for the fairness table and comparing two. */

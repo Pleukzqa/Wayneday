@@ -2198,3 +2198,18 @@ body.no-scroll {
   border-radius: 8px;
   padding: 0.4rem 0.6rem;
 }
+
+/* Who to ask for a swap. */
+.swap-ideas {
+  background: var(--accent-soft);
+  border-radius: 8px;
+  padding: 0.45rem 0.65rem;
+  margin: 0.35rem 0;
+}
+.swap-ideas ol {
+  margin: 0.25rem 0 0;
+  padding-left: 1.2rem;
+}
+.swap-ideas button {
+  margin-top: 0.35rem;
+}

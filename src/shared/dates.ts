@@ -43,3 +43,11 @@ export function shortDate(s: string): string {
   const d = new Date(parseDate(s))
   return `${weekdayShort()[d.getUTCDay()]} ${d.getUTCDate()}/${d.getUTCMonth() + 1}`
 }
+
+/**
+ * The first date fixes and suggested swaps may change: never today or before, and not tomorrow either unless
+ * `keepTomorrow` is false (too late to tell anyone).
+ */
+export function changeableFrom(keepTomorrow = true): string {
+  return addDays(new Date().toLocaleDateString('en-CA'), keepTomorrow ? 2 : 1)
+}

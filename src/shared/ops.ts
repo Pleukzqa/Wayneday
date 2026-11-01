@@ -1,4 +1,5 @@
 // Session changes shared by the API server and the in-browser demo, so both enforce the same rules.
+import { followShifts } from './students.ts'
 import { DEFAULT_RESPONSE, FEEDBACK_QUESTIONS, missingReasons, STUDENT_SLOT, type AnswerChange, type Concern, type Draft, type Feedback, type HostNote, type JoinRequest, type MemberResponse, type MemberType, type PublicSession, type Roster, type SwapRequest } from './types.ts'
 
 export interface Actor {
@@ -356,8 +357,9 @@ export function actOnSwap(s: PublicSession, actor: Actor, swapId: string, a: Swa
       if (!sched || !ownsShift(s, swap.memberId, swap) || (offer.give && !ownsShift(s, offer.memberId, offer.give))) {
         throw new OpError(409, 'The roster changed since this swap was agreed; it can no longer be applied')
       }
-      s.schedule = applySwapPreview(sched, swap, offer.id)
-      // Presenter duties stay with whoever was picked; re-arrange presenters to recompute them.
+      s.schedule = { ...applySwapPreview(sched, swap, offer.id), presenters: sched.presenters.map((p) => ({ ...p })) }
+      // A presentation drawn from a traded shift goes with it (e.g. the morning round after that night).
+      followShifts(s.config, [...sched.assignments, ...sched.students], [...s.schedule.assignments, ...s.schedule.students], s.schedule.presenters, [swap.memberId, offer.memberId], sched.pinned)
       swap.status = 'approved'
       swap.resolvedAt = Date.now()
       return

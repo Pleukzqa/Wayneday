@@ -1,10 +1,11 @@
 // Shift swaps: a member asks, the group sees it, others offer to take it or trade, the asker accepts, the host approves.
 import { t } from '../shared/i18n.ts'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { api } from '../api.ts'
-import { shortDate } from '../shared/dates.ts'
+import { changeableFrom, shortDate } from '../shared/dates.ts'
 import { validate } from '../shared/solver.ts'
 import { applySwapPreview } from '../shared/ops.ts'
+import { swapSuggestions } from '../shared/students.ts'
 import { STUDENT_SLOT, type Assignment } from '../shared/types.ts'
 import type { SessionProps } from './props.ts'
 
@@ -81,6 +82,9 @@ export default function Swaps({ code, session, me, mutate, draft, clearDraft }: 
           <button className="primary" disabled={!draft && !give.request}>{t("📣 Announce")}</button>
         </form>
       )}
+      {me.memberId && (draft ?? (give.request ? parseKey(give.request) : null)) && (draft ?? parseKey(give.request!)).requirementId === STUDENT_SLOT && (
+        <SwapIdeas session={session} memberId={me.memberId} at={(draft ?? parseKey(give.request!))} viewer={me.memberId} />
+      )}
       {error && <p className="error small">{error}</p>}
       {live.length === 0 && <p className="muted small">{t("No open swap requests.")}</p>}
       <ul className="swaps">
@@ -95,6 +99,16 @@ export default function Swaps({ code, session, me, mutate, draft, clearDraft }: 
                 <strong>{name(s.memberId)}</strong> {t("wants to swap")} <strong>{label(s)}</strong>
                 {s.note && <span className="muted"> — “{s.note}”</span>}
               </div>
+              {s.status === 'open' && s.requirementId === STUDENT_SLOT && (isMine || me.isHost || me.memberId) && (
+                <SwapIdeas
+                  session={session}
+                  memberId={s.memberId}
+                  at={s}
+                  viewer={me.memberId}
+                  everyone={isMine || me.isHost}
+                  offer={(theirs) => void act(() => mutate(() => api.actOnSwap(code, s.id, { action: 'offer', give: theirs })))}
+                />
+              )}
               {s.status === 'agreed' && accepted ? (
                 <p className="small">{t("Agreed with")} <strong>{name(accepted.memberId)}</strong>
                   {accepted.give ? t(' (they give {shift})', { shift: label(accepted.give) }) : t(" (they take it)")} {t("· waiting for the host.")}</p>
@@ -180,4 +194,88 @@ export default function Swaps({ code, session, me, mutate, draft, clearDraft }: 
 function parseKey(k: string) {
   const [date, shiftId, requirementId] = k.split('|')
   return { date, shiftId, requirementId }
+}
+
+/**
+ * The best single swaps for a request: who to ask and which of their shifts, keeping every rule, with the
+ * presentations that move with the shifts. The asker and hosts see the list; someone on it sees their own match.
+ */
+function SwapIdeas({
+  session,
+  memberId,
+  at,
+  viewer,
+  everyone = true,
+  offer,
+}: {
+  session: SessionProps['session']
+  memberId: string
+  at: { date: string; shiftId: string }
+  viewer: string | null
+  everyone?: boolean
+  offer?: (give: { date: string; shiftId: string; requirementId: string }) => void
+}) {
+  const { config, schedule, responses } = session
+  const ideas = useMemo(
+    () => (schedule ? swapSuggestions(config, responses, schedule, memberId, at.date, at.shiftId, changeableFrom()).filter((x) => x.newRules === 0) : []),
+    [config, responses, schedule, memberId, at.date, at.shiftId],
+  )
+  const name = (id: string) => config.members.find((m) => m.id === id)?.name ?? '?'
+  const shiftName = (id: string) => config.shifts.find((x) => x.id === id)?.name ?? '?'
+  const rule = (id: string) => config.presentations.find((r) => r.id === id)?.name ?? '?'
+  const label = (x: { date: string; shiftId: string }) => `${shortDate(x.date)} ${shiftName(x.shiftId)}`
+  const extras = (x: (typeof ideas)[number]) => (
+    <>
+      {x.presenters.map((p) => (
+        <div key={`${p.date}${p.ruleId}`} className="muted">
+          🎤 {t('{date} {rule} goes with the shift: {from} → {to}', { date: shortDate(p.date), rule: rule(p.ruleId), from: name(p.from), to: name(p.to) })}
+        </div>
+      ))}
+      {x.brings.map((b, i) => (
+        <div key={i} className="muted">
+          ⚠️ {b.text}
+        </div>
+      ))}
+    </>
+  )
+  if (!everyone) {
+    // Someone else looking at the request: only their own match, if they're one.
+    const mine = ideas.find((x) => x.with.memberId === viewer)
+    if (!mine) return null
+    return (
+      <div className="swap-ideas small">
+        💡 {t('You’re a good match: trade your {theirs} for this — every rule stays kept.', { theirs: label(mine.with) })}
+        {extras(mine)}
+        {offer && (
+          <button type="button" className="small" onClick={() => offer({ date: mine.with.date, shiftId: mine.with.shiftId, requirementId: STUDENT_SLOT })}>
+            {t('Offer this trade')}
+          </button>
+        )}
+      </div>
+    )
+  }
+  return (
+    <div className="swap-ideas small">
+      {ideas.length === 0 ? (
+        <span className="muted">💡 {t('No single swap keeps every rule — ask the host.')}</span>
+      ) : (
+        <>
+          <b>💡 {t('Best people to ask — one swap each, every rule kept:')}</b>
+          <ol>
+            {ideas.slice(0, 3).map((x) => (
+              <li key={`${x.with.memberId}${x.with.date}${x.with.shiftId}`}>
+                {t('{name} — their {theirs} for {whose} {yours}', {
+                  name: name(x.with.memberId),
+                  theirs: label(x.with),
+                  whose: memberId === viewer ? t('your') : name(memberId),
+                  yours: label(at),
+                })}
+                {extras(x)}
+              </li>
+            ))}
+          </ol>
+        </>
+      )}
+    </div>
+  )
 }

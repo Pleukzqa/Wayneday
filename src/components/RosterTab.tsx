@@ -5,7 +5,7 @@ import { t } from '../shared/i18n.ts'
 import { exportCsv, exportPng, exportToDrive, exportXlsx, personTable } from '../export.ts'
 import { findArrangements, rearrangeStudents, repairInBackground, type RepairResult } from '../runSolver.ts'
 import { buildAiPrompt, importAiResult } from '../shared/ai.ts'
-import { addDays, shortDate } from '../shared/dates.ts'
+import { addDays, changeableFrom, shortDate } from '../shared/dates.ts'
 import { fmtPoints, reqCount, ruleSources, sourceMatches } from '../shared/calendar.ts'
 import { responseFor, validate, type CountResult } from '../shared/solver.ts'
 import {
@@ -562,7 +562,7 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
                       onClick={async () => {
                         setRunning('repair')
                         try {
-                          setRepair({ ...(await repairInBackground(config, responses, rosterOf(schedule), changeFrom(keepTomorrow))), kind: 'fix' })
+                          setRepair({ ...(await repairInBackground(config, responses, rosterOf(schedule), changeableFrom(keepTomorrow))), kind: 'fix' })
                           setTimeout(() => document.getElementById('plan')?.scrollIntoView({ behavior: 'smooth' }), 50)
                         } finally {
                           setRunning(null)
@@ -576,7 +576,7 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
                     <button
                       title={t('Each presenter from the shift their presentation draws from, and each weekly presentation within one of everyone else’s. Shifts stay as they are.')}
                       onClick={() => {
-                        const after = polishPresenters(config, [...schedule.assignments, ...schedule.students], schedule.presenters, changeFrom(keepTomorrow), schedule.pinned)
+                        const after = polishPresenters(config, [...schedule.assignments, ...schedule.students], schedule.presenters, changeableFrom(keepTomorrow), schedule.pinned)
                         setRepair({ students: schedule.students, presenters: after, swaps: [], presenterDays: [], kind: 'even' })
                         setTimeout(() => document.getElementById('plan')?.scrollIntoView({ behavior: 'smooth' }), 50)
                       }}
@@ -1257,8 +1257,6 @@ function RepairPlan({
   )
 }
 
-/** The first day the fixes may change: never today or before; tomorrow too only if it may change. */
-const changeFrom = (keepTomorrow: boolean) => addDays(new Date().toLocaleDateString('en-CA'), keepTomorrow ? 2 : 1)
 
 /** Which arrangement the table below is showing. */
 function ShowingLine({ preview, edit, schedule, options }: { preview: Preview | null; edit: Roster | null; schedule: Schedule | null; options: number }) {

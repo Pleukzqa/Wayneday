@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import { addDays, dateRange, dayDiff } from './dates.ts'
 import { shiftHours, shiftPoints, shiftTimes } from './calendar.ts'
 import { countArrangements, solve, solveMany, validate } from './solver.ts'
-import { arrangeStudents, countStudentArrangements, equalShare, shareGroups, shiftsNeeded, pickPresenters, placeKey, polishPresenters, rosterAlerts, studentCellIssues, studentExposure, studentOptions, everyOtherDay, fairnessReport, fitsPattern, presentationLoad, presentsInARow, repairRoster, studentDetails, studentRuleReport, studentSummaryTable, studentTargets, typeSpread } from './students.ts'
+import { arrangeStudents, countStudentArrangements, equalShare, shareGroups, shiftsNeeded, pickPresenters, placeKey, polishPresenters, rosterAlerts, swapSuggestions, studentCellIssues, studentExposure, studentOptions, everyOtherDay, fairnessReport, fitsPattern, presentationLoad, presentsInARow, repairRoster, studentDetails, studentRuleReport, studentSummaryTable, studentTargets, typeSpread } from './students.ts'
 import { buildAiPrompt, importAiResult } from './ai.ts'
 import { explainNoArrangement } from './explain.ts'
 import { ANY_SHIFT, DEFAULT_RESPONSE, DEFAULT_STUDENTS, dutyOf, personHue, presentationPoints, type MemberResponse, type SessionConfig, type StudentAssignment } from './types.ts'
@@ -1077,4 +1077,27 @@ test('hosts are told what a roster breaks; a presenter off the wrong shift is sw
   // Avoid days: !!! and !! are rules the host set, ! is a preference.
   const responses = { stA: { ...DEFAULT_RESPONSE, avoid: [{ date: '2026-11-11', level: 2 as const }] } }
   assert.ok(rosterAlerts(c, responses, roster).some((a) => a.level === 'rule' && /asked to avoid \(!!\)/.test(a.text)))
+})
+
+test('swap suggestions: legal single trades that keep every rule, with the presentation going with the shift', () => {
+  const c = hospital()
+  c.shifts = [{ ...c.shifts[0], requirements: [{ id: 'wa', jobId: 'er', memberType: 'any', count: 1 }] }]
+  c.presentations = [{ id: 'mr', name: 'Morning round', days: [0, 1, 2, 3, 4, 5, 6], count: 1, fromShiftId: 'night', fromCount: 1, types: ['student' as const], sources: [{ shiftId: 'night', placeId: 'wa', count: 1 }] }]
+  const on = (memberId: string, date: string) => ({ date, shiftId: 'night', requirementId: 'wa', memberId })
+  const students = [on('stA', '2026-11-04'), on('stB', '2026-11-08'), on('stC', '2026-11-12')]
+  const presenters = [
+    { date: '2026-11-05', ruleId: 'mr', memberId: 'stA', postCall: true },
+    { date: '2026-11-09', ruleId: 'mr', memberId: 'stB', postCall: true },
+    { date: '2026-11-13', ruleId: 'mr', memberId: 'stC', postCall: true },
+  ]
+  const roster = { assignments: [], students, presenters }
+  const ideas = swapSuggestions(c, {}, roster, 'stA', '2026-11-04', 'night')
+  const withB = ideas.find((x) => x.with.memberId === 'stB')!
+  assert.equal(withB.newRules, 0)
+  assert.deepEqual(withB.presenters.map((p) => [p.date, p.from, p.to]), [['2026-11-05', 'stA', 'stB'], ['2026-11-09', 'stB', 'stA']])
+  // Someone who can't take the 4th (✕) isn't offered; nor are days before `from`, nor locked places.
+  const responses = { stC: { ...DEFAULT_RESPONSE, unavailable: ['2026-11-04'] } }
+  assert.ok(!swapSuggestions(c, responses, roster, 'stA', '2026-11-04', 'night').some((x) => x.with.memberId === 'stC'))
+  assert.ok(!swapSuggestions(c, {}, roster, 'stA', '2026-11-04', 'night', '2026-11-10').some((x) => x.with.date < '2026-11-10'))
+  assert.deepEqual(swapSuggestions(c, {}, { ...roster, pinned: ['s|2026-11-04|night|wa|stA'] }, 'stA', '2026-11-04', 'night'), [])
 })
