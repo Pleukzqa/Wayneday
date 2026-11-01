@@ -1101,3 +1101,19 @@ test('swap suggestions: legal single trades that keep every rule, with the prese
   assert.ok(!swapSuggestions(c, {}, roster, 'stA', '2026-11-04', 'night', '2026-11-10').some((x) => x.with.date < '2026-11-10'))
   assert.deepEqual(swapSuggestions(c, {}, { ...roster, pinned: ['s|2026-11-04|night|wa|stA'] }, 'stA', '2026-11-04', 'night'), [])
 })
+
+test('AI hand-off: the task, what the roster breaks, locks, days that can’t change and requests; replies read back', () => {
+  const c = hospital()
+  c.noDuty = true
+  const students = [{ date: '2026-11-04', shiftId: 'night', requirementId: 'p1', memberId: 'stA' }, { date: '2026-11-08', shiftId: 'night', requirementId: 'p1', memberId: 'stB' }]
+  const roster = { assignments: [], students, presenters: [], pinned: ['s|2026-11-08|night|p1|stB'] }
+  const swaps = [{ id: 'w', memberId: 'stA', date: '2026-11-04', shiftId: 'night', requirementId: 'student', note: 'exam', status: 'open' as const, offers: [], createdAt: 1 }]
+  const prompt = buildAiPrompt(c, {}, roster, { task: 'Student A can’t do the 4th.', from: '2026-11-03', swaps })
+  for (const part of ['## What to do\nStudent A can’t do the 4th.', '## Current roster', '## What the current roster breaks', 'Nothing dated before 2026-11-03', '- 2026-11-08 "Night": "Student B"', '"Student A" asks to swap away their 2026-11-04 "Night": "exam"']) {
+    assert.ok(prompt.includes(part), part)
+  }
+  const reply = 'Moved A to the 6th.\n```json\n' + JSON.stringify({ format: 'wayneday-roster', assignments: [], students: [{ date: '2026-11-06', shift: 'Night', job: 'ER', member: 'Student A' }, { date: '2026-11-08', shift: 'Night', job: 'ER', member: 'Student B' }], presenters: [] }) + '\n```'
+  const r = importAiResult(reply, c)
+  assert.ok(r.ok)
+  if (r.ok) assert.deepEqual(r.roster.students.map((x) => [x.date, x.memberId]), [['2026-11-06', 'stA'], ['2026-11-08', 'stB']])
+})

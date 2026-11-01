@@ -5,8 +5,8 @@
 import { endDays, presentationOn, reqCount, ruleSources, shiftRuns, sourceMatches } from './calendar.ts'
 import { dateRange, WEEKDAYS } from './dates.ts'
 import { responseFor } from './scoring.ts'
-import { equalShare, equalTargets, shareGroups } from './students.ts'
-import { ANY_SHIFT, coversJob, dutyOf, LAST_NIGHT, presentationPoints, presenterTypes, type DaysBack, type Assignment, type PresenterSource, type MemberResponse, type PresenterAssignment, type Roster, type SessionConfig, type StudentAssignment } from './types.ts'
+import { equalShare, equalTargets, rosterAlerts, shareGroups } from './students.ts'
+import { ANY_SHIFT, coversJob, dutyOf, LAST_NIGHT, type Concern, type SwapRequest, presentationPoints, presenterTypes, type DaysBack, type Assignment, type PresenterSource, type MemberResponse, type PresenterAssignment, type Roster, type SessionConfig, type StudentAssignment } from './types.ts'
 
 export const AI_FORMAT_TAG = 'wayneday-roster'
 
@@ -40,7 +40,17 @@ export function rosterToJson(config: SessionConfig, roster: Roster) {
   }
 }
 
-export function buildAiPrompt(config: SessionConfig, responses: Record<string, MemberResponse>, roster?: Roster | null): string {
+/** What the host wants from the AI, and the situation around the roster. */
+export interface AiContext {
+  /** In the host's words: what to solve (e.g. "R3.32 can't do 4/11; find the fewest changes"). */
+  task?: string
+  /** Nothing before this date may change (today, and tomorrow unless the host allows it). */
+  from?: string
+  swaps?: SwapRequest[]
+  concerns?: Concern[]
+}
+
+export function buildAiPrompt(config: SessionConfig, responses: Record<string, MemberResponse>, roster?: Roster | null, ctx: AiContext = {}): string {
   const job = (id: string) => config.jobs.find((j) => j.id === id)?.name ?? id
   const back = (d: DaysBack) => (d[0] === 1 && d[1] === 1 ? 'the day before' : d[0] === d[1] ? `${d[0]} days before` : `${d[0]}–${d[1]} days before`)
   const describeSource = (src: PresenterSource, daysBack: DaysBack = LAST_NIGHT) => {
@@ -61,6 +71,12 @@ export function buildAiPrompt(config: SessionConfig, responses: Record<string, M
       ? `You are arranging medical students onto hospital duty shifts ("${config.title}"). The residents' and staff roster is FIXED by the hospital; place the students (and pick presenters) so every rule below holds.`
       : `You are scheduling hospital duty shifts ("${config.title}"). Produce a complete roster that satisfies every rule below.`,
   )
+  if (ctx.task?.trim()) {
+    lines.push('')
+    lines.push('## What to do')
+    lines.push(ctx.task.trim())
+    if (roster) lines.push('Start from the current roster below and change as few places and presenters as possible.')
+  }
   lines.push('')
   lines.push(`## Period\n${config.startDate} to ${config.endDate} (${days.length} days).`)
   if (config.holidays.length) lines.push(`Holidays (count as weekend days for fairness): ${config.holidays.join(', ')}.`)
@@ -193,24 +209,61 @@ export function buildAiPrompt(config: SessionConfig, responses: Record<string, M
   lines.push('')
   lines.push('## Soft goals, in priority order')
   if (hospital) {
-    lines.push('1. Every resident gets about the same number of shifts with a student, and so does every staff member.')
-    lines.push('2. Students share weekend/holiday shifts evenly; "spread evenly" students get even spacing, "grouped" students get shifts near their minimum interval.')
+    const st = config.students
+    const even = (st.evenSlots ?? []).map((id) => `"${shiftName(id)}"`)
+    const goals = [
+      config.presentations.length ? 'Each presenter comes from the shift (and place/ward) their presentation draws from; nobody presents twice in a day or two days running.' : '',
+      config.presentations.some((r) => !r.dates?.length)
+        ? 'Every student presents at each weekly presentation (e.g. a morning round) at least once, and their counts of it are at most 1 apart.'
+        : '',
+      'Days marked "must try hardest to avoid" (!!!) and "important" (!!) are not worked.',
+      st.points?.on && st.points.maxDiff ? `Total points (most minus fewest) are within ${st.points.maxDiff}% of the average.` : '',
+      `In each group, each shift slot is shared at most 1 apart${st.points?.on ? ', unless the difference is made up for in points' : ''}${even.length ? ` (${even.join(', ')}: at most 1 apart, made up for in points only if impossible)` : ''}.`,
+      'Every resident gets about the same number of shifts with a student, and so does every staff member.',
+      config.presentations.length ? 'If possible, nobody presents every other day.' : '',
+      'If possible, nobody is on duty every other day three times running (e.g. Mon–Wed–Fri), and "would rather not" (!) days are not worked.',
+      '"Spread evenly" students get even spacing (no gap over twice the even spacing); "grouped" students get shifts in pairs at their minimum interval.',
+    ].filter(Boolean)
+    goals.forEach((g, i) => lines.push(`${i + 1}. ${g}`))
   } else {
     lines.push('1. Equal total shifts among people of the same type, then equal weekend/holiday shifts, then equal counts of each shift.')
     lines.push('2. People who prefer "spread evenly" get the most even spacing; people who prefer "grouped" get shifts near their minimum interval.')
   }
   lines.push('')
-  if (roster?.assignments.length) {
+  if (roster && (roster.assignments.length || roster.students.length)) {
     lines.push('## Current roster')
-    lines.push('Start from this roster and change only what the rules or extra conditions require:')
+    lines.push('Start from this roster and change as few places and presenters as possible:')
     lines.push('```json')
     lines.push(JSON.stringify(rosterToJson(config, roster)))
     lines.push('```')
     lines.push('')
+    const name = (id: string) => config.members.find((m) => m.id === id)?.name ?? id
+    const alerts = rosterAlerts(config, responses, roster)
+    lines.push('## What the current roster breaks')
+    lines.push(alerts.length ? alerts.map((a) => `- ${a.level === 'rule' ? 'RULE' : 'preference'}: ${a.text}`).join('\n') : '(nothing)')
+    lines.push('')
+    const locked = (roster.pinned ?? []).map((k) => {
+      const [kind, date, a, b, c] = k.split('|')
+      return kind === 's' ? `- ${date} "${shiftName(a)}": "${name(c)}"` : `- ${date} presentation "${config.presentations.find((r) => r.id === a)?.name ?? a}": "${name(b)}"`
+    })
+    if (ctx.from || locked.length) {
+      lines.push('## Do not change')
+      if (ctx.from) lines.push(`- Nothing dated before ${ctx.from} (already announced): keep those days exactly as they are.`)
+      lines.push(...locked)
+      lines.push('')
+    }
+    const openSwaps = (ctx.swaps ?? []).filter((x) => x.status === 'open' || x.status === 'agreed')
+    const openConcerns = (ctx.concerns ?? []).filter((x) => !x.resolved)
+    if (openSwaps.length || openConcerns.length) {
+      lines.push("## Students' requests")
+      for (const x of openSwaps) lines.push(`- "${name(x.memberId)}" asks to swap away their ${x.date} "${shiftName(x.shiftId)}"${x.note ? `: "${x.note}"` : ''}`)
+      for (const x of openConcerns) lines.push(`- "${name(x.memberId)}"${x.date ? ` (about ${x.date})` : ''}: "${x.text}"`)
+      lines.push('')
+    }
   }
   lines.push('## Output format')
   lines.push(
-    `First, in one short list, say which rules you could not satisfy (if any) and what you changed. Then output the COMPLETE ${hospital ? 'student and presenter lists' : 'roster'} as ONE \`\`\`json code block in exactly this shape, using the exact names above. Keep "format": "${AI_FORMAT_TAG}" so the app can read it back:`,
+    `First, in one short list, say which rules you could not satisfy (if any) and every change you made, as "date shift/presentation: old → new". Then output the COMPLETE ${hospital ? 'student and presenter lists' : 'roster'} as ONE \`\`\`json code block in exactly this shape, using the exact names above. Keep "format": "${AI_FORMAT_TAG}" so the app can read it back:`,
   )
   lines.push('```json')
   lines.push(

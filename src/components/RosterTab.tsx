@@ -172,7 +172,7 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
   const [reviewHours, setReviewHours] = useState(48)
   const [edit, setEdit] = useState<Roster | null>(null)
   // A proposed change to look at before applying: 🔧 Fix with fewest changes, or 🎤 Even out presenters.
-  const [repair, setRepair] = useState<(RepairResult & { kind: 'fix' | 'even' }) | null>(null)
+  const [repair, setRepair] = useState<(RepairResult & { kind: 'fix' | 'even' | 'ai' }) | null>(null)
   // The fixes never change today or earlier; tomorrow only when the host unticks this.
   const [keepTomorrow, setKeepTomorrow] = useState(true)
   // Hosts: tapping students and presenters in the table locks them in place (📌).
@@ -500,7 +500,14 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
           <AiPanel
             {...{ code, session, me, mutate }}
             roster={shown}
+            from={schedule && !preview ? changeableFrom(keepTomorrow) : undefined}
             onImport={(r, notes) => {
+              // With a published roster on screen: show what the reply changes first, like the fixes.
+              if (schedule && !preview && !edit) {
+                setRepair({ students: r.students, presenters: r.presenters, swaps: [], presenterDays: [], kind: 'ai' })
+                setTimeout(() => document.getElementById('plan')?.scrollIntoView({ behavior: 'smooth' }), 50)
+                return
+              }
               setPreview({ roster: r, source: 'ai', notes, name: t('AI reply') })
               setOptions(null)
               setProblems(null)
@@ -633,6 +640,7 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
             setTimeout(() => tableRef.current?.scrollIntoView({ behavior: 'smooth' }), 50)
           }}
           dismiss={() => setRepair(null)}
+          from={changeableFrom(keepTomorrow)}
         />
       )}
       {schedule && !preview && <Swaps {...{ code, session, me, mutate }} draft={swapDraft} clearDraft={() => setSwapDraft(null)} />}
@@ -776,11 +784,15 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
   );
 }
 
-function AiPanel({ session, roster, onImport }: SessionProps & { roster: Roster | null; onImport: (r: Roster, notes: string[]) => void }) {
+function AiPanel({ session, roster, from, onImport }: SessionProps & { roster: Roster | null; from?: string; onImport: (r: Roster, notes: string[]) => void }) {
   const [open, setOpen] = useState(Boolean(session.config.extraConditions.trim()))
   const [reply, setReply] = useState('')
+  const [task, setTask] = useState('')
   const [msg, setMsg] = useState<string | null>(null)
-  const prompt = useMemo(() => buildAiPrompt(session.config, session.responses, roster), [session.config, session.responses, roster])
+  const prompt = useMemo(
+    () => buildAiPrompt(session.config, session.responses, roster, { task, from, swaps: session.swaps, concerns: session.concerns }),
+    [session.config, session.responses, roster, task, from, session.swaps, session.concerns],
+  )
   const hasExtra = Boolean(session.config.extraConditions.trim())
 
   return (
@@ -791,6 +803,20 @@ function AiPanel({ session, roster, onImport }: SessionProps & { roster: Roster 
         {hasExtra ? t("The built-in solver can’t check your “other conditions”. ") : ''} {t("Copy this prompt into ChatGPT, Claude or Gemini. It includes")} {roster ? t("the roster you’re looking at") : t("everyone’s answers")} {t(
           "and asks the AI to reply in Wayneday’s format. Paste the whole reply below; it’s checked against the hard rules before you can publish."
         )}</p>
+      <label>
+        {t('What should the AI do?')} <span className="muted small">{t('(optional)')}</span>
+        <textarea
+          rows={2}
+          value={task}
+          onChange={(e) => setTask(e.target.value)}
+          placeholder={t('e.g. R3.32 can’t do Wed 4/11 — find the fewest changes that keep every rule.')}
+        />
+      </label>
+      {roster && (
+        <p className="muted small">
+          {t('The prompt also carries what the roster breaks now, the locked slots and days that can’t change, and open swap requests and concerns. The reply opens as a preview of its changes.')}
+        </p>
+      )}
       <div className="row wrap">
         <button
           onClick={async () => {
@@ -1081,13 +1107,16 @@ function RepairPlan({
   plan,
   apply,
   dismiss,
+  from = '',
 }: {
   config: SessionConfig
   responses: Record<string, MemberResponse>
   before: Roster
-  plan: RepairResult & { kind: 'fix' | 'even' }
+  plan: RepairResult & { kind: 'fix' | 'even' | 'ai' }
   apply: () => void
   dismiss: () => void
+  /** Changes before this date (today, tomorrow) are pointed out. */
+  from?: string
 }) {
   const name = (id: string) => config.members.find((m) => m.id === id)?.name ?? '?'
   const shift = (id: string) => config.shifts.find((s) => s.id === id)?.name ?? ''
@@ -1105,21 +1134,36 @@ function RepairPlan({
     const into = now.filter((id) => !was.includes(id))
     return out.length || into.length ? [{ date, ruleId, out, into }] : []
   })
+  // Student places that change hands (for a reply that isn't a list of trades): who leaves, who comes.
+  const placeKeys = [...new Set([...before.students, ...plan.students].map((x) => `${x.date}|${x.shiftId}|${x.requirementId ?? ''}`))].sort()
+  const placeChanges = plan.swaps.length
+    ? []
+    : placeKeys.flatMap((k) => {
+        const [date, shiftId, req] = k.split('|')
+        const at = (list: Roster['students']) => list.filter((x) => x.date === date && x.shiftId === shiftId && (x.requirementId ?? '') === req).map((x) => x.memberId)
+        const [was, now] = [at(before.students), at(plan.students)]
+        const out = was.filter((id) => !now.includes(id))
+        const into = now.filter((id) => !was.includes(id))
+        return out.length || into.length ? [{ date, shiftId, out, into }] : []
+      })
+  const early = [...new Set([...placeChanges, ...presenterChanges, ...plan.swaps.flatMap((x) => [x.a, x.b])].map((x) => x.date).filter((d) => d < from))].sort()
   // What it clears and what it brings, from the hosts' alert list.
   const [alertsBefore, alertsAfter] = [rosterAlerts(config, responses, before), rosterAlerts(config, responses, after)]
   const fixed = alertsBefore.filter((x) => !alertsAfter.some((y) => y.text === x.text))
   const added = alertsAfter.filter((x) => !alertsBefore.some((y) => y.text === x.text))
-  const nothing = plan.swaps.length === 0 && presenterChanges.length === 0
+  const nothing = plan.swaps.length === 0 && presenterChanges.length === 0 && placeChanges.length === 0
   const mark = (level: 'rule' | 'wish') => (level === 'rule' ? '🚨' : '⚠️')
   return (
     <section className="card repair" id="plan">
-      <h2>{plan.kind === 'even' ? `🎤 ${t('Even out presenters')}` : `🔧 ${t('Fix with fewest changes')}`}</h2>
+      <h2>{plan.kind === 'even' ? `🎤 ${t('Even out presenters')}` : plan.kind === 'ai' ? `🤖 ${t('AI reply')}` : `🔧 ${t('Fix with fewest changes')}`}</h2>
+      {early.length > 0 && <p className="alert warn small">⚠️ {t('This changes {dates} — today or tomorrow, which may be too late to tell people.', { dates: early.map(shortDate).join(', ') })}</p>}
       {nothing ? (
-        <p>{plan.kind === 'even' ? t('Presenters already fit — nothing to change.') : t('Nothing to fix — no trade between students would make it fairer.')}</p>
+        <p>{plan.kind === 'even' ? t('Presenters already fit — nothing to change.') : plan.kind === 'ai' ? t('The reply is the same as the published roster.') : t('Nothing to fix — no trade between students would make it fairer.')}</p>
       ) : (
         <>
           <p className="small">
             {plan.swaps.length > 0 && t('{n} trade(s) between students ({same} on the same day, so nobody’s dates change).', { n: plan.swaps.length, same: plan.swaps.filter((x) => x.a.date === x.b.date).length })}{' '}
+            {placeChanges.length > 0 && t('{n} place(s) change hands.', { n: placeChanges.length })}{' '}
             {presenterChanges.length > 0 && t('{n} presenter change(s).', { n: presenterChanges.reduce((n, x) => n + Math.max(x.out.length, x.into.length), 0) })}
           </p>
           {(fixed.length > 0 || added.length > 0) && (
@@ -1177,6 +1221,21 @@ function RepairPlan({
                   </li>
                 ))}
               </ol>
+            </>
+          )}
+          {placeChanges.length > 0 && (
+            <>
+              <h3>🔁 {t('Shift changes')}</h3>
+              <ul className="small repair-list">
+                {placeChanges.map((x) => (
+                  <li key={`${x.date}|${x.shiftId}|${x.out.join()}`}>
+                    <b>
+                      {shortDate(x.date)} {shift(x.shiftId)}
+                    </b>
+                    : {x.out.map(name).join(', ') || '—'} → {x.into.map(name).join(', ') || '—'}
+                  </li>
+                ))}
+              </ul>
             </>
           )}
           {presenterChanges.length > 0 && (
