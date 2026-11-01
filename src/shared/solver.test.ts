@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import { addDays, dateRange, dayDiff } from './dates.ts'
 import { shiftHours, shiftPoints, shiftTimes } from './calendar.ts'
 import { countArrangements, solve, solveMany, validate } from './solver.ts'
-import { arrangeStudents, countStudentArrangements, equalShare, shareGroups, shiftsNeeded, pickPresenters, placeKey, studentCellIssues, studentExposure, studentOptions, everyOtherDay, fairnessReport, fitsPattern, presentationLoad, presentsInARow, repairRoster, studentDetails, studentRuleReport, studentSummaryTable, studentTargets, typeSpread } from './students.ts'
+import { arrangeStudents, countStudentArrangements, equalShare, shareGroups, shiftsNeeded, pickPresenters, placeKey, polishPresenters, studentCellIssues, studentExposure, studentOptions, everyOtherDay, fairnessReport, fitsPattern, presentationLoad, presentsInARow, repairRoster, studentDetails, studentRuleReport, studentSummaryTable, studentTargets, typeSpread } from './students.ts'
 import { buildAiPrompt, importAiResult } from './ai.ts'
 import { explainNoArrangement } from './explain.ts'
 import { ANY_SHIFT, DEFAULT_RESPONSE, DEFAULT_STUDENTS, dutyOf, personHue, presentationPoints, type MemberResponse, type SessionConfig, type StudentAssignment } from './types.ts'
@@ -1023,4 +1023,32 @@ test('two rooms, one of each per student, every room filled, no repeats, avoid r
   for (const s of roster.students) rooms.set(`${s.date}|${s.shiftId}`, (rooms.get(`${s.date}|${s.shiftId}`) ?? 0) + 1)
   assert.equal(rooms.size, 19 + 15)
   assert.ok([...rooms.values()].every((n) => n >= 1 && n <= 2))
+})
+
+test('presenters polished: each from the shift its presentation draws from; weekly turns within one of each other', () => {
+  const c = hospital()
+  c.shifts = [
+    { ...c.shifts[0], requirements: [{ id: 'wa', jobId: 'er', memberType: 'any', count: 2 }] },
+    { ...c.shifts[0], id: 'long', name: 'Overnight', requirements: [{ id: 'wl', jobId: 'er', memberType: 'any', count: 1 }] },
+  ]
+  const mr = { id: 'mr', name: 'Morning round', days: [0, 1, 2, 3, 4, 5, 6], count: 1, fromShiftId: 'night', fromCount: 1, types: ['student' as const], sources: [{ shiftId: 'night', placeId: 'wa', count: 1 }] }
+  const ccr = { id: 'ccr', name: 'CCR', days: [], dates: ['2026-11-12'], count: 1, fromShiftId: 'long', fromCount: 1, types: ['student' as const], sources: [{ shiftId: 'long', placeId: 'wl', count: 1 }] }
+  c.presentations = [mr, ccr]
+  const on = (memberId: string, date: string, shiftId = 'night') => ({ date, shiftId, requirementId: shiftId === 'night' ? 'wa' : 'wl', memberId })
+  const p = (memberId: string, date: string, ruleId = 'mr') => ({ date, ruleId, memberId, postCall: true })
+  // 12th: A was on the night, B on the overnight shift, but A got the CCR and B the morning round.
+  const students = [on('stA', '2026-11-11'), on('stB', '2026-11-11', 'long'), on('stB', '2026-11-04'), on('stC', '2026-11-08')]
+  let out = polishPresenters(c, students, [p('stB', '2026-11-12'), p('stA', '2026-11-12', 'ccr'), p('stB', '2026-11-05'), p('stC', '2026-11-09')])
+  assert.deepEqual(
+    out.filter((x) => x.date === '2026-11-12').map((x) => [x.ruleId, x.memberId]),
+    [['mr', 'stA'], ['ccr', 'stB']],
+  )
+  assert.ok(out.every((x) => x.postCall))
+  // A has three morning rounds and B none; on the 7th both were on the night before, so B takes that one.
+  const nights = [on('stA', '2026-11-02'), on('stA', '2026-11-06'), on('stB', '2026-11-06'), on('stA', '2026-11-10'), on('stC', '2026-11-14')]
+  out = polishPresenters(c, nights, [p('stA', '2026-11-03'), p('stA', '2026-11-07'), p('stA', '2026-11-11'), p('stC', '2026-11-15')])
+  assert.deepEqual(out.map((x) => x.memberId), ['stA', 'stB', 'stA', 'stC'])
+  // Nobody else was on those nights: nothing moves.
+  out = polishPresenters(c, nights.filter((x) => x.memberId !== 'stB'), [p('stA', '2026-11-03'), p('stA', '2026-11-07'), p('stA', '2026-11-11'), p('stC', '2026-11-15')])
+  assert.deepEqual(out.map((x) => x.memberId), ['stA', 'stA', 'stA', 'stC'])
 })

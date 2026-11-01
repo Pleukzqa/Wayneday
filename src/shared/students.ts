@@ -8,7 +8,7 @@ import { fmtPoints, presentationOn, reqCount, reqMin, shiftPoints, shiftRuns, sh
 import { t, weekdayShort } from './i18n.ts'
 import { addDays, dateRange, dayDiff, weekday } from './dates.ts'
 import { preferenceCost, responseFor, rng, shuffled, sortedBy, variance } from './scoring.ts'
-import { coversJob, dutyOf, isOneDay, jobsOn, presentationPoints, presenterTypes, type PresenterSource, type Assignment, type Member, type MemberResponse, type PresenterAssignment, type SessionConfig, type StudentAssignment } from './types.ts'
+import { coversJob, dutyOf, isOneDay, jobsOn, presentationPoints, presenterTypes, type DaysBack, type PresenterSource, type Assignment, type Member, type MemberResponse, type PresenterAssignment, type SessionConfig, type StudentAssignment } from './types.ts'
 
 /** A place students can take: one shift on one date (and, in hospital mode, one job within it). */
 export interface Occ {
@@ -631,7 +631,132 @@ export function pickPresenters(
     const r = pickPresentersOnce(config, responses, assignments, students, seed + attempt * 1000, start)
     if (!best || r.cost < best.cost) best = r
   }
-  return { presenters: best!.presenters, warnings: best!.warnings }
+  return { presenters: polishPresenters(config, [...assignments, ...students], best!.presenters), warnings: best!.warnings }
+}
+
+/**
+ * Last touches to presenters, keeping who presents on which day as far as possible:
+ * - on a day with several presentations drawing from the same night, swap presenters between them so each comes from
+ *   the shift it draws from (e.g. not the morning round from the overnight shift while a midnight one gives a CCR);
+ * - each weekly presentation shared within one of everyone else's (1–2 morning rounds each, not 1–3): a turn moves
+ *   from someone with two more than another to them, when they were on the shift it draws from and present neither
+ *   that day nor the day before or after.
+ */
+export function polishPresenters(config: SessionConfig, onDuty: StudentAssignment[], presenters: PresenterAssignment[]): PresenterAssignment[] {
+  // Everyone on duty: students, and in a roster Wayneday makes, residents and staff too.
+  const students = onDuty
+  const out = presenters.map((p) => ({ ...p }))
+  const ruleOf = (id: string) => config.presentations.find((r) => r.id === id)
+  const was = (memberId: string, date: string, src: PresenterSource, daysBack: DaysBack) => {
+    const back = sourceOffsets(src, daysBack).map((n) => addDays(date, -n))
+    // Before the roster starts nobody was on duty: the source's ward that day is what counts (as when picking).
+    if (back.every((d) => d < config.startDate)) {
+      const ward = sourceJob(config, src)
+      const m = config.members.find((x) => x.id === memberId)
+      return Boolean(ward && m && coversJob(m, ward, date))
+    }
+    return back.some((d) => students.some((x) => x.memberId === memberId && x.date === d && sourceMatches(config, src, x.shiftId, x.requirementId)))
+  }
+  // How many of a presentation's places that day are filled from its sources (each source by its count).
+  const matched = (date: string, ruleId: string) => {
+    const rule = ruleOf(ruleId)
+    const today = rule && presentationOn(config, rule, date)
+    if (!today || !today.sources.length) return 0
+    const who = out.filter((p) => p.date === date && p.ruleId === ruleId).map((p) => p.memberId)
+    const places = today.sources.flatMap((src) => Array.from({ length: src.count }, () => src))
+    const owner = places.map(() => -1)
+    const assign = (i: number, seen: Set<number>): boolean => {
+      for (let j = 0; j < places.length; j++) {
+        if (seen.has(j) || !was(who[i], date, places[j], today.daysBack)) continue
+        seen.add(j)
+        if (owner[j] < 0 || assign(owner[j], seen)) {
+          owner[j] = i
+          return true
+        }
+      }
+      return false
+    }
+    return who.filter((_, i) => assign(i, new Set())).length
+  }
+  const weekly = config.presentations.filter((r) => !isOneDay(r))
+  const turns = (id: string, ruleId: string) => out.filter((p) => p.memberId === id && p.ruleId === ruleId).length
+  const near = (id: string, date: string, gap: number, except?: PresenterAssignment) => out.some((p) => p !== except && p.memberId === id && Math.abs(dayDiff(p.date, date)) <= gap)
+
+  // Hand a weekly turn from someone with more to `id` (who has none): it must be one they were on the shift for.
+  const giveTurn = (id: string, ruleId: string) => {
+    const can = out.filter((p) => p.ruleId === ruleId && turns(p.memberId, ruleId) >= 2 && !near(id, p.date, 1))
+    for (const p of sortedBy(can, (p) => (near(id, p.date, 2) ? 1 : 0))) {
+      const before = matched(p.date, ruleId)
+      const was0 = p.memberId
+      p.memberId = id
+      if (matched(p.date, ruleId) >= before) return true
+      p.memberId = was0
+    }
+    return false
+  }
+
+  // Same-day swaps between presentations, towards each presenter coming from their own source.
+  for (const date of [...new Set(out.map((p) => p.date))]) {
+    for (let again = true; again; ) {
+      again = false
+      const today = out.filter((p) => p.date === date)
+      for (let i = 0; i < today.length && !again; i++) {
+        for (let j = i + 1; j < today.length && !again; j++) {
+          const [a, b] = [today[i], today[j]]
+          if (a.ruleId === b.ruleId || a.memberId === b.memberId) continue
+          const before = matched(date, a.ruleId) + matched(date, b.ruleId)
+          const snapshot = out.map((p) => p.memberId)
+          const had = (id: string, ruleId: string) => out.some((p, k) => p.ruleId === ruleId && snapshot[k] === id)
+          ;[a.memberId, b.memberId] = [b.memberId, a.memberId]
+          const better = matched(date, a.ruleId) + matched(date, b.ruleId) > before
+          // Nobody may lose their only turn at a weekly presentation, unless another can be handed to them.
+          const kept = better && [b.memberId, a.memberId].every((id) => weekly.every((r) => !had(id, r.id) || turns(id, r.id) > 0 || giveTurn(id, r.id)))
+          if (kept) again = true
+          else out.forEach((p, k) => (p.memberId = snapshot[k]))
+        }
+      }
+    }
+  }
+
+  // Each weekly presentation within one of everyone else's.
+  for (const rule of weekly) {
+    const pool = config.members.filter((m) => presenterTypes(config, rule).includes(m.type)).map((m) => m.id)
+    for (let moved = true, guard = 0; moved && guard < 200; guard++) {
+      moved = false
+      const slots = sortedBy(
+        out.filter((p) => p.ruleId === rule.id),
+        (p) => -turns(p.memberId, rule.id),
+      )
+      for (const p of slots) {
+        const from = turns(p.memberId, rule.id)
+        const before = matched(p.date, rule.id)
+        const who = sortedBy(
+          pool.filter((id) => turns(id, rule.id) <= from - 2 && !near(id, p.date, 1)),
+          (id) => 10 * turns(id, rule.id) + (near(id, p.date, 2) ? 5 : 0) + out.filter((q) => q.memberId === id).length,
+        )
+        const old = p.memberId
+        for (const id of who) {
+          p.memberId = id
+          if (matched(p.date, rule.id) >= before) {
+            moved = true
+            break
+          }
+          p.memberId = old
+        }
+        if (moved) break
+      }
+    }
+  }
+
+  // ● again for whoever now presents: straight after being on the shift it draws from the night before.
+  for (const p of out) {
+    const rule = ruleOf(p.ruleId)
+    const today = rule && presentationOn(config, rule, p.date)
+    p.postCall = Boolean(
+      today?.sources.some((src) => src.when !== 'same' && students.some((x) => x.memberId === p.memberId && x.date === addDays(p.date, -1) && sourceMatches(config, src, x.shiftId, x.requirementId))),
+    )
+  }
+  return out
 }
 
 function pickPresentersOnce(
@@ -662,7 +787,20 @@ function pickPresentersOnce(
   // another (e.g. morning reports). Then even within each type.
   // Everyone presents at each weekly presentation (e.g. morning report) at least once: whoever hasn't yet goes first.
   const firstTurn = (id: string, k: string) => k !== 'one-day' && !(byKind.get(`${k}|${id}`) ?? 0)
-  const load = (id: string, k: string) => 2 * (total.get(id) ?? 0) + (byKind.get(`${k}|${id}`) ?? 0) - (firstTurn(id, k) ? 1000 : 0)
+  // Each type within one of everyone else's (e.g. 1–2 morning rounds each, never 3 while others have 1): the fair
+  // most is the places of that type over the people who can take them, rounded up. Before even totals.
+  const places = new Map<string, number>()
+  for (const date of days) {
+    for (const rule of config.presentations) {
+      const today = presentationOn(config, rule, date)
+      if (today) places.set(kind(rule.id), (places.get(kind(rule.id)) ?? 0) + today.count)
+    }
+  }
+  const people = new Map(config.presentations.map((r) => [kind(r.id), config.members.filter((m) => presenterTypes(config, r).includes(m.type)).length || 1]))
+  const fairMost = (k: string) => Math.ceil((places.get(k) ?? 0) / (people.get(k) ?? 1))
+  const over = (id: string, k: string) => Math.max(0, (byKind.get(`${k}|${id}`) ?? 0) - fairMost(k))
+  const atMost = (id: string, k: string) => (byKind.get(`${k}|${id}`) ?? 0) >= fairMost(k)
+  const load = (id: string, k: string) => 2 * (total.get(id) ?? 0) + (byKind.get(`${k}|${id}`) ?? 0) - (firstTurn(id, k) ? 1000 : 0) + (atMost(id, k) ? 400 : 0)
   const byFewest = (ids: string[], k: string) => sortedBy(ids, (id) => load(id, k) + rand() * 0.5)
 
   /** One presenter place: who could take it (`pool`) and who did. */
@@ -733,7 +871,7 @@ function pickPresentersOnce(
   }
 
   // Even it out: hand a place to someone else who could take it whenever that makes the counts more even.
-  const cost = (id: string, k: string) => 3 * (total.get(id) ?? 0) ** 2 + (byKind.get(`${k}|${id}`) ?? 0) ** 2 + (firstTurn(id, k) ? 500 : 0)
+  const cost = (id: string, k: string) => 3 * (total.get(id) ?? 0) ** 2 + (byKind.get(`${k}|${id}`) ?? 0) ** 2 + (firstTurn(id, k) ? 500 : 0) + 2000 * over(id, k) ** 2
   for (let pass = 0; pass < 20; pass++) {
     let better = false
     for (const slot of slots) {
@@ -787,7 +925,9 @@ function pickPresentersOnce(
       )
     }
   }
-  const spread = [...total.values()].reduce((n, v) => n + 3 * v * v, 0) + [...byKind.values()].reduce((n, v) => n + v * v, 0)
+  const spread =
+    [...total.values()].reduce((n, v) => n + 3 * v * v, 0) +
+    [...byKind].reduce((n, [key, v]) => n + v * v + 2000 * Math.max(0, v - fairMost(key.split('|')[0])) ** 2, 0)
   return { presenters, warnings, cost: 1000 * warnings.length + spread }
 }
 
@@ -879,7 +1019,15 @@ export function studentOptions(
       // shift shared out evenly (at most one apart within a group).
       const p = o.roster.presenters
       const twice = p.filter((x, i) => p.findIndex((y) => y.date === x.date && y.memberId === x.memberId) !== i).length
-      return [o, [r.missingWeekly.length + twice + presentsInARow(p).length, typeSpread(config, o.roster.students, o.roster.presenters), both, r.pointsOk ? 0 : 1, r.pointsSpread, r.avoidHits[3], r.avoidHits[2], r.avoidHits[1], o.score]] as const
+      // Each weekly presentation within one of everyone else's (1–2 morning rounds each, not 1–3).
+      const studs = config.members.filter((m) => m.type === 'student').map((m) => m.id)
+      const uneven = config.presentations
+        .filter((x) => !isOneDay(x))
+        .filter((x) => {
+          const n = studs.map((id) => p.filter((q) => q.ruleId === x.id && q.memberId === id).length)
+          return n.length > 0 && Math.max(...n) - Math.min(...n) > 1
+        }).length
+      return [o, [r.missingWeekly.length + twice + presentsInARow(p).length + uneven, typeSpread(config, o.roster.students, o.roster.presenters), both, r.pointsOk ? 0 : 1, r.pointsSpread, r.avoidHits[3], r.avoidHits[2], r.avoidHits[1], o.score]] as const
     }),
   )
   out.sort((a, b) => {
@@ -1447,6 +1595,11 @@ export function repairRoster(
         if (!presenterDays.includes(turn.date)) presenterDays.push(turn.date)
       }
     }
+  }
+  const polished = polishPresenters(config, [...roster.assignments, ...cur], presenters)
+  for (const [i, p] of polished.entries()) {
+    if (p.memberId !== presenters[i].memberId && !presenterDays.includes(p.date)) presenterDays.push(p.date)
+    presenters[i] = p
   }
   const changedPresenterDays = presenterDays.filter((d) => {
     const before = roster.presenters.filter((p) => p.date === d).map((p) => `${p.ruleId}|${p.memberId}`).sort().join()

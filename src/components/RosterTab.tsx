@@ -12,6 +12,7 @@ import {
   avoidLevel,
   pickPresenters,
   placeKey,
+  polishPresenters,
   studentCellIssues,
   studentExposure,
   studentRuleReport,
@@ -171,6 +172,7 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
   const [edit, setEdit] = useState<Roster | null>(null)
   const [repair, setRepair] = useState<RepairResult | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [tidied, setTidied] = useState<string | null>(null)
   const [concernDate, setConcernDate] = useState('')
   const [swapDraft, setSwapDraft] = useState<SwapDraft | null>(null)
   const [picked, setPicked] = useState<StudentAssignment | null>(null)
@@ -555,6 +557,23 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
                       {running === 'repair' ? `⏳ ${t('Looking for the fewest changes…')}` : `🔧 ${t('Fix with fewest changes')}`}
                     </button>
                   )}
+                  {hospital && hasStudents && config.presentations.length > 0 && (
+                    <button
+                      title={t('Each presenter from the shift their presentation draws from, and each weekly presentation within one of everyone else’s. Shifts stay as they are.')}
+                      onClick={() => {
+                        const before = schedule.presenters
+                        const after = polishPresenters(config, [...schedule.assignments, ...schedule.students], before)
+                        const changed = after.filter((p, i) => p.memberId !== before[i].memberId).length
+                        setTidied(changed ? t('{n} presenter(s) changed — check them in the table, then 💾 Save edits.', { n: changed }) : t('Presenters already fit — nothing to change.'))
+                        if (changed) {
+                          setEdit({ ...rosterOf(schedule), presenters: after })
+                          setTimeout(() => tableRef.current?.scrollIntoView({ behavior: 'smooth' }), 50)
+                        }
+                      }}
+                    >
+                      🎤 {t('Even out presenters')}
+                    </button>
+                  )}
                 </>
               ) : (
                 <>
@@ -572,6 +591,14 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
         </section>
       )}
       {error && <p className="error">{error}</p>}
+      {tidied && (
+        <p className="small" role="status">
+          🎤 {tidied}{' '}
+          <button type="button" className="link" onClick={() => setTidied(null)}>
+            {t('OK')}
+          </button>
+        </p>
+      )}
       {me.isHost && dutyChanged && !preview && (
         <div className="alert warn">{t("The hospital roster in Setup has changed since you published.")}{' '}
           <button onClick={() => void publish({ ...rosterOf(schedule!), assignments: dutyOf(config) }, 'manual', schedule!.status, true)}>{t("Use the new hospital roster")}</button>{' '}
