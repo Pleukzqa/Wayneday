@@ -49,17 +49,40 @@ function Stars({ value, onChange, label }: { value: number; onChange?: (n: numbe
   )
 }
 
-function MyFeedback({ mine, save }: { mine?: Feedback; save: (f: { ratings: Record<string, number>; text: string; anonymous: boolean }) => Promise<unknown> }) {
+const GROUPS = [
+  { id: 'roster', title: '' },
+  { id: 'host', title: 'About the host and co-hosts' },
+] as const
+
+function MyFeedback({
+  mine,
+  save,
+}: {
+  mine?: Feedback
+  save: (f: { ratings: Record<string, number>; text: string; hostText: string; anonymous: boolean }) => Promise<unknown>
+}) {
   const [ratings, setRatings] = useState<Record<string, number>>(mine?.ratings ?? {})
   const [text, setText] = useState(mine?.text ?? '')
+  const [hostText, setHostText] = useState(mine?.hostText ?? '')
   const [anonymous, setAnonymous] = useState(Boolean(mine?.anonymous))
   const [state, setState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const changed =
     !mine ||
     text !== mine.text ||
+    hostText !== (mine.hostText ?? '') ||
     anonymous !== Boolean(mine.anonymous) ||
     FEEDBACK_QUESTIONS.some((q) => (ratings[q.id] ?? 0) !== (mine.ratings[q.id] ?? 0))
-  const empty = !Object.values(ratings).some((v) => v > 0) && !text.trim()
+  const empty = !Object.values(ratings).some((v) => v > 0) && !text.trim() && !hostText.trim()
+  const questions = (group: string) => (
+    <ul className="questions">
+      {FEEDBACK_QUESTIONS.filter((q) => q.group === group).map((q) => (
+        <li key={q.id}>
+          <span>{t(q.text)}</span>
+          <Stars label={t(q.text)} value={ratings[q.id] ?? 0} onChange={(n) => setRatings((r) => ({ ...r, [q.id]: n }))} />
+        </li>
+      ))}
+    </ul>
+  )
   return (
     <div className="stack-tight">
       <p className="muted small">
@@ -67,17 +90,16 @@ function MyFeedback({ mine, save }: { mine?: Feedback; save: (f: { ratings: Reco
           ? t('Thanks — you sent this {time}. You can change it.', { time: new Date(mine.at).toLocaleString() })
           : t('The roster is final. How did it go? Tap the stars (1 = poor, 5 = great) — skip any you like.')}
       </p>
-      <ul className="questions">
-        {FEEDBACK_QUESTIONS.map((q) => (
-          <li key={q.id}>
-            <span>{t(q.text)}</span>
-            <Stars label={t(q.text)} value={ratings[q.id] ?? 0} onChange={(n) => setRatings((r) => ({ ...r, [q.id]: n }))} />
-          </li>
-        ))}
-      </ul>
+      {questions('roster')}
       <label>
         {t('Any other recommendations? What went well, what should change next time')}
         <textarea rows={3} maxLength={2000} value={text} onChange={(e) => setText(e.target.value)} />
+      </label>
+      <h3>👥 {t('About the host and co-hosts')}</h3>
+      {questions('host')}
+      <label>
+        {t('Anything for the host and co-hosts?')}
+        <textarea rows={2} maxLength={2000} value={hostText} onChange={(e) => setHostText(e.target.value)} />
       </label>
       <label className="check small">
         <input type="checkbox" checked={anonymous} onChange={(e) => setAnonymous(e.target.checked)} />
@@ -91,7 +113,7 @@ function MyFeedback({ mine, save }: { mine?: Feedback; save: (f: { ratings: Reco
           onClick={async () => {
             setState('saving')
             try {
-              await save({ ratings: Object.fromEntries(Object.entries(ratings).filter(([, v]) => v > 0)), text, anonymous })
+              await save({ ratings: Object.fromEntries(Object.entries(ratings).filter(([, v]) => v > 0)), text, hostText, anonymous })
               setState('saved')
             } catch {
               setState('error')
@@ -119,8 +141,11 @@ function Results({ session }: { session: SessionProps['session'] }) {
         <p className="muted small">{t('No feedback yet. Everyone sees this card on the Roster tab now that it’s final.')}</p>
       ) : (
         <>
+          {GROUPS.map((g) => (
+          <div key={g.id}>
+          {g.title && <h3>👥 {t(g.title)}</h3>}
           <ul className="questions">
-            {FEEDBACK_QUESTIONS.map((q) => {
+            {FEEDBACK_QUESTIONS.filter((q) => q.group === g.id).map((q) => {
               const votes = all.map((f) => f.ratings[q.id]).filter((v): v is number => Boolean(v))
               const avg = votes.length ? votes.reduce((a, b) => a + b, 0) / votes.length : 0
               return (
@@ -136,6 +161,8 @@ function Results({ session }: { session: SessionProps['session'] }) {
               )
             })}
           </ul>
+          </div>
+          ))}
           {all.some((f) => f.text) && (
             <>
               <h3>{t('Recommendations')}</h3>
@@ -149,6 +176,24 @@ function Results({ session }: { session: SessionProps['session'] }) {
                         {name(f)} · {new Date(f.at).toLocaleString()}
                       </span>
                       <p className="note-text">{f.text}</p>
+                    </li>
+                  ))}
+              </ul>
+            </>
+          )}
+          {all.some((f) => f.hostText) && (
+            <>
+              <h3>{t('For the host and co-hosts')}</h3>
+              <ul className="comments">
+                {[...all]
+                  .filter((f) => f.hostText)
+                  .sort((a, b) => b.at - a.at)
+                  .map((f, i) => (
+                    <li key={`${f.memberId}-h${i}`}>
+                      <span className="muted small">
+                        {name(f)} · {new Date(f.at).toLocaleString()}
+                      </span>
+                      <p className="note-text">{f.hostText}</p>
                     </li>
                   ))}
               </ul>

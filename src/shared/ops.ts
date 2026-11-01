@@ -233,7 +233,7 @@ export function removeArrangement(s: PublicSession, actor: Actor, id: string) {
 // ---------- feedback ----------
 
 /** A member's feedback once the roster is final; saving again replaces it. */
-export function saveFeedback(s: PublicSession, actor: Actor, f: Pick<Feedback, 'ratings' | 'text' | 'anonymous'>) {
+export function saveFeedback(s: PublicSession, actor: Actor, f: Pick<Feedback, 'ratings' | 'text' | 'hostText' | 'anonymous'>) {
   if (!actor.memberId) throw new OpError(401, 'Log in to give feedback')
   if (s.schedule?.status !== 'final') throw new OpError(409, 'Feedback opens once the roster is final')
   const ids = new Set<string>(FEEDBACK_QUESTIONS.map((q) => q.id))
@@ -241,8 +241,9 @@ export function saveFeedback(s: PublicSession, actor: Actor, f: Pick<Feedback, '
     Object.entries(f.ratings).filter(([k, v]) => ids.has(k) && Number.isInteger(v) && v >= 1 && v <= 5),
   )
   const text = f.text.trim().slice(0, 2000)
-  if (!Object.keys(ratings).length && !text) throw new OpError(400, 'Rate something or write a comment first')
-  const entry: Feedback = { memberId: actor.memberId, ratings, text, ...(f.anonymous ? { anonymous: true } : {}), at: Date.now() }
+  const hostText = (f.hostText ?? '').trim().slice(0, 2000)
+  if (!Object.keys(ratings).length && !text && !hostText) throw new OpError(400, 'Rate something or write a comment first')
+  const entry: Feedback = { memberId: actor.memberId, ratings, text, ...(hostText ? { hostText } : {}), ...(f.anonymous ? { anonymous: true } : {}), at: Date.now() }
   s.feedback = [...(s.feedback ?? []).filter((x) => x.memberId !== actor.memberId), entry]
 }
 

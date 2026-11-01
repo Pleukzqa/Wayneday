@@ -1,7 +1,7 @@
 // "Add to calendar": choose whose shifts, the event name, colour and which Google calendar.
 import { t } from '../shared/i18n.ts'
-import { googleClientId } from '../google.ts'
-import { useMemo, useState } from 'react'
+import { googleClientId, preloadGoogle } from '../google.ts'
+import { useEffect, useMemo, useState } from 'react'
 import {
   addToGoogleCalendar,
   buildEvents,
@@ -14,8 +14,11 @@ import {
 } from '../export.ts'
 import type { Roster } from '../shared/types.ts'
 import type { SessionProps } from './props.ts'
+import Linked from './Linked.tsx'
 
 export default function CalendarExport({ session, me, roster }: SessionProps & { roster: Roster }) {
+  // Google's window must open straight from the button press, so its script is loaded now.
+  useEffect(() => preloadGoogle(), [])
   const { config } = session
   const [who, setWho] = useState<string>(me.memberId ?? 'all')
   const [template, setTemplate] = useState(me.memberId ? '{shift} – {job}' : '{name}: {shift} – {job}')
@@ -133,7 +136,11 @@ export default function CalendarExport({ session, me, roster }: SessionProps & {
         <p className="muted small">{t(
           "To import a file into Google Calendar: on a computer, open Settings → Import & export → Import, and choose which calendar it goes into."
         )}</p>
-        {msg && <p className="small">{msg}</p>}
+        {msg && (
+          <p className="small">
+            <Linked text={msg} />
+          </p>
+        )}
       </div>
     </details>
   );

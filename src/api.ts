@@ -88,7 +88,7 @@ export const api = {
   saveArrangement: (code: string, name: string, d: { roster: Roster; source: Schedule['source']; notes: string[] }) =>
     call<SessionView>(code, 'POST', `/sessions/${code}/saved`, { action: 'add', name, ...d }),
   removeArrangement: (code: string, id: string) => call<SessionView>(code, 'POST', `/sessions/${code}/saved`, { action: 'remove', id }),
-  saveFeedback: (code: string, f: { ratings: Record<string, number>; text: string; anonymous: boolean }) =>
+  saveFeedback: (code: string, f: { ratings: Record<string, number>; text: string; hostText?: string; anonymous: boolean }) =>
     call<SessionView>(code, 'PUT', `/sessions/${code}/feedback`, f),
   addNote: (code: string, memberId: string, text: string) => call<SessionView>(code, 'POST', `/sessions/${code}/notes`, { memberId, text }),
   removeNote: (code: string, id: string) => call<SessionView>(code, 'DELETE', `/sessions/${code}/notes/${id}`),

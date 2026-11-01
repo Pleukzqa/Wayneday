@@ -1,5 +1,5 @@
 // Roster exports: CSV, Excel, PNG, Google Sheets (Drive) and calendars (Google Calendar, .ics, Google CSV).
-import { googleToken } from './google.ts'
+import { googleFetch } from './google.ts'
 import { endDays } from './shared/calendar.ts'
 import { addDays, dateRange, shortDate, weekday } from './shared/dates.ts'
 import { buildProblem, statsFor } from './shared/solver.ts'
@@ -151,18 +151,16 @@ export async function exportPng(el: HTMLElement, config: SessionConfig) {
 
 /** Upload the roster to the user's Drive as a Google Sheet and return its URL. */
 export async function exportToDrive(config: SessionConfig, roster: Roster): Promise<string> {
-  const accessToken = await googleToken('https://www.googleapis.com/auth/drive.file')
   const boundary = `wayneday${Date.now()}`
   const meta = { name: `${config.title} ${config.startDate}`, mimeType: 'application/vnd.google-apps.spreadsheet' }
   const body =
     `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(meta)}\r\n` +
     `--${boundary}\r\nContent-Type: text/csv; charset=UTF-8\r\n\r\n${toCsv(rosterTable(config, roster))}\r\n--${boundary}--`
-  const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id', {
+  const res = await googleFetch('https://www.googleapis.com/auth/drive.file', 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id', {
     method: 'POST',
-    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': `multipart/related; boundary=${boundary}` },
+    headers: { 'Content-Type': `multipart/related; boundary=${boundary}` },
     body,
   })
-  if (!res.ok) throw new Error(`Drive upload failed (${res.status})`)
   const { id } = (await res.json()) as { id: string }
   return `https://docs.google.com/spreadsheets/d/${id}`
 }
@@ -297,11 +295,7 @@ export interface GoogleCalendar {
 }
 
 export async function listGoogleCalendars(): Promise<GoogleCalendar[]> {
-  const t = await googleToken(CAL_SCOPE)
-  const res = await fetch('https://www.googleapis.com/calendar/v3/users/me/calendarList?minAccessRole=writer', {
-    headers: { Authorization: `Bearer ${t}` },
-  })
-  if (!res.ok) throw new Error(`Couldn’t list your calendars (${res.status})`)
+  const res = await googleFetch(CAL_SCOPE, 'https://www.googleapis.com/calendar/v3/users/me/calendarList?minAccessRole=writer')
   const data = (await res.json()) as { items: GoogleCalendar[] }
   return data.items.sort((a, b) => Number(Boolean(b.primary)) - Number(Boolean(a.primary)))
 }
@@ -313,22 +307,20 @@ export async function addToGoogleCalendar(
   colorId: string,
   onProgress?: (done: number) => void,
 ): Promise<number> {
-  const t = await googleToken(CAL_SCOPE)
-  const headers = { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' }
+  const headers = { 'Content-Type': 'application/json' }
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
   let calendarId = 'calendarId' in target ? target.calendarId : ''
   if ('newName' in target) {
-    const res = await fetch('https://www.googleapis.com/calendar/v3/calendars', {
+    const res = await googleFetch(CAL_SCOPE, 'https://www.googleapis.com/calendar/v3/calendars', {
       method: 'POST',
       headers,
       body: JSON.stringify({ summary: target.newName, timeZone }),
     })
-    if (!res.ok) throw new Error(`Couldn’t create the calendar (${res.status})`)
     calendarId = ((await res.json()) as { id: string }).id
   }
   let done = 0
   for (const e of events) {
-    const res = await fetch(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`, {
+    await googleFetch(CAL_SCOPE, `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`, {
       method: 'POST',
       headers,
       body: JSON.stringify({
@@ -338,8 +330,9 @@ export async function addToGoogleCalendar(
         start: { dateTime: `${e.start}:00`, timeZone },
         end: { dateTime: `${e.end}:00`, timeZone },
       }),
+    }).catch((e: Error) => {
+      throw new Error(done ? `${e.message} (${done} added before it stopped)` : e.message)
     })
-    if (!res.ok) throw new Error(`Stopped after ${done} events: Google said ${res.status}`)
     onProgress?.(++done)
   }
   return done

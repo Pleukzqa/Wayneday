@@ -253,3 +253,14 @@ test('✕, !!! and !! need a reason before “I’m ready!”; ! doesn’t; only
   assert.equal(visibleChanges(s, as('ben'))[0].before!.reasons, undefined)
   assert.ok(visibleChanges(s, as('ann'))[0].before!.reasons)
 })
+
+test('feedback on the host and co-hosts: their questions and a comment for them, anonymous if asked', () => {
+  const s = session()
+  s.schedule!.status = 'final'
+  saveFeedback(s, as('ann'), { ratings: { hostOrganised: 5, hostResponsive: 4, nope: 3 }, text: '', hostText: 'Quick replies, thanks!', anonymous: true })
+  const f = s.feedback[0]
+  assert.deepEqual(f.ratings, { hostOrganised: 5, hostResponsive: 4 })
+  assert.equal(f.hostText, 'Quick replies, thanks!')
+  assert.equal(visibleFeedback(s, host)[0].memberId, '', 'hosts don’t see who wrote it')
+  assert.deepEqual(visibleFeedback(s, as('ben')), [])
+})

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from 'react'
 import { api, type SessionView } from '../api.ts'
 import { useUnsaved } from '../unsaved.ts'
-import { googleClientId } from '../google.ts'
+import { googleClientId, preloadGoogle } from '../google.ts'
 import { t } from '../shared/i18n.ts'
 import { exportCsv, exportPng, exportToDrive, exportXlsx, personTable } from '../export.ts'
 import { findArrangements, rearrangeStudents, repairInBackground, type RepairResult } from '../runSolver.ts'
@@ -33,6 +33,7 @@ import CalendarExport from './CalendarExport.tsx'
 import ConfirmButton from './ConfirmButton.tsx'
 import FeedbackCard from './Feedback.tsx'
 import Expandable from './Expandable.tsx'
+import Linked from './Linked.tsx'
 import type { Explanation } from '../shared/explain.ts'
 import RosterTable, { type Arrange } from './RosterTable.tsx'
 import Swaps, { type SwapDraft } from './Swaps.tsx'
@@ -891,6 +892,8 @@ function AiPanel({ session, roster, from, onImport }: SessionProps & { roster: R
 function Exports(props: SessionProps & { roster: Roster; tableRef: RefObject<HTMLDivElement | null> }) {
   const { session, roster, tableRef } = props
   const [msg, setMsg] = useState<{ text: string; url?: string } | null>(null)
+  // Google's window must open straight from the button press, so its script is loaded now.
+  useEffect(() => preloadGoogle(), [])
   const run = (fn: () => Promise<unknown> | void) => async () => {
     setMsg(null)
     try {
@@ -924,7 +927,7 @@ function Exports(props: SessionProps & { roster: Roster; tableRef: RefObject<HTM
       <CalendarExport {...props} />
       {msg && (
         <p className="small">
-          {msg.text}{' '}
+          <Linked text={msg.text} />{' '}
           {msg.url && (
             <a href={msg.url} target="_blank" rel="noreferrer">{t("Open sheet")}</a>
           )}

@@ -416,10 +416,14 @@ export interface HostNote {
 
 /** After the roster is final, everyone rates how it went (1–5 stars) and can write a comment. */
 export const FEEDBACK_QUESTIONS = [
-  { id: 'vsUsual', text: 'How satisfied are you with arranging duty through Wayneday, compared with the usual way?' },
-  { id: 'fair', text: 'How fair was your share of shifts?' },
-  { id: 'overall', text: 'Overall, how happy are you with the final roster?' },
-  { id: 'easy', text: 'How easy was Wayneday to use?' },
+  { id: 'vsUsual', group: 'roster', text: 'How satisfied are you with arranging duty through Wayneday, compared with the usual way?' },
+  { id: 'fair', group: 'roster', text: 'How fair was your share of shifts?' },
+  { id: 'overall', group: 'roster', text: 'Overall, how happy are you with the final roster?' },
+  { id: 'easy', group: 'roster', text: 'How easy was Wayneday to use?' },
+  // How the host and co-hosts did.
+  { id: 'hostOrganised', group: 'host', text: 'How well did the host and co-hosts organise the roster?' },
+  { id: 'hostResponsive', group: 'host', text: 'How quickly and clearly did they answer questions, concerns and swap requests?' },
+  { id: 'hostFair', group: 'host', text: 'How fair and open were their decisions?' },
 ] as const
 
 export interface Feedback {
@@ -428,6 +432,8 @@ export interface Feedback {
   /** Question id -> 1–5 stars; a skipped question is missing. */
   ratings: Record<string, number>
   text: string
+  /** A comment for the host and co-hosts on how they did. */
+  hostText?: string
   /** Hosts see it without the name. */
   anonymous?: boolean
   at: number

@@ -743,7 +743,7 @@ export function createApi(opts: ApiOptions) {
           .slice(0, 20)
           .map(([k, v]) => [k.slice(0, 40), int(v, 0, 5, 0)]),
       )
-      return mutate(req, code(req), (s, me) => saveFeedback(s, me, { ratings, text: str(b.text, 2000), anonymous: b.anonymous === true }))
+      return mutate(req, code(req), (s, me) => saveFeedback(s, me, { ratings, text: str(b.text, 2000), hostText: str(b.hostText, 2000), anonymous: b.anonymous === true }))
     }),
   )
 

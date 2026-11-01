@@ -202,7 +202,7 @@ export const api = {
     mutate(code, false, (s) => replyConcern(s, actorFor(code), id, text, { by: 'Dr. Wipa', role: 'owner' })),
   removeReply: (code: string, id: string, replyId: string) => mutate(code, false, (s) => removeReply(s, actorFor(code), id, replyId)),
   voteConcern: (code: string, id: string, vote: 1 | -1 | 0) => mutate(code, false, (s) => voteConcern(s, actorFor(code), id, vote)),
-  saveFeedback: (code: string, f: { ratings: Record<string, number>; text: string; anonymous: boolean }) =>
+  saveFeedback: (code: string, f: { ratings: Record<string, number>; text: string; hostText?: string; anonymous: boolean }) =>
     mutate(code, false, (s) => saveFeedback(s, actorFor(code), f)),
   addNote: (code: string, memberId: string, text: string) =>
     mutate(code, false, (s) => addNote(s, actorFor(code), memberId, text, { by: 'Dr. Wipa', role: 'owner' })),
