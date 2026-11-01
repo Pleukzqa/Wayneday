@@ -2153,3 +2153,24 @@ body.no-scroll {
   outline: 2px dashed var(--danger);
   outline-offset: -3px;
 }
+
+/* Hosts: what the roster breaks. */
+.roster-alerts.has-rules {
+  border-left: 4px solid var(--danger);
+}
+.roster-alerts h3 {
+  margin: 0.25rem 0 0;
+  font-size: 1rem;
+}
+.alert-list {
+  list-style: none;
+  margin: 0.25rem 0 0.5rem;
+  padding-left: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+.tab .badge.warn {
+  margin-left: 0.35rem;
+  font-size: 0.75rem;
+}

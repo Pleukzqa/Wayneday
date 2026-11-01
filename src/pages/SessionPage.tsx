@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useMemo, useState, type FormEvent } from 'react'
 import { forgetMember, setTokens, api } from '../api.ts'
 import { invitedMemberFromHash, IS_DEMO, sessionHash } from '../routes.ts'
 import { shortDate } from '../shared/dates.ts'
@@ -13,6 +13,7 @@ import RosterTab from '../components/RosterTab.tsx'
 import type { SessionProps } from '../components/props.ts'
 import { HostsCard, HostSignIn } from '../components/Hosts.tsx'
 import { googleClientId } from '../google.ts'
+import { rosterAlerts } from '../shared/students.ts'
 
 type Tab = 'setup' | 'availability' | 'roster'
 
@@ -20,6 +21,12 @@ export default function SessionPage({ code }: { code: string }) {
   const { view, error, mutate, refresh } = useSession(code)
   const [tab, setTab] = useState<Tab | null>(null)
   const [hostLogin, setHostLogin] = useState(false)
+  // Hosts: how many rules the published roster breaks, on the Roster tab.
+  const broken = useMemo(() => {
+    const s = view?.session
+    if (!view?.me.isHost || !s?.schedule || !s.config.members.some((m) => m.type === 'student')) return 0
+    return rosterAlerts(s.config, s.responses, s.schedule).filter((a) => a.level === 'rule').length
+  }, [view])
 
   if (!view) {
     return <p className={error ? 'error' : 'muted'}>{error ?? t("Loading session…")}</p>;
@@ -80,6 +87,11 @@ export default function SessionPage({ code }: { code: string }) {
         ).map(([key, text]) => (
           <button key={key} role="tab" aria-selected={current === key} className={current === key ? 'tab active' : 'tab'} onClick={() => setTab(key)}>
             {text}
+            {key === 'roster' && broken > 0 && (
+              <span className="badge warn" title={t('{n} rule(s) the published roster breaks', { n: broken })}>
+                🚨 {broken}
+              </span>
+            )}
           </button>
         ))}
       </nav>

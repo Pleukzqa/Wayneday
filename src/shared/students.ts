@@ -6,7 +6,7 @@
 
 import { fmtPoints, presentationOn, reqCount, reqMin, shiftPoints, shiftRuns, shiftSpan, shiftTimes, sourceMatches, sourceOffsets } from './calendar.ts'
 import { t, weekdayShort } from './i18n.ts'
-import { addDays, dateRange, dayDiff, weekday } from './dates.ts'
+import { addDays, dateRange, dayDiff, shortDate, weekday } from './dates.ts'
 import { preferenceCost, responseFor, rng, shuffled, sortedBy, variance } from './scoring.ts'
 import { coversJob, dutyOf, isOneDay, jobsOn, presentationPoints, presenterTypes, type DaysBack, type PresenterSource, type Assignment, type Member, type MemberResponse, type PresenterAssignment, type SessionConfig, type StudentAssignment } from './types.ts'
 
@@ -642,12 +642,16 @@ export function pickPresenters(
  *   from someone with two more than another to them, when they were on the shift it draws from and present neither
  *   that day nor the day before or after.
  */
-export function polishPresenters(config: SessionConfig, onDuty: StudentAssignment[], presenters: PresenterAssignment[]): PresenterAssignment[] {
-  // Everyone on duty: students, and in a roster Wayneday makes, residents and staff too.
-  const students = onDuty
-  const out = presenters.map((p) => ({ ...p }))
-  const ruleOf = (id: string) => config.presentations.find((r) => r.id === id)
-  const was = (memberId: string, date: string, src: PresenterSource, daysBack: DaysBack) => {
+/**
+ * Which of a presentation's presenters that day come from its sources (each source by its count): the ones who were
+ * on the shift (and place) it draws from — or, before the roster starts, who cover that ward. Also how many places
+ * the sources ask for.
+ */
+export function fromSources(config: SessionConfig, onDuty: StudentAssignment[], date: string, ruleId: string, who: string[]): { places: number; matched: Set<string> } {
+  const rule = config.presentations.find((r) => r.id === ruleId)
+  const today = rule && presentationOn(config, rule, date)
+  if (!today || !today.sources.length) return { places: 0, matched: new Set() }
+  const was = (memberId: string, src: PresenterSource, daysBack: DaysBack) => {
     const back = sourceOffsets(src, daysBack).map((n) => addDays(date, -n))
     // Before the roster starts nobody was on duty: the source's ward that day is what counts (as when picking).
     if (back.every((d) => d < config.startDate)) {
@@ -655,29 +659,32 @@ export function polishPresenters(config: SessionConfig, onDuty: StudentAssignmen
       const m = config.members.find((x) => x.id === memberId)
       return Boolean(ward && m && coversJob(m, ward, date))
     }
-    return back.some((d) => students.some((x) => x.memberId === memberId && x.date === d && sourceMatches(config, src, x.shiftId, x.requirementId)))
+    return back.some((d) => onDuty.some((x) => x.memberId === memberId && x.date === d && sourceMatches(config, src, x.shiftId, x.requirementId)))
   }
-  // How many of a presentation's places that day are filled from its sources (each source by its count).
-  const matched = (date: string, ruleId: string) => {
-    const rule = ruleOf(ruleId)
-    const today = rule && presentationOn(config, rule, date)
-    if (!today || !today.sources.length) return 0
-    const who = out.filter((p) => p.date === date && p.ruleId === ruleId).map((p) => p.memberId)
-    const places = today.sources.flatMap((src) => Array.from({ length: src.count }, () => src))
-    const owner = places.map(() => -1)
-    const assign = (i: number, seen: Set<number>): boolean => {
-      for (let j = 0; j < places.length; j++) {
-        if (seen.has(j) || !was(who[i], date, places[j], today.daysBack)) continue
-        seen.add(j)
-        if (owner[j] < 0 || assign(owner[j], seen)) {
-          owner[j] = i
-          return true
-        }
+  const places = today.sources.flatMap((src) => Array.from({ length: src.count }, () => src))
+  const owner = places.map(() => -1)
+  const assign = (i: number, seen: Set<number>): boolean => {
+    for (let j = 0; j < places.length; j++) {
+      if (seen.has(j) || !was(who[i], places[j], today.daysBack)) continue
+      seen.add(j)
+      if (owner[j] < 0 || assign(owner[j], seen)) {
+        owner[j] = i
+        return true
       }
-      return false
     }
-    return who.filter((_, i) => assign(i, new Set())).length
+    return false
   }
+  who.forEach((_, i) => assign(i, new Set()))
+  return { places: places.length, matched: new Set(owner.filter((i) => i >= 0).map((i) => who[i])) }
+}
+
+export function polishPresenters(config: SessionConfig, onDuty: StudentAssignment[], presenters: PresenterAssignment[]): PresenterAssignment[] {
+  // Everyone on duty: students, and in a roster Wayneday makes, residents and staff too.
+  const students = onDuty
+  const out = presenters.map((p) => ({ ...p }))
+  const ruleOf = (id: string) => config.presentations.find((r) => r.id === id)
+  const matched = (date: string, ruleId: string) =>
+    fromSources(config, students, date, ruleId, out.filter((p) => p.date === date && p.ruleId === ruleId).map((p) => p.memberId)).matched.size
   const weekly = config.presentations.filter((r) => !isOneDay(r))
   const turns = (id: string, ruleId: string) => out.filter((p) => p.memberId === id && p.ruleId === ruleId).length
   const near = (id: string, date: string, gap: number, except?: PresenterAssignment) => out.some((p) => p !== except && p.memberId === id && Math.abs(dayDiff(p.date, date)) <= gap)
@@ -715,6 +722,26 @@ export function polishPresenters(config: SessionConfig, onDuty: StudentAssignmen
           else out.forEach((p, k) => (p.memberId = snapshot[k]))
         }
       }
+    }
+  }
+
+  // Still someone not from the shift it draws from (e.g. picked as a stand-in): someone who was on it and is free
+  // that day and the days either side takes their place, if they don't lose their only turn at a weekly one.
+  for (const p of out) {
+    const today = out.filter((q) => q.date === p.date && q.ruleId === p.ruleId)
+    const fit = fromSources(config, students, p.date, p.ruleId, today.map((q) => q.memberId))
+    if (fit.matched.has(p.memberId) || fit.matched.size >= Math.min(fit.places, today.length)) continue
+    if (weekly.some((r) => r.id === p.ruleId) && turns(p.memberId, p.ruleId) <= 1) continue
+    const rule = ruleOf(p.ruleId)!
+    const pool = sortedBy(
+      config.members.filter((m) => presenterTypes(config, rule).includes(m.type) && !near(m.id, p.date, 1)).map((m) => m.id),
+      (id) => (near(id, p.date, 2) ? 100 : 0) + 10 * out.filter((q) => q.memberId === id).length,
+    )
+    const old = p.memberId
+    for (const id of pool) {
+      p.memberId = id
+      if (fromSources(config, students, p.date, p.ruleId, today.map((q) => q.memberId)).matched.size > fit.matched.size) break
+      p.memberId = old
     }
   }
 
@@ -1954,6 +1981,106 @@ export function fitsPattern(days: number[], n: number, r: MemberResponse): boole
   if (r.preference === 'distributed') return Math.max(...gaps) <= (2 * n) / days.length
   const paired = days.filter((_, i) => gaps[i - 1] === r.minInterval || gaps[i] === r.minInterval).length
   return paired * 2 >= days.length
+}
+
+/** Something a roster breaks: a rule the host set (`rule`) or a preference Wayneday tries for (`wish`). */
+export interface RosterAlert {
+  level: 'rule' | 'wish'
+  text: string
+}
+
+/**
+ * Everything this roster breaks, person by person and day by day, for the hosts: presenters not from the shift their
+ * presentation draws from, twice in a day or on days running, uneven turns, hard rules, avoid days, points, uneven
+ * shift types, every-other-day duty and shift patterns.
+ */
+export function rosterAlerts(
+  config: SessionConfig,
+  responses: Record<string, MemberResponse>,
+  roster: { assignments: Assignment[]; students: StudentAssignment[]; presenters: PresenterAssignment[] },
+): RosterAlert[] {
+  const out: RosterAlert[] = []
+  const studs = config.members.filter((m) => m.type === 'student')
+  const name = (id: string) => config.members.find((m) => m.id === id)?.name ?? '?'
+  const ruleName = (id: string) => config.presentations.find((r) => r.id === id)?.name ?? '?'
+  const shiftName = (id: string) => config.shifts.find((x) => x.id === id)?.name ?? '?'
+  const day = (d: string) => shortDate(d)
+  const onDuty = [...roster.assignments, ...roster.students]
+  const p = roster.presenters
+
+  // Presenters from the shift their presentation draws from.
+  for (const key of new Set(p.map((x) => `${x.date}|${x.ruleId}`))) {
+    const [date, ruleId] = key.split('|')
+    const who = p.filter((x) => x.date === date && x.ruleId === ruleId).map((x) => x.memberId)
+    const fit = fromSources(config, onDuty, date, ruleId, who)
+    if (fit.matched.size >= Math.min(fit.places, who.length)) continue
+    for (const id of who.filter((x) => !fit.matched.has(x))) {
+      const night = roster.students.filter((x) => x.memberId === id && x.date === addDays(date, -1)).map((x) => shiftName(x.shiftId))
+      out.push({
+        level: 'rule',
+        text: t('{date} {rule}: {name} isn’t from the shift it draws from (the night before: {night}).', {
+          date: day(date),
+          rule: ruleName(ruleId),
+          name: name(id),
+          night: night.join(', ') || t('off'),
+        }),
+      })
+    }
+  }
+  p.forEach((x, i) => {
+    if (p.findIndex((y) => y.date === x.date && y.memberId === x.memberId) !== i) out.push({ level: 'rule', text: t('{date}: {name} presents twice.', { date: day(x.date), name: name(x.memberId) }) })
+  })
+  for (const x of presentsInARow(p)) out.push({ level: 'rule', text: t('{name} presents two days running ({a} and {b}).', { name: name(x.memberId), a: day(addDays(x.date, -1)), b: day(x.date) }) })
+  for (const x of presentsInARow(p, 2)) out.push({ level: 'wish', text: t('{name} presents every other day ({a} and {b}).', { name: name(x.memberId), a: day(addDays(x.date, -2)), b: day(x.date) }) })
+  for (const rule of config.presentations.filter((r) => !isOneDay(r) && p.some((x) => x.ruleId === r.id))) {
+    const n = new Map(studs.map((m) => [m.id, p.filter((x) => x.ruleId === rule.id && x.memberId === m.id).length]))
+    const none = studs.filter((m) => !n.get(m.id))
+    if (none.length) out.push({ level: 'rule', text: t('{rule}: {names} never present.', { rule: rule.name, names: none.map((m) => m.name).join(', ') }) })
+    const [lo, hi] = [Math.min(...n.values()), Math.max(...n.values())]
+    if (hi - lo > 1) {
+      out.push({
+        level: 'rule',
+        text: t('{rule}: {most} present {hi} times while {fewest} present {lo} — more than one apart.', {
+          rule: rule.name,
+          most: studs.filter((m) => n.get(m.id) === hi).map((m) => m.name).join(', '),
+          hi,
+          fewest: studs.filter((m) => n.get(m.id) === lo).map((m) => m.name).join(', '),
+          lo,
+        }),
+      })
+    }
+  }
+
+  // Shifts.
+  for (const [key, issues] of studentCellIssues(config, responses, roster.students)) {
+    const [date, shiftId] = key.split('|')
+    for (const x of issues) out.push({ level: 'rule', text: `${day(date)} ${shiftName(shiftId)}: ${x}` })
+  }
+  const report = studentRuleReport(config, responses, roster)
+  for (const u of report.unmet) {
+    for (const d of u.days) {
+      out.push({ level: d.level >= 2 ? 'rule' : 'wish', text: t('{name} is on {date}, which they asked to avoid ({level}).', { name: name(u.memberId), date: day(d.date), level: '!'.repeat(d.level) }) })
+    }
+  }
+  if (!report.pointsOk) out.push({ level: 'rule', text: report.summary.find((x) => x.startsWith('⚠️'))?.replace('⚠️ ', '') ?? t('Points are further apart than your limit.') })
+  const load = loadPoints(config, roster.students, roster.presenters)
+  for (const g of shareGroups(config)) {
+    for (const sh of config.shifts.filter((x) => roster.students.some((y) => y.shiftId === x.id))) {
+      const counts = g.members.map((si) => roster.students.filter((x) => x.memberId === studs[si].id && x.shiftId === sh.id).length)
+      if (!unevenType(counts, load ? g.members.map((si) => load[studs[si].id] ?? 0) : null)) continue
+      const [lo, hi] = [Math.min(...counts), Math.max(...counts)]
+      out.push({ level: 'rule', text: t('{shift}: {lo}–{hi} each, more than one apart and not made up for in points.', { shift: sh.name, lo, hi }) })
+    }
+  }
+  for (const m of studs) {
+    const days = [...new Set(roster.students.filter((x) => x.memberId === m.id).map((x) => dayDiff(config.startDate, x.date)))].sort((a, b) => a - b)
+    const runs = everyOtherDay(days)
+    if (runs) out.push({ level: 'wish', text: t('{name} is on duty every other day three times running ({n}×).', { name: m.name, n: runs }) })
+    if (responses[m.id] && !fitsPattern(days, dayDiff(config.startDate, config.endDate) + 1, studentResponse(config, responses, m.id))) {
+      out.push({ level: 'wish', text: responses[m.id].preference === 'dense' ? t('{name} asked for grouped shifts; these are spread out.', { name: m.name }) : t('{name} asked for spread-out shifts; there’s a long gap.', { name: m.name }) })
+    }
+  }
+  return out
 }
 
 /** Every fairness rule Wayneday accounts for, with this roster's result: for the fairness table and comparing two. */

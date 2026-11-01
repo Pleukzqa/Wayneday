@@ -13,6 +13,7 @@ import {
   pickPresenters,
   placeKey,
   polishPresenters,
+  rosterAlerts,
   studentCellIssues,
   studentExposure,
   studentRuleReport,
@@ -607,6 +608,7 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
           )}</span>
         </div>
       )}
+      {me.isHost && shown && hasStudents && <RosterAlerts config={config} responses={responses} roster={shown} label={preview || edit ? t('the roster on screen') : t('the published roster')} />}
       {repair && schedule && !preview && (
         <RepairPlan
           config={config}
@@ -1351,6 +1353,42 @@ function SavedArrangements({
           </li>
         ))}
       </ul>
+    </section>
+  )
+}
+
+/** Hosts only: every rule and preference the roster breaks, by person and day, so nothing slips through. */
+function RosterAlerts({ config, responses, roster, label }: { config: SessionConfig; responses: Record<string, MemberResponse>; roster: Roster; label: string }) {
+  const all = useMemo(() => rosterAlerts(config, responses, roster), [config, responses, roster])
+  const rules = all.filter((a) => a.level === 'rule')
+  const wishes = all.filter((a) => a.level === 'wish')
+  return (
+    <section className={`card roster-alerts ${rules.length ? 'has-rules' : ''}`} aria-live="polite">
+      <h2>
+        {rules.length ? '🚨' : '✅'} {t('What {which} breaks', { which: label })} <span className="badge host">{t('Hosts only')}</span>
+      </h2>
+      {all.length === 0 && <p className="small">{t('Nothing — every rule and preference is kept.')}</p>}
+      {rules.length > 0 && (
+        <>
+          <h3>{t('Rules you set ({n})', { n: rules.length })}</h3>
+          <ul className="small alert-list">
+            {rules.map((a, i) => (
+              <li key={i}>🚨 {a.text}</li>
+            ))}
+          </ul>
+        </>
+      )}
+      {wishes.length > 0 && (
+        <details open={rules.length === 0 && wishes.length <= 5}>
+          <summary className="small">⚠️ {t('Preferences not met ({n})', { n: wishes.length })}</summary>
+          <ul className="small alert-list">
+            {wishes.map((a, i) => (
+              <li key={i}>{a.text}</li>
+            ))}
+          </ul>
+        </details>
+      )}
+      {all.length > 0 && <p className="muted small">{t('Try 🎤 Even out presenters or 🔧 Fix with fewest changes, or edit by hand — this list updates as you go.')}</p>}
     </section>
   )
 }

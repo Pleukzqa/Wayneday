@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import { addDays, dateRange, dayDiff } from './dates.ts'
 import { shiftHours, shiftPoints, shiftTimes } from './calendar.ts'
 import { countArrangements, solve, solveMany, validate } from './solver.ts'
-import { arrangeStudents, countStudentArrangements, equalShare, shareGroups, shiftsNeeded, pickPresenters, placeKey, polishPresenters, studentCellIssues, studentExposure, studentOptions, everyOtherDay, fairnessReport, fitsPattern, presentationLoad, presentsInARow, repairRoster, studentDetails, studentRuleReport, studentSummaryTable, studentTargets, typeSpread } from './students.ts'
+import { arrangeStudents, countStudentArrangements, equalShare, shareGroups, shiftsNeeded, pickPresenters, placeKey, polishPresenters, rosterAlerts, studentCellIssues, studentExposure, studentOptions, everyOtherDay, fairnessReport, fitsPattern, presentationLoad, presentsInARow, repairRoster, studentDetails, studentRuleReport, studentSummaryTable, studentTargets, typeSpread } from './students.ts'
 import { buildAiPrompt, importAiResult } from './ai.ts'
 import { explainNoArrangement } from './explain.ts'
 import { ANY_SHIFT, DEFAULT_RESPONSE, DEFAULT_STUDENTS, dutyOf, personHue, presentationPoints, type MemberResponse, type SessionConfig, type StudentAssignment } from './types.ts'
@@ -1051,4 +1051,21 @@ test('presenters polished: each from the shift its presentation draws from; week
   // Nobody else was on those nights: nothing moves.
   out = polishPresenters(c, nights.filter((x) => x.memberId !== 'stB'), [p('stA', '2026-11-03'), p('stA', '2026-11-07'), p('stA', '2026-11-11'), p('stC', '2026-11-15')])
   assert.deepEqual(out.map((x) => x.memberId), ['stA', 'stA', 'stA', 'stC'])
+})
+
+test('hosts are told what a roster breaks; a presenter off the wrong shift is swapped for a free one from it', () => {
+  const c = hospital()
+  c.shifts = [{ ...c.shifts[0], requirements: [{ id: 'wa', jobId: 'er', memberType: 'any', count: 2 }] }]
+  const ccr = { id: 'ccr', name: 'CCR', days: [], dates: ['2026-11-12'], count: 1, fromShiftId: 'night', fromCount: 1, types: ['student' as const], sources: [{ shiftId: 'night', placeId: 'wa', count: 1 }] }
+  c.presentations = [ccr]
+  const students = [{ date: '2026-11-11', shiftId: 'night', requirementId: 'wa', memberId: 'stA' }]
+  const roster = { assignments: [], students, presenters: [{ date: '2026-11-12', ruleId: 'ccr', memberId: 'stC', postCall: false }] }
+  const alerts = rosterAlerts(c, {}, roster)
+  assert.ok(alerts.some((a) => a.level === 'rule' && /CCR: Student C isn’t from the shift it draws from \(the night before: off\)/.test(a.text)), JSON.stringify(alerts))
+  const fixed = polishPresenters(c, students, roster.presenters)
+  assert.deepEqual(fixed.map((x) => [x.memberId, x.postCall]), [['stA', true]])
+  assert.ok(!rosterAlerts(c, {}, { ...roster, presenters: fixed }).some((a) => /draws from/.test(a.text)))
+  // Avoid days: !!! and !! are rules the host set, ! is a preference.
+  const responses = { stA: { ...DEFAULT_RESPONSE, avoid: [{ date: '2026-11-11', level: 2 as const }] } }
+  assert.ok(rosterAlerts(c, responses, roster).some((a) => a.level === 'rule' && /asked to avoid \(!!\)/.test(a.text)))
 })
