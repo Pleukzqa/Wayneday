@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from 'react'
 import { api, type SessionView } from '../api.ts'
+import { useUnsaved } from '../unsaved.ts'
 import { googleClientId } from '../google.ts'
 import { t } from '../shared/i18n.ts'
 import { exportCsv, exportPng, exportToDrive, exportXlsx, personTable } from '../export.ts'
@@ -177,6 +178,7 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
   const [repair, setRepair] = useState<(RepairResult & { kind: 'fix' | 'even' | 'ai' }) | null>(null)
   // The fixes never change today or earlier; tomorrow only when the host unticks this.
   const [keepTomorrow, setKeepTomorrow] = useState(true)
+  useUnsaved('roster', Boolean(edit || repair))
   // Hosts: tapping students and presenters in the table locks them in place (📌).
   const [lockMode, setLockMode] = useState(false)
   const [error, setError] = useState<string | null>(null)

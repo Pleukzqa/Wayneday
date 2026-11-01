@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { forgetMember, setTokens, api } from '../api.ts'
 import { invitedMemberFromHash, IS_DEMO, sessionHash } from '../routes.ts'
 import { shortDate } from '../shared/dates.ts'
@@ -6,7 +6,7 @@ import { t } from '../shared/i18n.ts'
 import type { Organizer } from '../apiTypes.ts'
 import type { HostNote } from '../shared/types.ts'
 import type { MemberType } from '../shared/types.ts'
-import { useSession } from '../useSession.ts'
+import { useSession, type Changed } from '../useSession.ts'
 import SetupTab from '../components/SetupTab.tsx'
 import AvailabilityTab from '../components/AvailabilityTab.tsx'
 import RosterTab from '../components/RosterTab.tsx'
@@ -18,7 +18,7 @@ import { rosterAlerts } from '../shared/students.ts'
 type Tab = 'setup' | 'availability' | 'roster'
 
 export default function SessionPage({ code }: { code: string }) {
-  const { view, error, mutate, refresh } = useSession(code)
+  const { view, error, mutate, refresh, changed, clearChanged } = useSession(code)
   const [tab, setTab] = useState<Tab | null>(null)
   const [hostLogin, setHostLogin] = useState(false)
   // Hosts: how many rules the published roster breaks, on the Roster tab.
@@ -75,6 +75,7 @@ export default function SessionPage({ code }: { code: string }) {
           <LoginCard {...props} onDone={() => void refresh()} />
         ))}
       {error && <p className="error small">{t("Connection problem:")} {error}</p>}
+      {changed && <ChangedToast changed={changed} clear={clearChanged} go={() => setTab(changed.what === 'roster' ? 'roster' : 'setup')} />}
       <Announcements session={session} me={me} go={setTab} />
       {me.memberId && <MemberNotes notes={session.notes.filter((n) => n.memberId === me.memberId)} read={(id) => void mutate(() => api.readNote(code, id))} />}
       <nav className="tabs" role="tablist">
@@ -401,4 +402,23 @@ function LoginCard({ code, session, me, onDone }: SessionProps & { onDone: () =>
       {error && <span className="error small">{error}</span>}
     </form>
   );
+}
+
+/** Someone else just changed the roster or the setup: a short notice, gone after a few seconds. */
+function ChangedToast({ changed, clear, go }: { changed: Changed; clear: () => void; go: () => void }) {
+  useEffect(() => {
+    const t = setTimeout(clear, 8000)
+    return () => clearTimeout(t)
+  }, [changed, clear])
+  return (
+    <div className="changed-toast" role="status">
+      🔄 {changed.what === 'roster' ? t('The roster was just updated.') : t('The setup was just changed.')}{' '}
+      <button type="button" className="link" onClick={() => (go(), clear())}>
+        {t('Show me')}
+      </button>
+      <button type="button" className="link" aria-label={t('Close')} onClick={clear}>
+        ✕
+      </button>
+    </div>
+  )
 }

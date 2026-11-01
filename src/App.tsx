@@ -5,6 +5,7 @@ import { codeFromHash, IS_DEMO } from './routes.ts'
 import { setLang, t, type Lang } from './shared/i18n.ts'
 import { AccountChip } from './components/GoogleButton.tsx'
 import Logo from './components/Logo.tsx'
+import { useAppUpdate } from './appUpdate.ts'
 
 // Only bundled into the phone demo build.
 const DemoBar = IS_DEMO ? lazy(() => import('./demo/DemoBar.tsx')) : null
@@ -61,6 +62,7 @@ export default function App() {
     document.documentElement.lang = lang
     document.title = `Wayneday — ${t('Duty roster planner')}`
   }, [lang])
+  const update = useAppUpdate()
   const [theme, setTheme] = useState<Theme>(initialTheme)
   useEffect(() => applyTheme(theme), [theme])
   const nextTheme = () => {
@@ -103,6 +105,14 @@ export default function App() {
           </div>
         </div>
       </header>
+      {update && (
+        <div className="update-bar" role="status">
+          🆕 {t('A new version of Wayneday is out — it loads as soon as your changes are saved.')}{' '}
+          <button type="button" onClick={() => location.reload()}>
+            {t('Reload now')}
+          </button>
+        </div>
+      )}
       <main className="page">
         {code ? <SessionPage key={`${code}:${viewer}`} code={code} /> : <Home />}
         <footer className="site-footer">

@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { api } from '../api.ts'
+import { useUnsaved } from '../unsaved.ts'
 import { addDays, dateRange } from '../shared/dates.ts'
 import type { Member, MemberType, PlacePeriod, Requirement, SessionConfig, ShiftSlot } from '../shared/types.ts'
 import { IS_DEMO, sessionHash } from '../routes.ts'
@@ -46,6 +47,7 @@ export default function SetupTab({ code, session, me, mutate }: SessionProps) {
   const base = useMemo(() => (me.isHost ? starter(session.config) : session.config), [me.isHost, session.config])
   const draft = localDraft ?? base
   const dirty = draft !== session.config
+  useUnsaved('setup', me.isHost && dirty)
 
   const edit = (fn: (c: SessionConfig) => SessionConfig) => setDraft((c) => fn(c ?? base))
   const ro = !me.isHost

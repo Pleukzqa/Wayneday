@@ -1,5 +1,6 @@
 import { Fragment, useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { api } from '../api.ts'
+import { useUnsaved } from '../unsaved.ts'
 import { shiftRuns, shiftsForType, shiftsOn } from '../shared/calendar.ts'
 import { t, typeName } from '../shared/i18n.ts'
 import { dateRange, shortDate, weekday } from '../shared/dates.ts'
@@ -24,6 +25,7 @@ const STATUS = {
 export default function AvailabilityTab({ code, session, me, mutate }: SessionProps) {
   const { config } = session
   const [pending, setPending] = useState<Record<string, MemberResponse>>({})
+  useUnsaved('answers', Object.keys(pending).length > 0)
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'error'>('idle')
   const [tool, setTool] = useState<Tool>('mark')
   const [editOthers, setEditOthers] = useState(false)
