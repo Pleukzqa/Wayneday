@@ -62,7 +62,7 @@ function duration(ms: number) {
   return h >= 24 ? t('{d}d {h}h', { d: Math.floor(h / 24), h: h % 24 }) : t('{h}h {m}m', { h, m })
 }
 
-const rosterOf = (s: Schedule): Roster => ({ assignments: s.assignments, students: s.students, presenters: s.presenters })
+const rosterOf = (s: Schedule): Roster => ({ assignments: s.assignments, students: s.students, presenters: s.presenters, ...(s.pinned ? { pinned: s.pinned } : {}) })
 
 function countText(c: CountResult, shown: number): string {
   if (c.exact) {
@@ -175,6 +175,8 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
   const [repair, setRepair] = useState<(RepairResult & { kind: 'fix' | 'even' }) | null>(null)
   // The fixes never change today or earlier; tomorrow only when the host unticks this.
   const [keepTomorrow, setKeepTomorrow] = useState(true)
+  // Hosts: tapping students and presenters in the table locks them in place (📌).
+  const [lockMode, setLockMode] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [concernDate, setConcernDate] = useState('')
   const [swapDraft, setSwapDraft] = useState<SwapDraft | null>(null)
@@ -258,6 +260,15 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
     } catch (e) {
       setError((e as Error).message)
     }
+  }
+
+  /** Lock or unlock one slot of the published roster (📌). */
+  function toggleLock(key: string) {
+    if (!schedule) return
+    const next = new Set(schedule.pinned ?? [])
+    if (next.has(key)) next.delete(key)
+    else next.add(key)
+    void mutate(() => api.saveSchedule(code, { ...schedule, pinned: [...next] })).catch((e) => setError((e as Error).message))
   }
 
   async function setStatus(patch: Partial<Schedule>) {
@@ -565,12 +576,17 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
                     <button
                       title={t('Each presenter from the shift their presentation draws from, and each weekly presentation within one of everyone else’s. Shifts stay as they are.')}
                       onClick={() => {
-                        const after = polishPresenters(config, [...schedule.assignments, ...schedule.students], schedule.presenters, changeFrom(keepTomorrow))
+                        const after = polishPresenters(config, [...schedule.assignments, ...schedule.students], schedule.presenters, changeFrom(keepTomorrow), schedule.pinned)
                         setRepair({ students: schedule.students, presenters: after, swaps: [], presenterDays: [], kind: 'even' })
                         setTimeout(() => document.getElementById('plan')?.scrollIntoView({ behavior: 'smooth' }), 50)
                       }}
                     >
                       🎤 {t('Even out presenters')}
+                    </button>
+                  )}
+                  {hospital && hasStudents && (
+                    <button type="button" aria-pressed={lockMode} className={lockMode ? 'on' : ''} onClick={() => setLockMode(!lockMode)}>
+                      📌 {lockMode ? t('Done locking') : t('Lock slots')} {(schedule.pinned?.length ?? 0) > 0 && <span className="badge">{schedule.pinned!.length}</span>}
                     </button>
                   )}
                   {hospital && hasStudents && (
@@ -612,7 +628,7 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
           before={rosterOf(schedule)}
           plan={repair}
           apply={() => {
-            setEdit({ assignments: schedule.assignments, students: repair.students, presenters: repair.presenters })
+            setEdit({ assignments: schedule.assignments, students: repair.students, presenters: repair.presenters, ...(schedule.pinned ? { pinned: schedule.pinned } : {}) })
             setRepair(null)
             setTimeout(() => tableRef.current?.scrollIntoView({ behavior: 'smooth' }), 50)
           }}
@@ -672,6 +688,14 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
             </div>
           )}
           <ShowingLine preview={preview} edit={edit} schedule={schedule} options={options?.length ?? 0} />
+          {me.isHost && lockMode && schedule && !preview && !edit && (
+            <p className="small lock-bar" role="status">
+              📌 {t('Tap a student or presenter to lock them in place; tap again to unlock. 🔧 Fix and 🎤 Even out leave locked ones as they are.')}{' '}
+              <button type="button" className="link" onClick={() => setLockMode(false)}>
+                {t('Done locking')}
+              </button>
+            </p>
+          )}
           <section className="card flush">
             <RosterTable
               arrange={arrange}
@@ -680,6 +704,10 @@ export default function RosterTab({ code, session, me, mutate }: SessionProps) {
               avoidOf={(id, date) => avoidLevel(responseFor(responses, id), date)}
               myId={me.memberId}
               concerns={session.concerns}
+              locks={{
+                keys: new Set(shown.pinned ?? []),
+                toggle: me.isHost && lockMode && schedule && !preview && !edit ? toggleLock : undefined,
+              }}
               swaps={session.swaps}
               tableRef={tableRef}
               onPick={!edit && !preview && me.memberId ? pick : undefined}

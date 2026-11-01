@@ -5,7 +5,7 @@ import { cellIds, cellNames, columnsFor, presenterParts } from '../shared/column
 import { presentationOn, reqCount } from '../shared/calendar.ts'
 import { dateRange, shortDate, weekday } from '../shared/dates.ts'
 import { placeKey } from '../shared/students.ts'
-import { coversJob, personHue, presenterTypes, STUDENT_SLOT, type Concern, type Roster, type SessionConfig, type StudentAssignment, type SwapRequest } from '../shared/types.ts'
+import { coversJob, lockKey, personHue, presenterTypes, STUDENT_SLOT, type Concern, type Roster, type SessionConfig, type StudentAssignment, type SwapRequest } from '../shared/types.ts'
 
 interface Props {
   config: SessionConfig
@@ -26,6 +26,8 @@ interface Props {
   tableRef?: Ref<HTMLDivElement>
   /** Host hand-arranging students in a preview. */
   arrange?: Arrange
+  /** Locked slots (📌); with `toggle`, tapping a student or presenter locks or unlocks them. */
+  locks?: { keys: Set<string>; toggle?: (key: string) => void }
 }
 
 export interface Arrange {
@@ -42,7 +44,7 @@ export interface Arrange {
   onPlace: (date: string, shiftId: string, requirementId?: string) => void
 }
 
-export default function RosterTable({ config, roster, myId, avoidOf, onEdit, onEditStudent, onEditPresenter, onPick, concerns = [], swaps = [], tableRef, arrange }: Props) {
+export default function RosterTable({ config, roster, myId, avoidOf, onEdit, onEditStudent, onEditPresenter, onPick, concerns = [], swaps = [], tableRef, arrange, locks }: Props) {
   const studentList = config.members.filter((m) => m.type === 'student')
   const cols = columnsFor(config)
   const holidays = new Set(config.holidays)
@@ -58,6 +60,13 @@ export default function RosterTable({ config, roster, myId, avoidOf, onEdit, onE
         {'!'.repeat(avoided(id, date))}
       </span>
     )
+
+  const isLocked = (key: string) => Boolean(locks?.keys.has(key))
+  const lockMark = (key: string) => isLocked(key) && <span title={t('Locked: fixes leave this as it is')}> 📌</span>
+  const studentKey = (date: string, shiftId: string, memberId: string, requirementId?: string) => {
+    const x = roster.students.find((s) => s.date === date && s.shiftId === shiftId && s.memberId === memberId && (requirementId === undefined || (s.requirementId ?? '') === requirementId))
+    return x ? lockKey.student(x) : ''
+  }
 
   // Hover over a name to light up that person everywhere; click (or tap) to keep it lit.
   const [pinned, setPinned] = useState<string | null>(null)
@@ -121,8 +130,9 @@ export default function RosterTable({ config, roster, myId, avoidOf, onEdit, onE
                     return (
                       <td key={c.key} className="extra-col">
                         {Array.from({ length: Math.max(slots, ids.length) }, (_, k) => (
+                          <span key={k} className="nowrap">
+                          {ids[k] && lockMark(studentKey(date, c.shiftId, ids[k], placeReq))}
                           <select
-                            key={k}
                             className="cell-select who-select"
                             style={hue(ids[k])}
                             value={ids[k] ?? ''}
@@ -136,6 +146,7 @@ export default function RosterTable({ config, roster, myId, avoidOf, onEdit, onE
                               </option>
                             ))}
                           </select>
+                          </span>
                         ))}
                       </td>
                     )
@@ -192,8 +203,9 @@ export default function RosterTable({ config, roster, myId, avoidOf, onEdit, onE
                             <div key={rule.id} className="present-part">
                               {c.ruleIds.length > 1 && <span className="present-label">{rule.name}</span>}
                               {Array.from({ length: need }, (_, k) => (
+                                <span key={k} className="nowrap">
+                                {who[k] && lockMark(lockKey.presenter({ date, ruleId: rule.id, memberId: who[k] }))}
                                 <select
-                                  key={k}
                                   className="who-select"
                                   style={hue(who[k])}
                                   aria-label={`${shortDate(date)} ${rule.name} ${k + 1}`}
@@ -207,6 +219,7 @@ export default function RosterTable({ config, roster, myId, avoidOf, onEdit, onE
                                     </option>
                                   ))}
                                 </select>
+                                </span>
                               ))}
                             </div>
                           )
@@ -222,14 +235,28 @@ export default function RosterTable({ config, roster, myId, avoidOf, onEdit, onE
                           <div key={rule.id} className="present-part">
                             {c.ruleIds.length > 1 && <span className="present-label">{rule.name}</span>}
                             {who.length === 0 && <span className="muted tiny">—</span>}
-                            {who.map((id) => (
-                              <span key={id} className={`who-chip small-chip ${id === myId ? 'mine' : ''} ${litClass(id)}`} style={hue(id)} {...follow(id)} onClick={() => pin(id)}>
+                            {who.map((id) => {
+                              const key = lockKey.presenter({ date, ruleId: rule.id, memberId: id })
+                              return (
+                              <span
+                                key={id}
+                                className={`who-chip small-chip ${id === myId ? 'mine' : ''} ${litClass(id)} ${isLocked(key) ? 'locked' : ''} ${locks?.toggle ? 'lockable' : ''}`}
+                                style={hue(id)}
+                                {...follow(id)}
+                                onClick={(e) => {
+                                  if (!locks?.toggle) return pin(id)
+                                  e.stopPropagation()
+                                  locks.toggle(key)
+                                }}
+                              >
                                 {nameOf(id)}
+                                {lockMark(key)}
                                 {roster.presenters.find((p) => p.date === date && p.ruleId === rule.id && p.memberId === id)?.postCall && (
                                   <span title={t("Was on last night’s shift")}> ●</span>
                                 )}
                               </span>
-                            ))}
+                              )
+                            })}
                           </div>
                         ))}
                       </td>
@@ -245,18 +272,26 @@ export default function RosterTable({ config, roster, myId, avoidOf, onEdit, onE
                         onClick={studentCol && onPick ? () => onPick(date, c.shiftId, STUDENT_SLOT) : undefined}
                       >
                         {ids.length === 0 && <span className="muted tiny">—</span>}
-                        {ids.map((id, k) => (
+                        {ids.map((id, k) => {
+                          const key = studentCol ? studentKey(date, c.shiftId, id, placeReq) : ''
+                          return (
                           <span
                             key={k}
-                            className={`who-chip small-chip ${id === myId ? 'mine' : ''} ${studentCol && avoided(id, date) ? `avoided avoided-${avoided(id, date)}` : ''} ${litClass(id)}`}
+                            className={`who-chip small-chip ${id === myId ? 'mine' : ''} ${studentCol && avoided(id, date) ? `avoided avoided-${avoided(id, date)}` : ''} ${litClass(id)} ${key && isLocked(key) ? 'locked' : ''} ${key && locks?.toggle ? 'lockable' : ''}`}
                             style={hue(id)}
                             {...follow(id)}
-                            onClick={() => pin(id)}
+                            onClick={(e) => {
+                              if (!key || !locks?.toggle) return pin(id)
+                              e.stopPropagation()
+                              locks.toggle(key)
+                            }}
                           >
                             {nameOf(id)}
                             {studentCol && avoidMark(id, date)}
+                            {key && lockMark(key)}
                           </span>
-                        ))}
+                          )
+                        })}
                       </td>
                     );
                   }

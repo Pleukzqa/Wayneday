@@ -2184,3 +2184,17 @@ body.no-scroll {
 .plan-effects s {
   text-decoration-color: var(--muted);
 }
+
+/* Locked slots (📌) and the lock mode. */
+.who-chip.locked {
+  outline: 2px solid var(--lock);
+  outline-offset: 1px;
+}
+.who-chip.lockable {
+  cursor: pointer;
+}
+.lock-bar {
+  background: var(--lock-soft);
+  border-radius: 8px;
+  padding: 0.4rem 0.6rem;
+}

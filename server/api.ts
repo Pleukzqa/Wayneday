@@ -324,6 +324,7 @@ function cleanSchedule(raw: unknown): Schedule | null {
     generatedAt: int(s.generatedAt, 0, Number.MAX_SAFE_INTEGER, Date.now()),
     reviewUntil: int(s.reviewUntil, 0, Number.MAX_SAFE_INTEGER, Date.now()),
     source: s.source === 'ai' || s.source === 'manual' ? s.source : 'solver',
+    ...(Array.isArray(s.pinned) && s.pinned.length ? { pinned: [...new Set(arr(s.pinned, 2000).map((x) => str(x, 200)).filter((x) => /^[sp]\|/.test(x)))] } : {}),
   }
 }
 

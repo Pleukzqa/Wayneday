@@ -8,7 +8,7 @@ import { fmtPoints, presentationOn, reqCount, reqMin, shiftPoints, shiftRuns, sh
 import { t, weekdayShort } from './i18n.ts'
 import { addDays, dateRange, dayDiff, shortDate, weekday } from './dates.ts'
 import { preferenceCost, responseFor, rng, shuffled, sortedBy, variance } from './scoring.ts'
-import { coversJob, dutyOf, isOneDay, jobsOn, presentationPoints, presenterTypes, type DaysBack, type PresenterSource, type Assignment, type Member, type MemberResponse, type PresenterAssignment, type SessionConfig, type StudentAssignment } from './types.ts'
+import { coversJob, dutyOf, isOneDay, jobsOn, lockKey, presentationPoints, presenterTypes, type DaysBack, type PresenterSource, type Assignment, type Member, type MemberResponse, type PresenterAssignment, type SessionConfig, type StudentAssignment } from './types.ts'
 
 /** A place students can take: one shift on one date (and, in hospital mode, one job within it). */
 export interface Occ {
@@ -685,10 +685,13 @@ export function fromSources(config: SessionConfig, onDuty: StudentAssignment[], 
   return { places: places.length, matched: new Set(owner.filter((i) => i >= 0).map((i) => who[i])) }
 }
 
-export function polishPresenters(config: SessionConfig, onDuty: StudentAssignment[], presenters: PresenterAssignment[], from = ''): PresenterAssignment[] {
+export function polishPresenters(config: SessionConfig, onDuty: StudentAssignment[], presenters: PresenterAssignment[], from = '', pinned: string[] = []): PresenterAssignment[] {
   // Everyone on duty: students, and in a roster Wayneday makes, residents and staff too.
   const students = onDuty
   const out = presenters.map((p) => ({ ...p }))
+  // Days before `from` (e.g. today and tomorrow) and locked presenters stay as they are.
+  const locked = new Set(pinned)
+  const fixed = new Set(out.filter((p) => p.date < from || locked.has(lockKey.presenter(p))))
   const ruleOf = (id: string) => config.presentations.find((r) => r.id === id)
   const matched = (date: string, ruleId: string) =>
     fromSources(config, students, date, ruleId, out.filter((p) => p.date === date && p.ruleId === ruleId).map((p) => p.memberId)).matched.size
@@ -698,7 +701,7 @@ export function polishPresenters(config: SessionConfig, onDuty: StudentAssignmen
 
   // Hand a weekly turn from someone with more to `id` (who has none): it must be one they were on the shift for.
   const giveTurn = (id: string, ruleId: string) => {
-    const can = out.filter((p) => p.date >= from && p.ruleId === ruleId && turns(p.memberId, ruleId) >= 2 && !near(id, p.date, 1))
+    const can = out.filter((p) => !fixed.has(p) && p.ruleId === ruleId && turns(p.memberId, ruleId) >= 2 && !near(id, p.date, 1))
     for (const p of sortedBy(can, (p) => (near(id, p.date, 2) ? 1 : 0))) {
       const before = matched(p.date, ruleId)
       const was0 = p.memberId
@@ -710,7 +713,6 @@ export function polishPresenters(config: SessionConfig, onDuty: StudentAssignmen
   }
 
   // Same-day swaps between presentations, towards each presenter coming from their own source.
-  // Days before `from` (e.g. today and tomorrow) stay as they are.
   for (const date of [...new Set(out.map((p) => p.date))].filter((d) => d >= from)) {
     for (let again = true; again; ) {
       again = false
@@ -718,7 +720,7 @@ export function polishPresenters(config: SessionConfig, onDuty: StudentAssignmen
       for (let i = 0; i < today.length && !again; i++) {
         for (let j = i + 1; j < today.length && !again; j++) {
           const [a, b] = [today[i], today[j]]
-          if (a.ruleId === b.ruleId || a.memberId === b.memberId) continue
+          if (a.ruleId === b.ruleId || a.memberId === b.memberId || fixed.has(a) || fixed.has(b)) continue
           const before = matched(date, a.ruleId) + matched(date, b.ruleId)
           const snapshot = out.map((p) => p.memberId)
           const had = (id: string, ruleId: string) => out.some((p, k) => p.ruleId === ruleId && snapshot[k] === id)
@@ -735,7 +737,7 @@ export function polishPresenters(config: SessionConfig, onDuty: StudentAssignmen
 
   // Still someone not from the shift it draws from (e.g. picked as a stand-in): someone who was on it and is free
   // that day and the days either side takes their place, if they don't lose their only turn at a weekly one.
-  for (const p of out.filter((q) => q.date >= from)) {
+  for (const p of out.filter((q) => !fixed.has(q))) {
     const today = out.filter((q) => q.date === p.date && q.ruleId === p.ruleId)
     const fit = fromSources(config, students, p.date, p.ruleId, today.map((q) => q.memberId))
     if (fit.matched.has(p.memberId) || fit.matched.size >= Math.min(fit.places, today.length)) continue
@@ -759,7 +761,7 @@ export function polishPresenters(config: SessionConfig, onDuty: StudentAssignmen
     for (let moved = true, guard = 0; moved && guard < 200; guard++) {
       moved = false
       const slots = sortedBy(
-        out.filter((p) => p.ruleId === rule.id && p.date >= from),
+        out.filter((p) => p.ruleId === rule.id && !fixed.has(p)),
         (p) => -turns(p.memberId, rule.id),
       )
       for (const p of slots) {
@@ -784,7 +786,7 @@ export function polishPresenters(config: SessionConfig, onDuty: StudentAssignmen
   }
 
   // ● again for whoever now presents: straight after being on the shift it draws from the night before.
-  for (const p of out.filter((q) => q.date >= from)) {
+  for (const p of out.filter((q) => !fixed.has(q))) {
     const rule = ruleOf(p.ruleId)
     const today = rule && presentationOn(config, rule, p.date)
     p.postCall = Boolean(
@@ -1386,7 +1388,7 @@ export interface RepairSwap {
 export function repairRoster(
   config: SessionConfig,
   responses: Record<string, MemberResponse>,
-  roster: { assignments: Assignment[]; students: StudentAssignment[]; presenters: PresenterAssignment[] },
+  roster: { assignments: Assignment[]; students: StudentAssignment[]; presenters: PresenterAssignment[]; pinned?: string[] },
   most = 40,
   from = '',
 ): { students: StudentAssignment[]; presenters: PresenterAssignment[]; swaps: RepairSwap[]; presenterDays: string[] } {
@@ -1400,7 +1402,7 @@ export function repairRoster(
   const now = rules(roster)
   let plan = repairOnce(config, responses, roster, most, from)
   for (let k = plan.swaps.length - 1; k >= 0; k--) {
-    const after = rules({ assignments: roster.assignments, students: plan.students, presenters: plan.presenters })
+    const after = rules({ assignments: roster.assignments, students: plan.students, presenters: plan.presenters, pinned: roster.pinned })
     if ([...after].every(([kind, n]) => n <= (now.get(kind) ?? 0))) break
     plan = repairOnce(config, responses, roster, k, from)
   }
@@ -1410,7 +1412,7 @@ export function repairRoster(
 function repairOnce(
   config: SessionConfig,
   responses: Record<string, MemberResponse>,
-  roster: { assignments: Assignment[]; students: StudentAssignment[]; presenters: PresenterAssignment[] },
+  roster: { assignments: Assignment[]; students: StudentAssignment[]; presenters: PresenterAssignment[]; pinned?: string[] },
   most: number,
   from: string,
 ): { students: StudentAssignment[]; presenters: PresenterAssignment[]; swaps: RepairSwap[]; presenterDays: string[] } {
@@ -1421,6 +1423,7 @@ function repairOnce(
   for (const g of groups) for (const si of g.members) groupOf.set(si, g.members)
   const resp = new Map(studs.map((m) => [m.id, studentResponse(config, responses, m.id)]))
   let cur = roster.students.map((x) => ({ ...x }))
+  const locked = new Set(roster.pinned ?? [])
   // Shifts of each type per student, and points per student.
   const count = new Map<string, number>()
   const key = (id: string, slot: string) => `${id}|${slot}`
@@ -1499,8 +1502,8 @@ function repairOnce(
         const b = cur.find((x) => x.memberId === memberId && placeKey(x) === place)
         // Each pair once (from the student listed later); trades are allowed both ways or neither.
         if (!b || b.memberId === a.memberId || index.get(b.memberId)! > index.get(a.memberId)!) continue
-        // Days before `from` (e.g. today and tomorrow) stay as they are.
-        if (a.date < from || b.date < from) continue
+        // Days before `from` (e.g. today and tomorrow) and locked slots stay as they are.
+        if (a.date < from || b.date < from || locked.has(lockKey.student(a)) || locked.has(lockKey.student(b))) continue
         const g = gain(a, b)
         if (g > 0 && (!best || g > best.g)) best = { a, b, g }
       }
@@ -1621,7 +1624,8 @@ function repairOnce(
       if (ward) shareOf.set(ward, (shareOf.get(ward) ?? 0) + src.count)
     }
     const wardNow = (id: string) => [...shareOf.keys()].find((w) => jobsOn(config.members.find((m) => m.id === id)!, date).includes(w))
-    const taken: PresenterAssignment[] = []
+    // Locked presenters stay, whatever else changes that day.
+    const taken: PresenterAssignment[] = roster.presenters.filter((p) => p.date === date && p.ruleId === ruleId && locked.has(lockKey.presenter(p)))
     for (const p of [...old, ...picks, ...relaxed, ...oldRelaxed, ...wardFill]) {
       if (taken.length >= need || taken.some((q) => q.memberId === p.memberId)) continue
       const w = wardNow(p.memberId)
@@ -1646,7 +1650,7 @@ function repairOnce(
       const has = (id: string) => presenters.filter((p) => p.ruleId === rule.id && p.memberId === id).length
       if (has(m.id) > 0) continue
       const can = (p: PresenterAssignment) => {
-        if (p.date < from || p.ruleId !== rule.id || has(p.memberId) < 2) return false
+        if (locked.has(lockKey.presenter(p)) || p.date < from || p.ruleId !== rule.id || has(p.memberId) < 2) return false
         if (presenters.some((q) => q.date === p.date && q.memberId === m.id)) return false
         const today = presentationOn(config, rule, p.date)
         return Boolean(today?.sources.some((src) => cur.some((x) => x.memberId === m.id && x.date === addDays(p.date, -1) && sourceMatches(config, src, x.shiftId, x.requirementId))))
@@ -1659,7 +1663,7 @@ function repairOnce(
       }
     }
   }
-  const polished = polishPresenters(config, [...roster.assignments, ...cur], presenters, from)
+  const polished = polishPresenters(config, [...roster.assignments, ...cur], presenters, from, roster.pinned)
   for (const [i, p] of polished.entries()) {
     if (p.memberId !== presenters[i].memberId && !presenterDays.includes(p.date)) presenterDays.push(p.date)
     presenters[i] = p
@@ -2035,7 +2039,7 @@ export interface RosterAlert {
 export function rosterAlerts(
   config: SessionConfig,
   responses: Record<string, MemberResponse>,
-  roster: { assignments: Assignment[]; students: StudentAssignment[]; presenters: PresenterAssignment[] },
+  roster: { assignments: Assignment[]; students: StudentAssignment[]; presenters: PresenterAssignment[]; pinned?: string[] },
 ): RosterAlert[] {
   const out: RosterAlert[] = []
   const studs = config.members.filter((m) => m.type === 'student')
@@ -2045,6 +2049,15 @@ export function rosterAlerts(
   const day = (d: string) => shortDate(d)
   const onDuty = [...roster.assignments, ...roster.students]
   const p = roster.presenters
+
+  // Locked slots (📌) that are no longer there.
+  for (const key of roster.pinned ?? []) {
+    const [k, date, a, b, c] = key.split('|')
+    const kept = k === 's' ? roster.students.some((x) => lockKey.student(x) === key) : roster.presenters.some((x) => lockKey.presenter(x) === key)
+    if (kept) continue
+    const where = k === 's' ? shiftName(a) : ruleName(a)
+    out.push({ level: 'rule', kind: 'locked', text: t('📌 {date} {where}: {name} was locked here but has been moved.', { date: day(date), where, name: name(k === 's' ? c : b) }) })
+  }
 
   // Presenters from the shift their presentation draws from.
   for (const key of new Set(p.map((x) => `${x.date}|${x.ruleId}`))) {

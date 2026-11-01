@@ -307,6 +307,8 @@ export interface Schedule {
   /** End of the concern period (ms epoch). */
   reviewUntil: number
   source: 'solver' | 'ai' | 'manual'
+  /** Locked slots (see lockKey): fixes and evening out leave them as they are. */
+  pinned?: string[]
 }
 
 /** Everything a roster contains, published or not. */
@@ -314,6 +316,14 @@ export interface Roster {
   assignments: Assignment[]
   students: StudentAssignment[]
   presenters: PresenterAssignment[]
+  /** Locked slots (see lockKey): fixes and evening out leave them as they are. */
+  pinned?: string[]
+}
+
+/** A locked slot: this student on this shift place, or this presenter at this presentation, on that date. */
+export const lockKey = {
+  student: (x: { date: string; shiftId: string; requirementId?: string; memberId: string }) => `s|${x.date}|${x.shiftId}|${x.requirementId ?? ''}|${x.memberId}`,
+  presenter: (p: { date: string; ruleId: string; memberId: string }) => `p|${p.date}|${p.ruleId}|${p.memberId}`,
 }
 
 export interface Concern {

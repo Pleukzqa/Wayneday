@@ -237,6 +237,14 @@ for (const [kind, makeStore] of stores) {
       assert.equal((await call('GET', `/sessions/${code}`, { account: alice })).body.session.responses.m.reasons['2026-11-05'], 'Family')
     })
 
+    test('locked slots are kept with the roster; anything that isn’t a lock key is dropped', async () => {
+      const alice = await signIn('alice@example.com')
+      const { code } = (await call('POST', '/sessions', { body: {}, account: alice })).body
+      const schedule = { status: 'review', assignments: [], students: [], presenters: [], generatedAt: 1, reviewUntil: Date.now() + 1e6, source: 'manual', pinned: ['s|2026-11-03|n||m', 'p|2026-11-04|mr|m', 'junk', 's|2026-11-03|n||m'] }
+      const v = (await call('PUT', `/sessions/${code}/schedule`, { account: alice, body: schedule })).body
+      assert.deepEqual(v.session.schedule.pinned, ['s|2026-11-03|n||m', 'p|2026-11-04|mr|m'])
+    })
+
     test('the hospital roster can be left blank', async () => {
       const alice = await signIn('alice@example.com')
       const { code } = (await call('POST', '/sessions', { body: {}, account: alice })).body
